@@ -5,6 +5,8 @@ RUN go build -o /out/hamster-backend main.go
 
 FROM alpine:3.20
 WORKDIR /app
-COPY --from=build /out/hamster-backend /app/hamster-backend
-EXPOSE 10000
-CMD ["/app/hamster-backend"]
+RUN apk add --no-cache ca-certificates
+COPY --from=build /out/hamster-backend /usr/local/bin/hamster-backend
+ENV PORT=8080
+EXPOSE 8080
+CMD ["hamster-backend"]

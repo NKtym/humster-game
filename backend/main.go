@@ -24,21 +24,21 @@ const (
 )
 
 type Item struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`
-	Slot        string          `json:"slot"`
+	ID          string           `json:"id"`
+	Name        string           `json:"name"`
+	Slot        string           `json:"slot"`
 	Cost        map[Currency]int `json:"cost"`
-	Stats       map[string]int  `json:"stats"`
-	Description string          `json:"description"`
+	Stats       map[string]int   `json:"stats"`
+	Description string           `json:"description"`
 }
 
 type Boss struct {
-	Name     string          `json:"name"`
-	HP       int             `json:"hp"`
-	MaxHP    int             `json:"maxHp"`
-	Attack   int             `json:"attack"`
+	Name     string           `json:"name"`
+	HP       int              `json:"hp"`
+	MaxHP    int              `json:"maxHp"`
+	Attack   int              `json:"attack"`
 	Reward   map[Currency]int `json:"reward"`
-	Defeated bool            `json:"defeated"`
+	Defeated bool             `json:"defeated"`
 }
 
 type Player struct {
@@ -104,7 +104,7 @@ func main() {
 	addr := ":" + port
 
 	log.Printf("backend listening on %s", addr)
-	if err := http.ListenAndServe(addr, logging(mux)); err != nil {
+	if err := http.ListenAndServe(addr, logging(cors(mux))); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -166,7 +166,8 @@ func newServer() *Server {
 }
 
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
-	sess := s.getSession(w, r)
+	sessionID := sessionIDFromRequest(w, r)
+	sess := s.getSession(sessionID)
 	writeJSON(w, ActionResponse{OK: true, State: sess.snapshot()})
 }
 
@@ -192,7 +193,8 @@ func (s *Server) handleName(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess := s.getSession(w, r)
+	sessionID := sessionIDFromRequest(w, r)
+	sess := s.getSession(sessionID)
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
 
@@ -213,7 +215,8 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess := s.getSession(w, r)
+	sessionID := sessionIDFromRequest(w, r)
+	sess := s.getSession(sessionID)
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
 
@@ -433,38 +436,23 @@ func newGameState() GameState {
 			Reward:   map[Currency]int{Seeds: 8, Wheat: 3, Carrot: 2},
 			Defeated: false,
 		},
-		Log: []string{"Добро пожаловать в поле хомяков."},
+		Log:       []string{"Добро пожаловать в поле хомяков."},
 		UpdatedAt: time.Now(),
 	}
 }
 
-func (s *Server) getSession(w http.ResponseWriter, r *http.Request) *Session {
-	if cookie, err := r.Cookie("hamster_sid"); err == nil {
-		s.mu.Lock()
-		sess, ok := s.sessions[cookie.Value]
-		s.mu.Unlock()
-		if ok {
-			return sess
-		}
+func (s *Server) getSession(sessionID string) *Session {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sessions == nil {
+		s.sessions = map[string]*Session{}
 	}
-
-	sid := randomID()
+	if sess, ok := s.sessions[sessionID]; ok {
+		return sess
+	}
 	sess := &Session{state: newGameState()}
 	appendLog(&sess.state, "Новая сессия создана.")
-
-	s.mu.Lock()
-	s.sessions[sid] = sess
-	s.mu.Unlock()
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     "hamster_sid",
-		Value:    sid,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Expires:  time.Now().Add(30 * 24 * time.Hour),
-	})
-
+	s.sessions[sessionID] = sess
 	return sess
 }
 
@@ -541,6 +529,29 @@ func currencyLabel(cur Currency) string {
 	default:
 		return string(cur)
 	}
+}
+
+func sessionIDFromRequest(w http.ResponseWriter, r *http.Request) string {
+	sid := strings.TrimSpace(r.Header.Get("X-Game-Session"))
+	if sid == "" {
+		sid = randomID()
+		w.Header().Set("X-Game-Session", sid)
+	}
+	return sid
+}
+
+func cors(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Game-Session")
+		w.Header().Set("Access-Control-Expose-Headers", "X-Game-Session")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

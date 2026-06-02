@@ -1,6 +1,8 @@
 const $ = (sel) => document.querySelector(sel);
 
 const CURRENCY_LABELS = { seeds: 'Семечки', wheat: 'Пшеница', carrot: 'Морковь' };
+const API_BASE = (window.APP_CONFIG && window.APP_CONFIG.apiBaseUrl) ? window.APP_CONFIG.apiBaseUrl : '/api';
+const SESSION_KEY = 'humster_session_id';
 
 const CATALOG = {
   clothes: [
@@ -15,17 +17,41 @@ const CATALOG = {
   ],
 };
 
+function getSessionId() {
+  let sid = localStorage.getItem(SESSION_KEY);
+  if (sid) return sid;
+
+  if (window.crypto?.randomUUID) {
+    sid = window.crypto.randomUUID();
+  } else {
+    sid = `sid-${Math.random().toString(16).slice(2)}-${Date.now()}`;
+  }
+  localStorage.setItem(SESSION_KEY, sid);
+  return sid;
+}
+
+function apiUrl(path) {
+  const base = API_BASE.endsWith('/') ? API_BASE.slice(0, -1) : API_BASE;
+  const tail = path.startsWith('/') ? path : `/${path}`;
+  return `${base}${tail}`;
+}
+
 async function api(path, payload) {
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Game-Session': getSessionId(),
+    },
     body: JSON.stringify(payload),
   });
   return res.json();
 }
 
 async function loadState() {
-  const res = await fetch('/api/state');
+  const res = await fetch(apiUrl('/state'), {
+    headers: { 'X-Game-Session': getSessionId() },
+  });
   const data = await res.json();
   render(data.state);
 }
@@ -85,7 +111,7 @@ function render(state) {
   document.querySelectorAll('[data-action]').forEach(btn => {
     btn.onclick = async () => {
       btn.disabled = true;
-      await api('/api/action', { action: btn.dataset.action });
+      await api('/action', { action: btn.dataset.action });
       await loadState();
     };
   });
@@ -93,7 +119,7 @@ function render(state) {
   document.querySelectorAll('[data-buy]').forEach(btn => {
     btn.onclick = async () => {
       btn.disabled = true;
-      await api('/api/action', { action: 'buy_item', itemId: btn.dataset.buy });
+      await api('/action', { action: 'buy_item', itemId: btn.dataset.buy });
       await loadState();
     };
   });
@@ -101,7 +127,7 @@ function render(state) {
   document.querySelectorAll('[data-equip]').forEach(btn => {
     btn.onclick = async () => {
       btn.disabled = true;
-      await api('/api/action', { action: 'equip_item', itemId: btn.dataset.equip });
+      await api('/action', { action: 'equip_item', itemId: btn.dataset.equip });
       await loadState();
     };
   });
@@ -181,14 +207,14 @@ function renderEquipped(eq = {}) {
 }
 
 $('#btn-new').onclick = async () => {
-  await api('/api/action', { action: 'new_run' });
+  await api('/action', { action: 'new_run' });
   await loadState();
 };
 
 $('#btn-save-name').onclick = async () => {
   const name = $('#player-name-input').value.trim();
   if (!name) return;
-  await api('/api/name', { name });
+  await api('/name', { name });
   await loadState();
 };
 
