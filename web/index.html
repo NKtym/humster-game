@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Хомяки против крыс</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">MVP • Telegram Game</div>
+        <h1>Хомяки против крыс</h1>
+        <p>Сцена собирается как в старых соц-играх: поле на заднем плане, хомяк стоит поверх него, а одежда и обои меняются отдельными слоями.</p>
+      </div>
+      <div class="top-actions">
+        <input id="player-name-input" class="name-input" maxlength="20" placeholder="Имя хомяка" />
+        <button id="btn-save-name" class="ghost">Сохранить имя</button>
+        <button id="btn-new" class="ghost">Новая игра</button>
+      </div>
+    </header>
+
+    <main class="grid">
+      <section class="card scene-card">
+        <div class="scene-head">
+          <div>
+            <h2>Сцена</h2>
+            <p>Поле — это фон, а хомяк и одежда лежат поверх него в отдельных слоях.</p>
+          </div>
+          <div class="tag" id="scene-meta">Летнее поле</div>
+        </div>
+
+        <div class="scene" id="scene">
+          <div class="scene-ground"></div>
+
+          <div class="hamster-stage">
+            <div class="ground-shadow"></div>
+            <img id="hamster-sprite" src="/assets/hamster/base.png" alt="Хомяк" />
+            <div id="hamster-outfit"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card hero">
+        <div class="hero-head">
+          <div>
+            <h2 id="player-name">Хомяк</h2>
+            <p id="location">Домик</p>
+          </div>
+          <div class="tag" id="boss-status">Крыса: жива</div>
+        </div>
+
+        <div class="bars">
+          <div>
+            <span>HP</span>
+            <div class="bar"><div id="hp-bar"></div></div>
+            <small id="hp-text"></small>
+          </div>
+          <div>
+            <span>Энергия</span>
+            <div class="bar"><div id="energy-bar"></div></div>
+            <small id="energy-text"></small>
+          </div>
+        </div>
+
+        <div class="stats" id="stats"></div>
+      </section>
+
+      <section class="card currencies">
+        <h3>Валюты</h3>
+        <div class="currency-list" id="currency-list"></div>
+      </section>
+
+      <section class="card actions">
+        <h3>Действия</h3>
+        <div class="action-row">
+          <button data-action="explore_field">Идти на поле</button>
+          <button data-action="fight_rat">Бить крысу</button>
+          <button data-action="rest">Отдохнуть за 2 семечки</button>
+        </div>
+        <div class="hint">Исследование поля тратит энергию. Иногда выпадает ресурс, иногда начинается бой.</div>
+        <div class="shop-grid-wrap">
+          <h4>Одежда</h4>
+          <div class="shop-grid" id="clothes-shop"></div>
+        </div>
+        <div class="shop-grid-wrap">
+          <h4>Обои</h4>
+          <div class="shop-grid" id="wallpaper-shop"></div>
+        </div>
+      </section>
+
+      <section class="card inventory">
+        <h3>Инвентарь и экипировка</h3>
+        <div id="inventory"></div>
+      </section>
+
+      <section class="card boss">
+        <h3>Босс</h3>
+        <div id="boss-card"></div>
+      </section>
+
+      <section class="card log">
+        <h3>Лог событий</h3>
+        <div id="log"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
