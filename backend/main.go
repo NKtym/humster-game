@@ -33,11 +33,13 @@ type Item struct {
 }
 
 type Boss struct {
+	ID       string           `json:"id"`
 	Name     string           `json:"name"`
 	HP       int              `json:"hp"`
 	MaxHP    int              `json:"maxHp"`
 	Attack   int              `json:"attack"`
 	Reward   map[Currency]int `json:"reward"`
+	XP       int              `json:"xp"`
 	Defeated bool             `json:"defeated"`
 }
 
@@ -58,11 +60,12 @@ type Player struct {
 }
 
 type GameState struct {
-	Player    Player    `json:"player"`
-	Location  string    `json:"location"`
-	Boss      Boss      `json:"boss"`
-	Log       []string  `json:"log"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	Player       Player    `json:"player"`
+	Location     string    `json:"location"`
+	Bosses       []Boss    `json:"bosses"`
+	ActiveBossID string    `json:"activeBossId"`
+	Log          []string  `json:"log"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 type Session struct {
@@ -77,9 +80,11 @@ type Server struct {
 }
 
 type ActionRequest struct {
-	Action string `json:"action"`
-	ItemID string `json:"itemId,omitempty"`
-	Name   string `json:"name,omitempty"`
+	Action     string `json:"action"`
+	ItemID     string `json:"itemId,omitempty"`
+	Name       string `json:"name,omitempty"`
+	BossID     string `json:"bossId,omitempty"`
+	AttackType string `json:"attackType,omitempty"`
 }
 
 type ActionResponse struct {
@@ -226,8 +231,12 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	switch req.Action {
 	case "explore_field":
 		err = s.exploreField(&sess.state)
-	case "fight_rat":
-		err = s.fightRat(&sess.state)
+	case "select_boss":
+		err = s.selectBoss(&sess.state, req.BossID)
+	case "clear_boss":
+		err = s.clearBoss(&sess.state)
+	case "attack_boss":
+		err = s.attackBoss(&sess.state, req.AttackType)
 	case "buy_item":
 		err = s.buyItem(&sess.state, req.ItemID)
 	case "equip_item":
@@ -267,11 +276,7 @@ func (s *Server) exploreField(gs *GameState) error {
 		gs.Player.Currency[cur] += gain
 		appendLog(gs, fmt.Sprintf("На поле найдено +%d %s.", gain, currencyLabel(cur)))
 	case roll < 65:
-		if gs.Boss.Defeated {
-			appendLog(gs, "На поле тихо: крыса уже повержена.")
-		} else {
-			appendLog(gs, "Из кустов выскочила крыса! Начинается бой.")
-		}
+		appendLog(gs, "На поле шевелится трава — там может быть враг.")
 	case roll < 85:
 		gs.Player.Currency[Seeds] += 2
 		gs.Player.Currency[Wheat] += 1
@@ -282,39 +287,64 @@ func (s *Server) exploreField(gs *GameState) error {
 	return nil
 }
 
-func (s *Server) fightRat(gs *GameState) error {
-	if gs.Boss.Defeated {
-		return fmt.Errorf("крыса уже побеждена")
-	}
-	if gs.Player.Energy <= 0 {
-		return fmt.Errorf("не хватает энергии")
+func (s *Server) selectBoss(gs *GameState, bossID string) error {
+	boss, _, ok := currentBoss(gs, bossID)
+	if !ok {
+		return fmt.Errorf("босс не найден")
 	}
 
-	gs.Player.Energy--
-	gs.Location = "Поле"
+	gs.ActiveBossID = bossID
+	if boss.Defeated {
+		appendLog(gs, fmt.Sprintf("%s уже побеждён. Можно выбрать другого босса.", boss.Name))
+	} else {
+		appendLog(gs, fmt.Sprintf("Выбран босс: %s.", boss.Name))
+	}
+	return nil
+}
 
-	playerDamage := max(1, gs.Player.Attack+randInt(3)-1)
-	bossDamage := max(1, gs.Boss.Attack+randInt(2)-gs.Player.Defense)
+func (s *Server) clearBoss(gs *GameState) error {
+	gs.ActiveBossID = ""
+	appendLog(gs, "Выбор босса закрыт.")
+	return nil
+}
 
-	gs.Boss.HP = max(0, gs.Boss.HP-playerDamage)
-	appendLog(gs, fmt.Sprintf("Хомяк ударил крысу на %d урона.", playerDamage))
+func (s *Server) attackBoss(gs *GameState, attackType string) error {
+	boss, idx, ok := currentBoss(gs, gs.ActiveBossID)
+	if !ok {
+		return fmt.Errorf("сначала выбери босса")
+	}
+	if boss.Defeated {
+		return fmt.Errorf("этот босс уже побеждён")
+	}
 
-	if gs.Boss.HP == 0 {
-		gs.Boss.Defeated = true
-		for cur, amount := range gs.Boss.Reward {
+	damage, label, ok := attackConfig(attackType)
+	if !ok {
+		return fmt.Errorf("неизвестный удар")
+	}
+
+	gs.Bosses[idx].HP = max(0, boss.HP-damage)
+	appendLog(gs, fmt.Sprintf("Хомяк использовал %s и нанёс %d урона %s.", label, damage, boss.Name))
+
+	if gs.Bosses[idx].HP == 0 {
+		gs.Bosses[idx].Defeated = true
+		for cur, amount := range gs.Bosses[idx].Reward {
 			gs.Player.Currency[cur] += amount
 		}
-		gs.Player.XP += 5
-		appendLog(gs, "Крыса побеждена! Награда получена.")
+		gs.Player.XP += gs.Bosses[idx].XP
+		appendLog(gs, fmt.Sprintf("%s побеждён! Награда получена.", boss.Name))
 		recalcLevel(gs)
+		if allBossesDefeated(gs) {
+			appendLog(gs, "Все боссы побеждены. Можно выбрать нового противника или продолжать качаться на поле.")
+		}
 		return nil
 	}
 
-	gs.Player.HP = max(0, gs.Player.HP-bossDamage)
-	appendLog(gs, fmt.Sprintf("Крыса ответила и нанесла %d урона.", bossDamage))
+	counter := max(1, gs.Bosses[idx].Attack+randInt(5)-2-gs.Player.Defense/2)
+	gs.Player.HP = max(0, gs.Player.HP-counter)
+	appendLog(gs, fmt.Sprintf("%s отвечает и наносит %d урона.", boss.Name, counter))
 	if gs.Player.HP == 0 {
 		gs.Player.HP = gs.Player.MaxHP
-		gs.Player.Energy = max(1, gs.Player.Energy)
+		gs.Player.Energy = gs.Player.MaxEnergy
 		appendLog(gs, "Хомяк отступил и пришёл в себя.")
 	}
 	return nil
@@ -368,6 +398,21 @@ func rest(gs *GameState) error {
 	gs.Player.Energy = min(gs.Player.MaxEnergy, gs.Player.Energy+3)
 	appendLog(gs, "Хомяк перекусил семечками и восстановил энергию.")
 	return nil
+}
+
+func attackConfig(attackType string) (int, string, bool) {
+	switch attackType {
+	case "belly_punch":
+		return 5, "удар пузиком", true
+	case "scratch":
+		return 20, "царапанье", true
+	case "rush":
+		return 15, "удар с разбега", true
+	case "bite":
+		return 30, "укус", true
+	default:
+		return 0, "", false
+	}
 }
 
 func applyItemStats(gs *GameState, item Item) {
@@ -428,17 +473,63 @@ func newGameState() GameState {
 			Wallpaper: "wallpaper_day",
 		},
 		Location: "Домик",
-		Boss: Boss{
-			Name:     "Крыса",
-			HP:       12,
-			MaxHP:    12,
-			Attack:   2,
-			Reward:   map[Currency]int{Seeds: 8, Wheat: 3, Carrot: 2},
-			Defeated: false,
+		Bosses: []Boss{
+			{
+				ID:       "rat",
+				Name:     "Крыса",
+				HP:       200,
+				MaxHP:    200,
+				Attack:   4,
+				Reward:   map[Currency]int{Seeds: 10, Wheat: 1},
+				XP:       10,
+				Defeated: false,
+			},
+			{
+				ID:       "lizard",
+				Name:     "Ящерица",
+				HP:       500,
+				MaxHP:    500,
+				Attack:   8,
+				Reward:   map[Currency]int{Seeds: 30, Wheat: 3},
+				XP:       20,
+				Defeated: false,
+			},
+			{
+				ID:       "sand_lizard",
+				Name:     "Песчаная ящерица",
+				HP:       2000,
+				MaxHP:    2000,
+				Attack:   16,
+				Reward:   map[Currency]int{Seeds: 100, Wheat: 10, Carrot: 1},
+				XP:       50,
+				Defeated: false,
+			},
 		},
-		Log:       []string{"Добро пожаловать в поле хомяков."},
-		UpdatedAt: time.Now(),
+		ActiveBossID: "",
+		Log:          []string{"Добро пожаловать в поле хомяков."},
+		UpdatedAt:    time.Now(),
 	}
+}
+
+func currentBoss(gs *GameState, id string) (*Boss, int, bool) {
+	for i := range gs.Bosses {
+		if gs.Bosses[i].ID == id {
+			return &gs.Bosses[i], i, true
+		}
+	}
+	return nil, -1, false
+}
+
+func allBossesDefeated(gs *GameState) bool {
+	if len(gs.Bosses) == 0 {
+		return false
+	}
+	for i := range gs.Bosses {
+		if !gs.Bosses[i].Defeated {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) getSession(sessionID string) *Session {
@@ -467,9 +558,18 @@ func copyState(gs GameState) GameState {
 	cp.Player.Currency = copyCurrency(gs.Player.Currency)
 	cp.Player.Inventory = copyInventory(gs.Player.Inventory)
 	cp.Player.Equipped = copyEquipped(gs.Player.Equipped)
-	cp.Boss.Reward = copyCurrency(gs.Boss.Reward)
+	cp.Bosses = copyBosses(gs.Bosses)
 	cp.Log = append([]string(nil), gs.Log...)
 	return cp
+}
+
+func copyBosses(in []Boss) []Boss {
+	out := make([]Boss, len(in))
+	for i, boss := range in {
+		out[i] = boss
+		out[i].Reward = copyCurrency(boss.Reward)
+	}
+	return out
 }
 
 func copyCurrency(in map[Currency]int) map[Currency]int {

@@ -3,108 +3,98 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Хомяки против крыс</title>
+  <title>Хомяки против боссов</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div class="app">
     <header class="topbar">
-      <div>
+      <div class="topbar-copy">
         <div class="eyebrow">MVP • Telegram Game</div>
-        <h1>Хомяки против крыс</h1>
-        <p>Сцена собирается как в старых соц-играх: поле на заднем плане, хомяк стоит поверх него, а одежда и обои меняются отдельными слоями.</p>
+        <h1>Хомяки против боссов</h1>
+        <p>Вся экономика сверху, хомяк в центре сцены, кнопки действий — справа.</p>
       </div>
+
       <div class="top-actions">
         <input id="player-name-input" class="name-input" maxlength="20" placeholder="Имя хомяка" />
-        <button id="btn-save-name" class="ghost">Сохранить имя</button>
-        <button id="btn-new" class="ghost">Новая игра</button>
+        <button id="btn-save-name" class="ghost" type="button">Сохранить имя</button>
+        <button id="btn-new" class="ghost" type="button">Новая игра</button>
       </div>
     </header>
 
-    <main class="grid">
+    <section class="card hud-card">
+      <div class="hud-card__head">
+        <div>
+          <h2>Экономика</h2>
+          <p>Ресурсы, уровень, энергия и прогресс — всё здесь, над сценой.</p>
+        </div>
+      </div>
+      <div class="hud-grid" id="resource-strip"></div>
+    </section>
+
+    <section id="main-screen">
       <section class="card scene-card">
         <div class="scene-head">
           <div>
             <h2>Сцена</h2>
-            <p>Поле — это фон, а хомяк и одежда лежат поверх него в отдельных слоях.</p>
+            <p>Поле сзади, хомяк по центру, поверх — одежда и эффекты.</p>
           </div>
           <div class="tag" id="scene-meta">Летнее поле</div>
         </div>
 
-        <div class="scene" id="scene">
-          <div class="scene-ground"></div>
+        <div class="scene-stage">
+          <div class="scene" id="scene">
+            <div class="scene-wallpaper" id="scene-wallpaper"></div>
+            <div class="scene-fog"></div>
+            <div class="scene-ground"></div>
 
-          <div class="hamster-stage">
-            <div class="ground-shadow"></div>
-            <img id="hamster-sprite" src="/assets/hamster/base.png" alt="Хомяк" />
-            <div id="hamster-outfit"></div>
+            <div class="hamster-stage">
+              <div class="ground-shadow"></div>
+              <img id="hamster-sprite" src="/assets/hamster/base.png" alt="Хомяк" />
+              <div id="hamster-outfit"></div>
+            </div>
           </div>
+
+          <aside class="side-panel" aria-label="Панель действий">
+            <div class="side-panel__inner">
+              <div class="side-panel__head">
+                <div class="eyebrow">Быстрые действия</div>
+                <h3>Меню</h3>
+              </div>
+
+              <button id="btn-battle-panel" class="panel-action panel-action--battle" type="button">
+                <img src="/assets/ui/boss-battle-btn.png" alt="" />
+                <div>
+                  <strong>Бой с боссами</strong>
+                  <span>Переход на экран выбора и битвы с боссами</span>
+                </div>
+              </button>
+
+              <button id="btn-map-panel" class="panel-action panel-action--map" type="button">
+                <img src="/assets/ui/adventure-map-btn.png" alt="" />
+                <div>
+                  <strong>Карта приключений</strong>
+                  <span>Пока ничего не делает</span>
+                </div>
+              </button>
+            </div>
+          </aside>
         </div>
       </section>
+    </section>
 
-      <section class="card hero">
-        <div class="hero-head">
-          <div>
-            <h2 id="player-name">Хомяк</h2>
-            <p id="location">Домик</p>
-          </div>
-          <div class="tag" id="boss-status">Крыса: жива</div>
+    <section id="battle-screen" class="card battle-screen" hidden>
+      <div class="battle-screen__head">
+        <div>
+          <div class="eyebrow">Битва с врагами</div>
+          <h2 id="battle-screen-title">Выбор босса</h2>
+          <p id="battle-screen-subtitle">Нажми на босса, чтобы начать бой.</p>
         </div>
+        <button id="btn-battle-back" class="ghost" type="button">Вернуться к сцене</button>
+      </div>
 
-        <div class="bars">
-          <div>
-            <span>HP</span>
-            <div class="bar"><div id="hp-bar"></div></div>
-            <small id="hp-text"></small>
-          </div>
-          <div>
-            <span>Энергия</span>
-            <div class="bar"><div id="energy-bar"></div></div>
-            <small id="energy-text"></small>
-          </div>
-        </div>
-
-        <div class="stats" id="stats"></div>
-      </section>
-
-      <section class="card currencies">
-        <h3>Валюты</h3>
-        <div class="currency-list" id="currency-list"></div>
-      </section>
-
-      <section class="card actions">
-        <h3>Действия</h3>
-        <div class="action-row">
-          <button data-action="explore_field">Идти на поле</button>
-          <button data-action="fight_rat">Бить крысу</button>
-          <button data-action="rest">Отдохнуть за 2 семечки</button>
-        </div>
-        <div class="hint">Исследование поля тратит энергию. Иногда выпадает ресурс, иногда начинается бой.</div>
-        <div class="shop-grid-wrap">
-          <h4>Одежда</h4>
-          <div class="shop-grid" id="clothes-shop"></div>
-        </div>
-        <div class="shop-grid-wrap">
-          <h4>Обои</h4>
-          <div class="shop-grid" id="wallpaper-shop"></div>
-        </div>
-      </section>
-
-      <section class="card inventory">
-        <h3>Инвентарь и экипировка</h3>
-        <div id="inventory"></div>
-      </section>
-
-      <section class="card boss">
-        <h3>Босс</h3>
-        <div id="boss-card"></div>
-      </section>
-
-      <section class="card log">
-        <h3>Лог событий</h3>
-        <div id="log"></div>
-      </section>
-    </main>
+      <div id="battle-screen-body"></div>
+    </section>
   </div>
 
   <script src="/config.js"></script>

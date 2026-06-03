@@ -1,3 +1,5 @@
+"use strict";
+
 const $ = (sel) => document.querySelector(sel);
 
 const CURRENCY_LABELS = { seeds: 'Семечки', wheat: 'Пшеница', carrot: 'Морковь' };
@@ -5,27 +7,59 @@ const API_BASE = (window.APP_CONFIG && window.APP_CONFIG.apiBaseUrl) ? window.AP
 const SESSION_KEY = 'humster_session_id';
 
 const CATALOG = {
-  clothes: [
-    { id: 'straw_cap', name: 'Соломенная кепка', slot: 'head', desc: '10 семечек · +1 защита' },
-    { id: 'grain_cloak', name: 'Зерновой плащ', slot: 'body', desc: '8 пшеницы · +2 HP, +1 защита' },
-    { id: 'carrot_boots', name: 'Морковные сапожки', slot: 'feet', desc: '12 моркови · +2 энергия' },
-  ],
   wallpapers: [
-    { id: 'wallpaper_day', name: 'Летнее поле', slot: 'wallpaper', desc: 'Бесплатно', img: '/assets/wallpapers/field_day.png' },
-    { id: 'wallpaper_sunset', name: 'Закатное поле', slot: 'wallpaper', desc: '18 семечек', img: '/assets/wallpapers/field_sunset.png' },
-    { id: 'wallpaper_night', name: 'Ночное поле', slot: 'wallpaper', desc: '12 пшеницы', img: '/assets/wallpapers/field_night.png' },
+    { id: 'wallpaper_day', name: 'Летнее поле', slot: 'wallpaper', img: '/assets/wallpapers/field_day.png' },
+    { id: 'wallpaper_sunset', name: 'Закатное поле', slot: 'wallpaper', img: '/assets/wallpapers/field_sunset.png' },
+    { id: 'wallpaper_night', name: 'Ночное поле', slot: 'wallpaper', img: '/assets/wallpapers/field_night.png' },
+  ],
+  bosses: [
+    { id: 'rat', name: 'Крыса', img: '/assets/bosses/rat.png' },
+    { id: 'lizard', name: 'Ящерица', img: '/assets/bosses/lizard.png' },
+    { id: 'sand_lizard', name: 'Песчаная ящерица', img: '/assets/bosses/sand_lizard.png' },
   ],
 };
+
+const ATTACKS = [
+  { id: 'belly_punch', label: 'Удар пузиком', damage: 5 },
+  { id: 'scratch', label: 'Царапанье', damage: 20 },
+  { id: 'rush', label: 'Удар с разбега', damage: 15 },
+  { id: 'bite', label: 'Укус', damage: 30 },
+];
+
+const DEFAULT_STATE = {
+  player: {
+    name: 'Хомяк',
+    level: 1,
+    xp: 0,
+    hp: 10,
+    maxHp: 10,
+    energy: 5,
+    maxEnergy: 5,
+    attack: 2,
+    defense: 0,
+    currency: { seeds: 10, wheat: 3, carrot: 0 },
+    inventory: { wallpaper_day: 1 },
+    equipped: { wallpaper: 'wallpaper_day' },
+    wallpaper: 'wallpaper_day',
+  },
+  location: 'Домик',
+  bosses: [
+    { id: 'rat', name: 'Крыса', hp: 200, maxHp: 200, attack: 4, reward: { seeds: 10, wheat: 1 }, xp: 10, defeated: false },
+    { id: 'lizard', name: 'Ящерица', hp: 500, maxHp: 500, attack: 8, reward: { seeds: 30, wheat: 3 }, xp: 20, defeated: false },
+    { id: 'sand_lizard', name: 'Песчаная ящерица', hp: 2000, maxHp: 2000, attack: 16, reward: { seeds: 100, wheat: 10, carrot: 1 }, xp: 50, defeated: false },
+  ],
+  activeBossId: '',
+  log: ['Добро пожаловать в поле хомяков.'],
+  updatedAt: new Date().toISOString(),
+};
+
+let currentState = structuredClone(DEFAULT_STATE);
+let view = 'main';
 
 function getSessionId() {
   let sid = localStorage.getItem(SESSION_KEY);
   if (sid) return sid;
-
-  if (window.crypto?.randomUUID) {
-    sid = window.crypto.randomUUID();
-  } else {
-    sid = `sid-${Math.random().toString(16).slice(2)}-${Date.now()}`;
-  }
+  sid = window.crypto?.randomUUID ? window.crypto.randomUUID() : `sid-${Math.random().toString(16).slice(2)}-${Date.now()}`;
   localStorage.setItem(SESSION_KEY, sid);
   return sid;
 }
@@ -37,139 +71,105 @@ function apiUrl(path) {
 }
 
 async function api(path, payload) {
-  const res = await fetch(apiUrl(path), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Game-Session': getSessionId(),
-    },
-    body: JSON.stringify(payload),
-  });
-  return res.json();
+  try {
+    const res = await fetch(apiUrl(path), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Game-Session': getSessionId(),
+      },
+      body: JSON.stringify(payload),
+    });
+    return await res.json();
+  } catch (error) {
+    return null;
+  }
 }
 
 async function loadState() {
-  const res = await fetch(apiUrl('/state'), {
-    headers: { 'X-Game-Session': getSessionId() },
-  });
-  const data = await res.json();
-  render(data.state);
+  try {
+    const res = await fetch(apiUrl('/state'), {
+      headers: { 'X-Game-Session': getSessionId() },
+    });
+    const data = await res.json();
+    if (data && data.state) {
+      currentState = normalizeState(data.state);
+    }
+  } catch (error) {
+    // Keep local fallback.
+  }
+  render();
 }
 
-function pct(current, max) {
-  return max ? Math.max(0, Math.min(100, (current / max) * 100)) : 0;
+function normalizeState(state) {
+  const next = structuredClone(DEFAULT_STATE);
+  if (!state || typeof state !== 'object') return next;
+  next.player = { ...next.player, ...(state.player || {}) };
+  next.player.currency = { ...DEFAULT_STATE.player.currency, ...((state.player && state.player.currency) || {}) };
+  next.player.inventory = { ...DEFAULT_STATE.player.inventory, ...((state.player && state.player.inventory) || {}) };
+  next.player.equipped = { ...DEFAULT_STATE.player.equipped, ...((state.player && state.player.equipped) || {}) };
+  next.bosses = Array.isArray(state.bosses) ? state.bosses.map((boss) => ({ ...boss, reward: { ...(boss.reward || {}) } })) : structuredClone(DEFAULT_STATE.bosses);
+  next.location = state.location || next.location;
+  next.activeBossId = state.activeBossId || '';
+  next.log = Array.isArray(state.log) ? [...state.log] : [...next.log];
+  next.updatedAt = state.updatedAt || next.updatedAt;
+  return next;
 }
 
-function render(state) {
+function bossById(state, id) {
+  return (state?.bosses || []).find((boss) => boss.id === id) || null;
+}
+
+function formatReward(reward = {}) {
+  const parts = Object.entries(reward)
+    .filter(([, v]) => Number(v) > 0)
+    .map(([k, v]) => `${v} ${CURRENCY_LABELS[k] || k}`);
+  return parts.length ? parts.join(', ') : 'Награда отсутствует';
+}
+
+function wallpaperName(id) {
+  return (CATALOG.wallpapers.find((w) => w.id === id) || CATALOG.wallpapers[0]).name;
+}
+
+function getWallpaperAsset(id) {
+  return CATALOG.wallpapers.find((w) => w.id === id) || CATALOG.wallpapers[0];
+}
+
+function defeatedCount(state) {
+  return `${(state?.bosses || []).filter((boss) => boss.defeated).length}/${(state?.bosses || []).length}`;
+}
+
+function renderResourceStrip(state) {
   const p = state.player;
-
-  $('#player-name').textContent = `${p.name} — уровень ${p.level}`;
-  $('#player-name-input').value = p.name;
-  $('#location').textContent = state.location;
-  $('#boss-status').textContent = state.boss.defeated ? 'Крыса: побеждена' : `Крыса: ${state.boss.hp}/${state.boss.maxHp}`;
-
-  $('#hp-bar').style.width = `${pct(p.hp, p.maxHp)}%`;
-  $('#energy-bar').style.width = `${pct(p.energy, p.maxEnergy)}%`;
-  $('#hp-text').textContent = `${p.hp}/${p.maxHp}`;
-  $('#energy-text').textContent = `${p.energy}/${p.maxEnergy}`;
-
-  const stats = [
-    ['Урон', p.attack],
-    ['Защита', p.defense],
-    ['Опыт', `${p.xp}/${p.level * 10}`],
+  const currencies = p.currency || {};
+  const chips = [
+    { label: 'Хомяк', value: `${p.name} • ур. ${p.level}`, accent: true },
+    { label: 'Семечки', value: `${currencies.seeds || 0}` },
+    { label: 'Пшеница', value: `${currencies.wheat || 0}` },
+    { label: 'Морковь', value: `${currencies.carrot || 0}` },
+    { label: 'Энергия', value: `${p.energy || 0}/${p.maxEnergy || 0}` },
+    { label: 'Боссы', value: defeatedCount(state) },
   ];
-  $('#stats').innerHTML = stats.map(([k, v]) => `<div class="stat"><span>${k}</span><strong>${v}</strong></div>`).join('');
 
-  $('#currency-list').innerHTML = Object.entries(p.currency || {})
-    .map(([k, v]) => `<div class="currency"><span>${CURRENCY_LABELS[k] || k}</span><strong>${v}</strong></div>`)
-    .join('');
-
-  renderShop('#clothes-shop', CATALOG.clothes, p);
-  renderShop('#wallpaper-shop', CATALOG.wallpapers, p);
-
-  $('#inventory').innerHTML = `
-    <div class="inv-item">
-      <div><strong>Экипировка</strong><small>${renderEquipped(p.equipped)}</small></div>
+  $('#resource-strip').innerHTML = chips.map((chip) => `
+    <div class="hud-chip ${chip.accent ? 'hud-chip--accent' : ''}">
+      <span>${chip.label}</span>
+      <strong>${chip.value}</strong>
     </div>
-    <div class="inv-item">
-      <div><strong>Инвентарь</strong><small>${renderOwned(p.inventory)}</small></div>
-    </div>
-  `;
-
-  $('#boss-card').innerHTML = `
-    <div class="boss-box">
-      <strong>${state.boss.name}</strong>
-      <p>${state.boss.defeated ? 'Побеждена' : `HP: ${state.boss.hp}/${state.boss.maxHp}`}</p>
-      <p>Награда: ${Object.entries(state.boss.reward || {}).map(([k, v]) => `${v} ${CURRENCY_LABELS[k] || k}`).join(', ')}</p>
-    </div>
-  `;
-
-  $('#log').innerHTML = (state.log || []).map(line => `<div class="log-line">${line}</div>`).join('') || '<div class="log-line">Пока тихо.</div>';
-
-  updateScene(state);
-
-  document.querySelectorAll('[data-action]').forEach(btn => {
-    btn.onclick = async () => {
-      btn.disabled = true;
-      await api('/action', { action: btn.dataset.action });
-      await loadState();
-    };
-  });
-
-  document.querySelectorAll('[data-buy]').forEach(btn => {
-    btn.onclick = async () => {
-      btn.disabled = true;
-      await api('/action', { action: 'buy_item', itemId: btn.dataset.buy });
-      await loadState();
-    };
-  });
-
-  document.querySelectorAll('[data-equip]').forEach(btn => {
-    btn.onclick = async () => {
-      btn.disabled = true;
-      await api('/action', { action: 'equip_item', itemId: btn.dataset.equip });
-      await loadState();
-    };
-  });
-}
-
-function renderShop(selector, items, player) {
-  const node = $(selector);
-  node.innerHTML = items.map(item => {
-    const equipped = isEquipped(player, item);
-    const owned = !!player.inventory?.[item.id];
-    return `
-      <div class="shop-item">
-        <div>
-          <strong>${item.name}${equipped ? ' • надето' : ''}${owned && !equipped ? ' • куплено' : ''}</strong>
-          <small>${item.desc}</small>
-        </div>
-        <div class="split">
-          <button class="small" data-buy="${item.id}" ${owned ? 'disabled' : ''}>Купить</button>
-          <button class="small secondary" data-equip="${item.id}" ${!owned || equipped ? 'disabled' : ''}>Надеть</button>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-function isEquipped(player, item) {
-  if (!player?.equipped) return false;
-  if (item.slot === 'wallpaper') return player.wallpaper === item.id || player.equipped.wallpaper === item.id;
-  return player.equipped[item.slot] === item.id;
+  `).join('');
 }
 
 function updateScene(state) {
   const scene = $('#scene');
-  const p = state.player;
-  const wallpaperId = p.wallpaper || p.equipped?.wallpaper || 'wallpaper_day';
-  const wallpaper = CATALOG.wallpapers.find(w => w.id === wallpaperId) || CATALOG.wallpapers[0];
-  scene.style.backgroundImage = `url("${wallpaper.img}")`;
+  const wallpaperId = state.player.wallpaper || state.player.equipped?.wallpaper || 'wallpaper_day';
+  const wallpaper = getWallpaperAsset(wallpaperId);
+
+  $('#scene-wallpaper').style.backgroundImage = `url("${wallpaper.img}")`;
   $('#scene-meta').textContent = wallpaper.name;
 
-  const head = p.equipped?.head;
-  const body = p.equipped?.body;
-  const feet = p.equipped?.feet;
+  const head = state.player.equipped?.head;
+  const body = state.player.equipped?.body;
+  const feet = state.player.equipped?.feet;
 
   $('#hamster-outfit').innerHTML = `
     ${head === 'straw_cap' ? `
@@ -192,34 +192,239 @@ function updateScene(state) {
   `;
 }
 
-function renderOwned(inv = {}) {
-  const keys = Object.keys(inv);
-  return keys.length ? keys.join(', ') : 'Пока пусто';
+function attackDamage(attackType) {
+  const attack = ATTACKS.find((item) => item.id === attackType);
+  return attack ? attack.damage : 0;
 }
 
-function renderEquipped(eq = {}) {
-  const parts = Object.entries(eq)
-    .filter(([k]) => k !== 'wallpaper')
-    .map(([k, v]) => `${k}: ${v}`);
-  const wallpaper = eq.wallpaper ? `wallpaper: ${eq.wallpaper}` : '';
-  const all = wallpaper ? [...parts, wallpaper] : parts;
-  return all.length ? all.join(' · ') : 'Пока ничего не надето';
+function attackLabel(attackType) {
+  const attack = ATTACKS.find((item) => item.id === attackType);
+  return attack ? attack.label : 'удар';
 }
 
-$('#btn-new').onclick = async () => {
-  await api('/action', { action: 'new_run' });
-  await loadState();
-};
+function applyLocalAction(action, payload = {}) {
+  const state = currentState;
+  const bossIndex = state.bosses.findIndex((boss) => boss.id === state.activeBossId);
+  const boss = bossIndex >= 0 ? state.bosses[bossIndex] : null;
 
-$('#btn-save-name').onclick = async () => {
-  const name = $('#player-name-input').value.trim();
-  if (!name) return;
-  await api('/name', { name });
-  await loadState();
-};
+  switch (action) {
+    case 'select_boss': {
+      state.activeBossId = payload.bossId || '';
+      return;
+    }
+    case 'attack_boss': {
+      if (!boss) return;
+      if (boss.defeated) return;
 
-$('#player-name-input').addEventListener('keydown', async (e) => {
-  if (e.key === 'Enter') $('#btn-save-name').click();
+      const dmg = attackDamage(payload.attackType);
+      boss.hp = Math.max(0, boss.hp - dmg);
+      if (boss.hp === 0) {
+        boss.defeated = true;
+        for (const [cur, amt] of Object.entries(boss.reward || {})) {
+          state.player.currency[cur] = (state.player.currency[cur] || 0) + amt;
+        }
+        state.player.xp += boss.xp || 0;
+        recalcLevel(state);
+      }
+      return;
+    }
+    case 'new_run': {
+      currentState = normalizeState(DEFAULT_STATE);
+      return;
+    }
+    default:
+      return;
+  }
+}
+
+function recalcLevel(state) {
+  while (state.player.xp >= state.player.level * 10) {
+    const need = state.player.level * 10;
+    state.player.xp -= need;
+    state.player.level += 1;
+    state.player.maxHp += 2;
+    state.player.hp = state.player.maxHp;
+    state.player.attack += 1;
+    state.player.defense += 1;
+    state.player.maxEnergy += 1;
+    state.player.energy = state.player.maxEnergy;
+  }
+}
+
+async function syncAction(action, payload = {}) {
+  const response = await api('/action', { action, ...payload });
+  if (response && response.ok && response.state) {
+    currentState = normalizeState(response.state);
+  } else {
+    applyLocalAction(action, payload);
+  }
+  render();
+}
+
+function renderBossSelection() {
+  $('#battle-screen-title').textContent = 'Выбор босса';
+  $('#battle-screen-subtitle').textContent = 'Нажми на босса, чтобы начать бой.';
+  const body = $('#battle-screen-body');
+  body.innerHTML = `
+    <div class="modal-note">Выбери босса, чтобы открыть бой. Награда выдаётся сразу после победы.</div>
+    <div class="boss-grid">
+      ${(currentState.bosses || []).map((boss) => {
+        const cat = CATALOG.bosses.find((item) => item.id === boss.id) || boss;
+        const rewardText = formatReward(boss.reward);
+        const hpText = `${boss.maxHp || boss.hp} HP`;
+        return `
+          <article class="boss-card ${boss.defeated ? 'is-defeated' : ''}">
+            <img class="boss-card__img" src="${cat.img}" alt="${boss.name}" />
+            <div class="boss-card__body">
+              <div class="boss-card__title">
+                <strong>${boss.name}</strong>
+                <span>${hpText}</span>
+              </div>
+              <div class="boss-card__reward">Награда: ${rewardText}</div>
+              <button class="primary boss-select" data-boss="${boss.id}" type="button">
+                ${boss.defeated ? 'Открыть ещё раз' : 'Выбрать и начать бой'}
+              </button>
+            </div>
+          </article>
+        `;
+      }).join('')}
+    </div>
+  `;
+
+  document.querySelectorAll('[data-boss]').forEach((btn) => {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      await syncAction('select_boss', { bossId: btn.dataset.boss });
+      view = 'battle';
+      render();
+    };
+  });
+}
+
+function renderBattleScreen() {
+  const activeBoss = bossById(currentState, currentState.activeBossId);
+  if (!activeBoss) {
+    renderBossSelection();
+    return;
+  }
+
+  $('#battle-screen-title').textContent = `Бой: ${activeBoss.name}`;
+  $('#battle-screen-subtitle').textContent = activeBoss.defeated
+    ? 'Босс уже побеждён. Можно выбрать другого.'
+    : 'Удары идут снизу панели. После каждого удара босс отвечает, если ещё жив.';
+
+  const body = $('#battle-screen-body');
+  const percent = activeBoss.maxHp ? Math.max(0, Math.min(100, (activeBoss.hp / activeBoss.maxHp) * 100)) : 0;
+  const cat = CATALOG.bosses.find((item) => item.id === activeBoss.id) || activeBoss;
+
+  body.innerHTML = `
+    <div class="battle-top">
+      <div class="battle-portrait">
+        <img src="${cat.img}" alt="${activeBoss.name}" />
+      </div>
+      <div class="battle-info">
+        <div class="battle-info__head">
+          <strong>${activeBoss.name}</strong>
+          <span>${activeBoss.defeated ? 'Побеждён' : `HP ${activeBoss.hp}/${activeBoss.maxHp}`}</span>
+        </div>
+        <div class="battle-bar"><div style="width: ${percent}%"></div></div>
+        <div class="battle-reward">Награда: ${formatReward(activeBoss.reward)}</div>
+        <div class="battle-note">${activeBoss.defeated ? 'Босс уже побеждён. Выбирай следующего.' : 'Выбирай удар снизу и добивай босса.'}</div>
+        <div class="battle-controls">
+          <button class="ghost" id="btn-boss-change" type="button">Выбрать другого</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="attack-panel">
+      ${(ATTACKS.map((attack) => `
+        <button class="attack-btn" data-attack="${attack.id}" ${activeBoss.defeated ? 'disabled' : ''}>
+          <span>${attack.label}</span>
+          <strong>${attack.damage} урона</strong>
+        </button>
+      `)).join('')}
+    </div>
+  `;
+
+  document.querySelectorAll('[data-attack]').forEach((btn) => {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      await syncAction('attack_boss', { attackType: btn.dataset.attack });
+      view = 'battle';
+      render();
+    };
+  });
+
+  const change = $('#btn-boss-change');
+  if (change) {
+    change.onclick = async () => {
+      await syncAction('select_boss', { bossId: '' });
+      view = 'battle';
+      render();
+    };
+  }
+}
+
+function render() {
+  currentState = normalizeState(currentState);
+  $('#player-name-input').value = currentState.player.name || 'Хомяк';
+  renderResourceStrip(currentState);
+  updateScene(currentState);
+
+  const main = $('#main-screen');
+  const battle = $('#battle-screen');
+
+  if (view === 'battle') {
+    main.hidden = true;
+    battle.hidden = false;
+    renderBattleScreen();
+  } else {
+    battle.hidden = true;
+    main.hidden = false;
+  }
+}
+
+function initTopButtons() {
+  $('#btn-save-name').onclick = async () => {
+    const name = $('#player-name-input').value.trim();
+    if (!name) return;
+    const response = await api('/name', { name });
+    if (response && response.ok && response.state) {
+      currentState = normalizeState(response.state);
+    } else {
+      currentState.player.name = name;
+    }
+    render();
+  };
+
+  $('#btn-new').onclick = async () => {
+    localStorage.removeItem(SESSION_KEY);
+    currentState = normalizeState(DEFAULT_STATE);
+    view = 'main';
+    await syncAction('new_run', {});
+    render();
+  };
+
+  $('#btn-battle-panel').onclick = () => {
+    view = 'battle';
+    render();
+  };
+
+  $('#btn-map-panel').onclick = () => {
+    // Пока ничего не делает.
+  };
+}
+
+function initBattleButtons() {
+  $('#btn-battle-back').onclick = () => {
+    view = 'main';
+    render();
+  };
+}
+
+window.addEventListener('DOMContentLoaded', async () => {
+  initTopButtons();
+  initBattleButtons();
+  render();
+  await loadState();
 });
-
-loadState();
