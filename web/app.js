@@ -2,9 +2,22 @@
 
 const $ = (sel) => document.querySelector(sel);
 
-const CURRENCY_LABELS = { seeds: 'Семечки', wheat: 'Пшеница', carrot: 'Морковь' };
+const CURRENCY_LABELS = {
+  seeds: 'Семечки',
+  wheat: 'Пшеница',
+  carrot: 'Морковь',
+};
+
 const API_BASE = (window.APP_CONFIG && window.APP_CONFIG.apiBaseUrl) ? window.APP_CONFIG.apiBaseUrl : '/api';
 const SESSION_KEY = 'humster_session_id';
+
+const ADVENTURE_DEFS = [
+  { id: 'stage5', label: 'Бежать по полю', image: '/assets/adventure/stage5.png', x: 33.5, y: 24.8, energyCost: 1, requiredPasses: 4 },
+  { id: 'stage4', label: 'Собирать пшеницу', image: '/assets/adventure/stage4.png', x: 67.6, y: 26.8, energyCost: 2, requiredPasses: 4 },
+  { id: 'stage3', label: 'Собирать орешки для белочки', image: '/assets/adventure/stage3.png', x: 86.1, y: 53.3, energyCost: 3, requiredPasses: 5 },
+  { id: 'stage2', label: 'Делать домик', image: '/assets/adventure/stage2.png', x: 52.3, y: 80.1, energyCost: 3, requiredPasses: 6 },
+  { id: 'stage1', label: 'Строить мост через ручей', image: '/assets/adventure/stage1.png', x: 26.7, y: 50.8, energyCost: 4, requiredPasses: 6 },
+];
 
 const CATALOG = {
   wallpapers: [
@@ -17,10 +30,10 @@ const CATALOG = {
     { id: 'lizard', name: 'Ящерица', img: '/assets/bosses/lizard.png' },
     { id: 'sand_lizard', name: 'Песчаная ящерица', img: '/assets/bosses/sand_lizard.png' },
   ],
+  adventure: ADVENTURE_DEFS,
 };
 
 const telegram = window.Telegram?.WebApp || null;
-
 if (telegram) {
   telegram.ready();
   telegram.expand();
@@ -46,8 +59,8 @@ const DEFAULT_STATE = {
     xp: 0,
     hp: 10,
     maxHp: 10,
-    energy: 5,
-    maxEnergy: 5,
+    energy: 40,
+    maxEnergy: 40,
     attack: 2,
     defense: 0,
     currency: { seeds: 10, wheat: 3, carrot: 0 },
@@ -55,19 +68,30 @@ const DEFAULT_STATE = {
     equipped: { wallpaper: 'wallpaper_day' },
     wallpaper: 'wallpaper_day',
   },
-  location: 'Домик',
+  location: 'Поле',
   bosses: [
     { id: 'rat', name: 'Крыса', hp: 200, maxHp: 200, attack: 4, reward: { seeds: 10, wheat: 1 }, xp: 10, defeated: false },
     { id: 'lizard', name: 'Ящерица', hp: 500, maxHp: 500, attack: 8, reward: { seeds: 30, wheat: 3 }, xp: 20, defeated: false },
     { id: 'sand_lizard', name: 'Песчаная ящерица', hp: 2000, maxHp: 2000, attack: 16, reward: { seeds: 100, wheat: 10, carrot: 1 }, xp: 50, defeated: false },
   ],
   activeBossId: '',
+  adventure: ADVENTURE_DEFS.map((node) => ({
+    id: node.id,
+    name: node.label,
+    energyCost: node.energyCost,
+    requiredPasses: node.requiredPasses,
+    progress: 0,
+    completed: false,
+  })),
+  activeAdventureId: 'stage5',
   log: ['Добро пожаловать в поле хомяков.'],
   updatedAt: new Date().toISOString(),
+  lastEnergyRegenAt: new Date().toISOString(),
 };
 
 let currentState = structuredClone(DEFAULT_STATE);
 let view = 'main';
+let pendingAdventureShakeId = null;
 
 function getSessionId() {
   let sid = localStorage.getItem(SESSION_KEY);
@@ -114,23 +138,162 @@ async function loadState() {
   render();
 }
 
+function clampNumber(value, min, max) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return min;
+  return Math.max(min, Math.min(max, n));
+}
+
+function mergeAdventure(stateAdventure = []) {
+  const map = new Map();
+  for (const node of stateAdventure) {
+    if (node && typeof node === 'object' && node.id) {
+      map.set(node.id, node);
+    }
+  }
+  return ADVENTURE_DEFS.map((def) => {
+    const existing = map.get(def.id) || {};
+    const progress = clampNumber(existing.progress ?? 0, 0, def.requiredPasses);
+    return {
+      id: def.id,
+      name: def.label,
+      energyCost: def.energyCost,
+      requiredPasses: def.requiredPasses,
+      progress,
+      completed: Boolean(existing.completed) || progress >= def.requiredPasses,
+    };
+
+  });
+}
+
 function normalizeState(state) {
   const next = structuredClone(DEFAULT_STATE);
   if (!state || typeof state !== 'object') return next;
+
   next.player = { ...next.player, ...(state.player || {}) };
   next.player.currency = { ...DEFAULT_STATE.player.currency, ...((state.player && state.player.currency) || {}) };
   next.player.inventory = { ...DEFAULT_STATE.player.inventory, ...((state.player && state.player.inventory) || {}) };
   next.player.equipped = { ...DEFAULT_STATE.player.equipped, ...((state.player && state.player.equipped) || {}) };
-  next.bosses = Array.isArray(state.bosses) ? state.bosses.map((boss) => ({ ...boss, reward: { ...(boss.reward || {}) } })) : structuredClone(DEFAULT_STATE.bosses);
+  next.player.maxEnergy = 40;
+  next.player.energy = clampNumber(next.player.energy, 0, 40);
+  next.player.maxHp = clampNumber(next.player.maxHp, 1, 9999);
+  next.player.hp = clampNumber(next.player.hp, 0, next.player.maxHp);
+
+  next.bosses = Array.isArray(state.bosses)
+    ? state.bosses.map((boss) => ({
+        ...boss,
+        reward: { ...(boss.reward || {}) },
+      }))
+    : structuredClone(DEFAULT_STATE.bosses);
+
   next.location = state.location || next.location;
   next.activeBossId = state.activeBossId || '';
+
+  next.adventure = mergeAdventure(state.adventure);
+  next.activeAdventureId = state.activeAdventureId && next.adventure.some((node) => node.id === state.activeAdventureId)
+    ? state.activeAdventureId
+    : next.adventure.find((node) => !node.completed)?.id || next.adventure[0]?.id || '';
+
   next.log = Array.isArray(state.log) ? [...state.log] : [...next.log];
   next.updatedAt = state.updatedAt || next.updatedAt;
+  next.lastEnergyRegenAt = state.lastEnergyRegenAt || next.lastEnergyRegenAt;
   return next;
+}
+
+
+function toMillis(value) {
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function formatCountdown(ms) {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function advanceLocalEnergy(state) {
+  if (!state || !state.player) return state;
+  const next = state;
+  const now = Date.now();
+  const maxEnergy = 40;
+  const energy = clampNumber(next.player.energy, 0, maxEnergy);
+  const lastTick = toMillis(next.lastEnergyRegenAt) || now;
+
+  next.player.maxEnergy = maxEnergy;
+  next.player.energy = energy;
+  if (!next.lastEnergyRegenAt || !toMillis(next.lastEnergyRegenAt)) {
+    next.lastEnergyRegenAt = new Date(now).toISOString();
+    return next;
+  }
+
+  if (energy >= maxEnergy) {
+    next.player.energy = maxEnergy;
+    next.lastEnergyRegenAt = new Date(now).toISOString();
+    return next;
+  }
+
+  const elapsed = now - lastTick;
+  if (elapsed < 4 * 60 * 1000) return next;
+
+  const gained = Math.floor(elapsed / (4 * 60 * 1000));
+  if (gained <= 0) return next;
+
+  const missing = maxEnergy - energy;
+  const applied = Math.min(gained, missing);
+  next.player.energy = Math.min(maxEnergy, energy + applied);
+  next.lastEnergyRegenAt = new Date(lastTick + (applied * 4 * 60 * 1000)).toISOString();
+
+  if (next.player.energy >= maxEnergy) {
+    next.player.energy = maxEnergy;
+    next.lastEnergyRegenAt = new Date(now).toISOString();
+  }
+
+  return next;
+}
+
+function getEnergyCountdown(state) {
+  const player = state?.player || {};
+  const energy = clampNumber(player.energy, 0, 40);
+  const maxEnergy = 40;
+  if (energy >= maxEnergy) return 'Энергия полная';
+  const lastTick = toMillis(state?.lastEnergyRegenAt);
+  if (!lastTick) return '+1 через 04:00';
+  const elapsed = Date.now() - lastTick;
+  const remaining = (4 * 60 * 1000) - (elapsed % (4 * 60 * 1000));
+  return `+1 через ${formatCountdown(remaining)}`;
 }
 
 function bossById(state, id) {
   return (state?.bosses || []).find((boss) => boss.id === id) || null;
+}
+
+function getAdventureDef(id) {
+  return ADVENTURE_DEFS.find((node) => node.id === id) || ADVENTURE_DEFS[0];
+}
+
+function getAdventureNode(state, id) {
+  return (state?.adventure || []).find((node) => node.id === id) || null;
+}
+
+function selectedAdventureId(state) {
+  if (state.activeAdventureId && getAdventureNode(state, state.activeAdventureId)) return state.activeAdventureId;
+  return state.adventure.find((node) => !node.completed)?.id || state.adventure[0]?.id || '';
+}
+
+function activeAdventureNode(state) {
+  return getAdventureNode(state, selectedAdventureId(state));
+}
+
+function firstIncompleteAdventureIndex(state) {
+  return (state.adventure || []).findIndex((node) => !node.completed);
+}
+
+function isAdventureLocked(state, index) {
+  const unlocked = firstIncompleteAdventureIndex(state);
+  if (unlocked < 0) return false;
+  return index > unlocked;
 }
 
 function formatReward(reward = {}) {
@@ -148,9 +311,6 @@ function getWallpaperAsset(id) {
   return CATALOG.wallpapers.find((w) => w.id === id) || CATALOG.wallpapers[0];
 }
 
-function defeatedCount(state) {
-  return `${(state?.bosses || []).filter((boss) => boss.defeated).length}/${(state?.bosses || []).length}`;
-}
 
 function renderResourceStrip(state) {
   const p = state.player;
@@ -160,20 +320,19 @@ function renderResourceStrip(state) {
     { label: 'Семечки', value: `${currencies.seeds || 0}` },
     { label: 'Пшеница', value: `${currencies.wheat || 0}` },
     { label: 'Морковь', value: `${currencies.carrot || 0}` },
-    { label: 'Энергия', value: `${p.energy || 0}/${p.maxEnergy || 0}` },
-    { label: 'Боссы', value: defeatedCount(state) },
+    { label: 'Энергия', value: `${p.energy || 0}/${p.maxEnergy || 40}`, sub: getEnergyCountdown(state) },
   ];
 
   $('#resource-strip').innerHTML = chips.map((chip) => `
     <div class="hud-chip ${chip.accent ? 'hud-chip--accent' : ''}">
       <span>${chip.label}</span>
       <strong>${chip.value}</strong>
+      ${chip.sub ? `<small class="hud-chip__sub">${chip.sub}</small>` : ''}
     </div>
   `).join('');
 }
 
 function updateScene(state) {
-  const scene = $('#scene');
   const wallpaperId = state.player.wallpaper || state.player.equipped?.wallpaper || 'wallpaper_day';
   const wallpaper = getWallpaperAsset(wallpaperId);
 
@@ -226,9 +385,7 @@ function applyLocalAction(action, payload = {}) {
       return;
     }
     case 'attack_boss': {
-      if (!boss) return;
-      if (boss.defeated) return;
-
+      if (!boss || boss.defeated) return;
       const dmg = attackDamage(payload.attackType);
       boss.hp = Math.max(0, boss.hp - dmg);
       if (boss.hp === 0) {
@@ -238,6 +395,33 @@ function applyLocalAction(action, payload = {}) {
         }
         state.player.xp += boss.xp || 0;
         recalcLevel(state);
+      }
+      return;
+    }
+    case 'select_adventure': {
+      const nodeId = payload.nodeId;
+      if (nodeId && currentState.adventure.some((node) => node.id === nodeId)) {
+        const idx = currentState.adventure.findIndex((node) => node.id === nodeId);
+        if (!isAdventureLocked(currentState, idx)) {
+          state.activeAdventureId = nodeId;
+        }
+      }
+      return;
+    }
+    case 'adventure_step': {
+      const nodeId = payload.nodeId || state.activeAdventureId;
+      const idx = state.adventure.findIndex((node) => node.id === nodeId);
+      if (idx < 0) return;
+      if (isAdventureLocked(state, idx)) return;
+      const node = state.adventure[idx];
+      if (node.completed) return;
+      if ((state.player.energy || 0) < node.energyCost) return;
+      state.player.energy -= node.energyCost;
+      node.progress += 1;
+      if (node.progress >= node.requiredPasses) {
+        node.completed = true;
+        const next = state.adventure.find((item) => !item.completed);
+        if (next) state.activeAdventureId = next.id;
       }
       return;
     }
@@ -259,8 +443,6 @@ function recalcLevel(state) {
     state.player.hp = state.player.maxHp;
     state.player.attack += 1;
     state.player.defense += 1;
-    state.player.maxEnergy += 1;
-    state.player.energy = state.player.maxEnergy;
   }
 }
 
@@ -378,21 +560,172 @@ function renderBattleScreen() {
   }
 }
 
+function renderAdventureScreen() {
+  const selectedId = selectedAdventureId(currentState);
+  const selected = getAdventureNode(currentState, selectedId) || currentState.adventure[0];
+  const def = getAdventureDef(selected?.id || ADVENTURE_DEFS[0].id);
+  const isSelectedLocked = selected ? isAdventureLocked(currentState, currentState.adventure.findIndex((n) => n.id === selected.id)) : false;
+  const progress = selected ? `${selected.progress}/${selected.requiredPasses}` : '0/0';
+  const energy = currentState.player.energy || 0;
+  const maxEnergy = currentState.player.maxEnergy || 40;
+  const nodePct = selected && selected.requiredPasses > 0 ? Math.max(0, Math.min(100, (selected.progress / selected.requiredPasses) * 100)) : 0;
+
+  $('#battle-screen').hidden = true;
+  const body = $('#adventure-screen-body');
+  if (!body) return;
+
+  body.innerHTML = `
+    <div class="adventure-layout">
+      <div class="adventure-map-shell">
+        <div class="adventure-map">
+          <img class="adventure-map__bg" src="/assets/adventure/map.png" alt="Карта приключений">
+          <div class="adventure-map__overlay"></div>
+
+          ${currentState.adventure.map((node) => {
+            const defNode = getAdventureDef(node.id);
+            const idx = currentState.adventure.findIndex((n) => n.id === node.id);
+            const locked = isAdventureLocked(currentState, idx);
+            const classes = [
+              'adventure-node',
+              node.completed ? 'is-complete' : '',
+              node.id === selectedId ? 'is-active' : '',
+              locked ? 'is-locked' : '',
+              pendingAdventureShakeId === node.id ? 'is-shaking' : '',
+            ].filter(Boolean).join(' ');
+            return `
+              <button
+                type="button"
+                class="${classes}"
+                data-adventure-node="${node.id}"
+                aria-label="${node.name} • ${node.energyCost} энергии за проход • ${node.progress}/${node.requiredPasses}"
+                style="left: ${defNode.x}%; top: ${defNode.y}%"
+                ${locked ? 'disabled' : ''}
+              >
+                <span class="adventure-node__ring"></span>
+                <img src="${defNode.image}" alt="${node.name}">
+                <span class="adventure-node__badge">${node.id.replace('stage', '')}</span>
+              </button>
+            `;
+          }).join('')}
+        </div>
+      </div>
+
+      <aside class="adventure-panel">
+        <div class="adventure-panel__head">
+          <div class="eyebrow">Карта приключений</div>
+          <h3>${selected?.name || '—'}</h3>
+          <p>${isSelectedLocked ? 'Следующая точка пока недоступна.' : 'Выбери точку и трать энергию на прохождение.'}</p>
+        </div>
+
+        <div class="adventure-stats">
+          <div class="stat-box">
+            <span>Стоимость за проход</span>
+            <strong>${selected?.energyCost ?? 0} энергии</strong>
+          </div>
+          <div class="stat-box">
+            <span>Пройдено</span>
+            <strong>${progress}</strong>
+          </div>
+          <div class="stat-box">
+            <span>Энергия</span>
+            <strong>${energy}/${maxEnergy}</strong>
+          </div>
+        </div>
+
+        <div class="meter-block">
+          <div class="meter-label">
+            <span>Прогресс точки</span>
+            <strong>${nodePct.toFixed(0)}%</strong>
+          </div>
+          <div class="progress-bar"><div style="width: ${nodePct}%"></div></div>
+        </div>
+
+
+        <div class="adventure-actions">
+          <button
+            type="button"
+            id="btn-adventure-step"
+            class="primary"
+            ${!selected || selected.completed || isSelectedLocked || energy < (selected?.energyCost || 0) ? 'disabled' : ''}
+          >
+            ${selected && !selected.completed ? `Пройти за ${selected.energyCost} энергии` : 'Точка пройдена'}
+          </button>
+          <button type="button" id="btn-adventure-back" class="ghost">Вернуться к сцене</button>
+        </div>
+
+        <div class="adventure-note">
+          ${selected?.completed
+            ? 'Эта точка уже пройдена. Можно посмотреть другие участки карты.'
+            : `Нужно ${selected?.requiredPasses || 0} проходов по ${selected?.energyCost || 0} энергии. После завершения откроется следующая точка.`}
+        </div>
+      </aside>
+    </div>
+  `;
+
+  document.querySelectorAll('[data-adventure-node]').forEach((btn) => {
+    btn.onclick = async () => {
+      const nodeId = btn.dataset.adventureNode;
+      await syncAction('select_adventure', { nodeId });
+      view = 'adventure';
+      render();
+    };
+  });
+
+  const step = $('#btn-adventure-step');
+  if (step && selected && !selected.completed && !isSelectedLocked) {
+    step.onclick = async () => {
+      pendingAdventureShakeId = selected.id;
+      step.disabled = true;
+      await syncAction('adventure_step', { nodeId: selected.id });
+      view = 'adventure';
+      render();
+    };
+  }
+
+  const back = $('#btn-adventure-back');
+  if (back) {
+    back.onclick = () => {
+      view = 'main';
+      render();
+    };
+  }
+
+  if (pendingAdventureShakeId) {
+    window.setTimeout(() => {
+      const el = document.querySelector(`[data-adventure-node="${pendingAdventureShakeId}"]`);
+      if (el) {
+        el.classList.add('is-shaking');
+        window.setTimeout(() => el.classList.remove('is-shaking'), 380);
+      }
+      pendingAdventureShakeId = null;
+    }, 0);
+  }
+}
+
 function render() {
   currentState = normalizeState(currentState);
+  currentState = advanceLocalEnergy(currentState);
   $('#player-name-input').value = currentState.player.name || 'Хомяк';
   renderResourceStrip(currentState);
   updateScene(currentState);
 
   const main = $('#main-screen');
   const battle = $('#battle-screen');
+  const adventure = $('#adventure-screen');
 
   if (view === 'battle') {
     main.hidden = true;
+    adventure.hidden = true;
     battle.hidden = false;
     renderBattleScreen();
+  } else if (view === 'adventure') {
+    main.hidden = true;
+    battle.hidden = true;
+    adventure.hidden = false;
+    renderAdventureScreen();
   } else {
     battle.hidden = true;
+    adventure.hidden = true;
     main.hidden = false;
   }
 }
@@ -424,7 +757,8 @@ function initTopButtons() {
   };
 
   $('#btn-map-panel').onclick = () => {
-    // Пока ничего не делает.
+    view = 'adventure';
+    render();
   };
 }
 
@@ -435,9 +769,29 @@ function initBattleButtons() {
   };
 }
 
+function initAdventureButtons() {
+  const topBack = $('#btn-adventure-back-top');
+  if (topBack) {
+    topBack.onclick = () => {
+      view = 'main';
+      render();
+    };
+  }
+}
+
+let uiTicker = null;
+
 window.addEventListener('DOMContentLoaded', async () => {
   initTopButtons();
   initBattleButtons();
+  initAdventureButtons();
   render();
   await loadState();
+
+  if (!uiTicker) {
+    uiTicker = window.setInterval(() => {
+      currentState = advanceLocalEnergy(currentState);
+      render();
+    }, 1000);
+  }
 });

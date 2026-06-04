@@ -43,6 +43,15 @@ type Boss struct {
 	Defeated bool             `json:"defeated"`
 }
 
+type AdventureNode struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	EnergyCost     int    `json:"energyCost"`
+	RequiredPasses int    `json:"requiredPasses"`
+	Progress       int    `json:"progress"`
+	Completed      bool   `json:"completed"`
+}
+
 type Player struct {
 	Name      string            `json:"name"`
 	Level     int               `json:"level"`
@@ -60,12 +69,15 @@ type Player struct {
 }
 
 type GameState struct {
-	Player       Player    `json:"player"`
-	Location     string    `json:"location"`
-	Bosses       []Boss    `json:"bosses"`
-	ActiveBossID string    `json:"activeBossId"`
-	Log          []string  `json:"log"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	Player            Player          `json:"player"`
+	Location          string          `json:"location"`
+	Bosses            []Boss          `json:"bosses"`
+	ActiveBossID      string          `json:"activeBossId"`
+	Adventure         []AdventureNode `json:"adventure"`
+	ActiveAdventureID string          `json:"activeAdventureId"`
+	Log               []string        `json:"log"`
+	UpdatedAt         time.Time       `json:"updatedAt"`
+	LastEnergyRegenAt time.Time       `json:"lastEnergyRegenAt"`
 }
 
 type Session struct {
@@ -84,6 +96,7 @@ type ActionRequest struct {
 	ItemID     string `json:"itemId,omitempty"`
 	Name       string `json:"name,omitempty"`
 	BossID     string `json:"bossId,omitempty"`
+	NodeID     string `json:"nodeId,omitempty"`
 	AttackType string `json:"attackType,omitempty"`
 }
 
@@ -91,6 +104,14 @@ type ActionResponse struct {
 	OK    bool      `json:"ok"`
 	State GameState `json:"state"`
 	Error string    `json:"error,omitempty"`
+}
+
+var adventureBlueprints = []AdventureNode{
+	{ID: "stage5", Name: "Бежать по полю", EnergyCost: 1, RequiredPasses: 4},
+	{ID: "stage4", Name: "Собирать пшеницу", EnergyCost: 2, RequiredPasses: 4},
+	{ID: "stage3", Name: "Собирать орешки для белочки", EnergyCost: 3, RequiredPasses: 5},
+	{ID: "stage2", Name: "Делать домик", EnergyCost: 3, RequiredPasses: 6},
+	{ID: "stage1", Name: "Строить мост через ручей", EnergyCost: 4, RequiredPasses: 6},
 }
 
 func main() {
@@ -124,7 +145,7 @@ func newServer() *Server {
 				Slot:        "head",
 				Cost:        map[Currency]int{Seeds: 10},
 				Stats:       map[string]int{"defense": 1},
-				Description: "Легкая кепка для храброго хомяка.",
+				Description: "Лёгкая кепка для храброго хомяка.",
 			},
 			"grain_cloak": {
 				ID:          "grain_cloak",
@@ -156,7 +177,7 @@ func newServer() *Server {
 				Slot:        "wallpaper",
 				Cost:        map[Currency]int{Seeds: 18},
 				Stats:       map[string]int{},
-				Description: "Теплые обои для вечерней прогулки хомяка.",
+				Description: "Тёплые обои для вечерней прогулки хомяка.",
 			},
 			"wallpaper_night": {
 				ID:          "wallpaper_night",
@@ -203,6 +224,7 @@ func (s *Server) handleName(w http.ResponseWriter, r *http.Request) {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
 
+	advanceEnergy(&sess.state)
 	sess.state.Player.Name = name
 	appendLog(&sess.state, fmt.Sprintf("Теперь тебя зовут %s.", name))
 	writeJSON(w, ActionResponse{OK: true, State: sess.state})
@@ -225,6 +247,7 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
 
+	advanceEnergy(&sess.state)
 	sess.state.UpdatedAt = time.Now()
 
 	var err error
@@ -243,6 +266,10 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		err = s.equipItem(&sess.state, req.ItemID)
 	case "rest":
 		err = rest(&sess.state)
+	case "select_adventure":
+		err = s.selectAdventure(&sess.state, req.NodeID)
+	case "adventure_step":
+		err = s.adventureStep(&sess.state, req.NodeID)
 	case "new_run":
 		sess.state = newGameState()
 		appendLog(&sess.state, "Новая игра началась.")
@@ -288,6 +315,12 @@ func (s *Server) exploreField(gs *GameState) error {
 }
 
 func (s *Server) selectBoss(gs *GameState, bossID string) error {
+	if bossID == "" {
+		gs.ActiveBossID = ""
+		appendLog(gs, "Выбор босса закрыт.")
+		return nil
+	}
+
 	boss, _, ok := currentBoss(gs, bossID)
 	if !ok {
 		return fmt.Errorf("босс не найден")
@@ -346,6 +379,67 @@ func (s *Server) attackBoss(gs *GameState, attackType string) error {
 		gs.Player.HP = gs.Player.MaxHP
 		gs.Player.Energy = gs.Player.MaxEnergy
 		appendLog(gs, "Хомяк отступил и пришёл в себя.")
+	}
+	return nil
+}
+
+func (s *Server) selectAdventure(gs *GameState, nodeID string) error {
+	if nodeID == "" {
+		return fmt.Errorf("точка не найдена")
+	}
+
+	idx, ok := adventureIndex(gs, nodeID)
+	if !ok {
+		return fmt.Errorf("точка не найдена")
+	}
+	if !adventureSelectable(gs, idx) {
+		return fmt.Errorf("следующая точка пока недоступна")
+	}
+
+	gs.ActiveAdventureID = nodeID
+	appendLog(gs, fmt.Sprintf("Выбрана %s.", gs.Adventure[idx].Name))
+	return nil
+}
+
+func (s *Server) adventureStep(gs *GameState, nodeID string) error {
+	activeID := strings.TrimSpace(nodeID)
+	if activeID == "" {
+		activeID = gs.ActiveAdventureID
+	}
+	if activeID == "" {
+		return fmt.Errorf("сначала выбери точку")
+	}
+
+	idx, ok := adventureIndex(gs, activeID)
+	if !ok {
+		return fmt.Errorf("точка не найдена")
+	}
+	if !adventureSelectable(gs, idx) {
+		return fmt.Errorf("следующая точка пока недоступна")
+	}
+
+	node := gs.Adventure[idx]
+	if node.Completed {
+		return fmt.Errorf("эта точка уже пройдена")
+	}
+	if gs.Player.Energy < node.EnergyCost {
+		return fmt.Errorf("не хватает энергии")
+	}
+
+	gs.Player.Energy -= node.EnergyCost
+	gs.Adventure[idx].Progress++
+	appendLog(gs, fmt.Sprintf("%s пройден на %d/%d.", node.Name, gs.Adventure[idx].Progress, node.RequiredPasses))
+
+	if gs.Adventure[idx].Progress >= node.RequiredPasses {
+		gs.Adventure[idx].Completed = true
+		appendLog(gs, fmt.Sprintf("%s полностью пройдена!", node.Name))
+		next := firstIncompleteAdventureIndex(gs)
+		if next >= 0 {
+			gs.ActiveAdventureID = gs.Adventure[next].ID
+			appendLog(gs, fmt.Sprintf("Открыта %s.", gs.Adventure[next].Name))
+		} else {
+			appendLog(gs, "Карта приключений пройдена полностью.")
+		}
 	}
 	return nil
 }
@@ -441,8 +535,6 @@ func recalcLevel(gs *GameState) {
 		gs.Player.HP = gs.Player.MaxHP
 		gs.Player.Attack++
 		gs.Player.Defense++
-		gs.Player.MaxEnergy++
-		gs.Player.Energy = gs.Player.MaxEnergy
 		appendLog(gs, fmt.Sprintf("Уровень повышен! Теперь уровень %d.", gs.Player.Level))
 	}
 }
@@ -455,8 +547,8 @@ func newGameState() GameState {
 			XP:        0,
 			HP:        10,
 			MaxHP:     10,
-			Energy:    5,
-			MaxEnergy: 5,
+			Energy:    40,
+			MaxEnergy: 40,
 			Attack:    2,
 			Defense:   0,
 			Currency: map[Currency]int{
@@ -472,7 +564,7 @@ func newGameState() GameState {
 			},
 			Wallpaper: "wallpaper_day",
 		},
-		Location: "Домик",
+		Location: "Поле",
 		Bosses: []Boss{
 			{
 				ID:       "rat",
@@ -505,10 +597,48 @@ func newGameState() GameState {
 				Defeated: false,
 			},
 		},
-		ActiveBossID: "",
-		Log:          []string{"Добро пожаловать в поле хомяков."},
-		UpdatedAt:    time.Now(),
+		Adventure:         defaultAdventureNodes(),
+		ActiveAdventureID: adventureBlueprints[0].ID,
+		ActiveBossID:      "",
+		Log:               []string{"Добро пожаловать в поле хомяков."},
+		UpdatedAt:         time.Now(),
+		LastEnergyRegenAt: time.Now(),
 	}
+}
+
+func defaultAdventureNodes() []AdventureNode {
+	nodes := make([]AdventureNode, len(adventureBlueprints))
+	copy(nodes, adventureBlueprints)
+	return nodes
+}
+
+func adventureIndex(gs *GameState, id string) (int, bool) {
+	for i := range gs.Adventure {
+		if gs.Adventure[i].ID == id {
+			return i, true
+		}
+	}
+	return -1, false
+}
+
+func firstIncompleteAdventureIndex(gs *GameState) int {
+	for i := range gs.Adventure {
+		if !gs.Adventure[i].Completed {
+			return i
+		}
+	}
+	return -1
+}
+
+func adventureSelectable(gs *GameState, idx int) bool {
+	if idx < 0 || idx >= len(gs.Adventure) {
+		return false
+	}
+	unlocked := firstIncompleteAdventureIndex(gs)
+	if unlocked < 0 {
+		return true
+	}
+	return idx <= unlocked
 }
 
 func currentBoss(gs *GameState, id string) (*Boss, int, bool) {
@@ -532,6 +662,42 @@ func allBossesDefeated(gs *GameState) bool {
 	return true
 }
 
+func advanceEnergy(gs *GameState) {
+	now := time.Now()
+	if gs.LastEnergyRegenAt.IsZero() {
+		gs.LastEnergyRegenAt = now
+	}
+	if gs.Player.MaxEnergy <= 0 {
+		gs.Player.Energy = 0
+		gs.LastEnergyRegenAt = now
+		return
+	}
+	if gs.Player.Energy >= gs.Player.MaxEnergy {
+		gs.Player.Energy = gs.Player.MaxEnergy
+		gs.LastEnergyRegenAt = now
+		return
+	}
+
+	elapsed := now.Sub(gs.LastEnergyRegenAt)
+	if elapsed < 4*time.Minute {
+		return
+	}
+	gained := int(elapsed / (4 * time.Minute))
+	if gained <= 0 {
+		return
+	}
+	missing := gs.Player.MaxEnergy - gs.Player.Energy
+	if gained > missing {
+		gained = missing
+	}
+	gs.Player.Energy += gained
+	gs.LastEnergyRegenAt = gs.LastEnergyRegenAt.Add(time.Duration(gained) * 4 * time.Minute)
+	if gs.Player.Energy >= gs.Player.MaxEnergy {
+		gs.Player.Energy = gs.Player.MaxEnergy
+		gs.LastEnergyRegenAt = now
+	}
+}
+
 func (s *Server) getSession(sessionID string) *Session {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -550,6 +716,7 @@ func (s *Server) getSession(sessionID string) *Session {
 func (s *Session) snapshot() GameState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	advanceEnergy(&s.state)
 	return copyState(s.state)
 }
 
@@ -559,8 +726,15 @@ func copyState(gs GameState) GameState {
 	cp.Player.Inventory = copyInventory(gs.Player.Inventory)
 	cp.Player.Equipped = copyEquipped(gs.Player.Equipped)
 	cp.Bosses = copyBosses(gs.Bosses)
+	cp.Adventure = copyAdventure(gs.Adventure)
 	cp.Log = append([]string(nil), gs.Log...)
 	return cp
+}
+
+func copyAdventure(in []AdventureNode) []AdventureNode {
+	out := make([]AdventureNode, len(in))
+	copy(out, in)
+	return out
 }
 
 func copyBosses(in []Boss) []Boss {

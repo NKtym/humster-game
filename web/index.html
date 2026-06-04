@@ -14,7 +14,7 @@
       <div class="topbar-copy">
         <div class="eyebrow">MVP • Telegram Game</div>
         <h1>Хомяки против боссов</h1>
-        <p>Вся экономика сверху, хомяк в центре сцены, кнопки действий — справа.</p>
+        <p>Вся экономика сверху, хомяк в центре сцены, а приключения и бои — отдельными экранами.</p>
       </div>
 
       <div class="top-actions">
@@ -76,7 +76,7 @@
                 <img src="/assets/ui/adventure-map-btn.png" alt="" />
                 <div>
                   <strong>Карта приключений</strong>
-                  <span>Пока ничего не делает</span>
+                  <span>Выбор точки маршрута и трата энергии</span>
                 </div>
               </button>
             </div>
@@ -94,8 +94,19 @@
         </div>
         <button id="btn-battle-back" class="ghost" type="button">Вернуться к сцене</button>
       </div>
-
       <div id="battle-screen-body"></div>
+    </section>
+
+    <section id="adventure-screen" class="card adventure-screen" hidden>
+      <div class="battle-screen__head">
+        <div>
+          <div class="eyebrow">Карта приключений</div>
+          <h2>Поле</h2>
+          <p>Двигайся по маршруту, открывая точки сверху вниз по порядку.</p>
+        </div>
+        <button id="btn-adventure-back-top" class="ghost" type="button">Вернуться к сцене</button>
+      </div>
+      <div id="adventure-screen-body"></div>
     </section>
   </div>
 
