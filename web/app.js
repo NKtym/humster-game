@@ -19,6 +19,19 @@ const CATALOG = {
   ],
 };
 
+const telegram = window.Telegram?.WebApp || null;
+
+if (telegram) {
+  telegram.ready();
+  telegram.expand();
+  try {
+    telegram.setHeaderColor?.('#5b3216');
+    telegram.setBackgroundColor?.('#5b3216');
+  } catch (_) {
+    // no-op
+  }
+}
+
 const ATTACKS = [
   { id: 'belly_punch', label: 'Удар пузиком', damage: 5 },
   { id: 'scratch', label: 'Царапанье', damage: 20 },

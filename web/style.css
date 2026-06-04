@@ -18,11 +18,16 @@ body {
   position: relative;
   isolation: isolate;
   overflow-x: hidden;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overscroll-behavior-y: none;
+  -webkit-text-size-adjust: 100%;
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: var(--text);
   background:
     linear-gradient(180deg, rgba(56, 30, 12, 0.22) 0%, rgba(56, 30, 12, 0.62) 100%),
-    url('/assets/theme/app-bg.png') center center / cover fixed no-repeat;
+    url('/assets/theme/app-bg.png') center center / cover no-repeat;
+  background-attachment: scroll;
 }
 
 body::before {
@@ -42,6 +47,7 @@ h1, h2, h3, h4, p { margin: 0; }
 .app {
   width: min(1280px, calc(100vw - 24px));
   margin: 12px auto 28px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
 }
 
 .topbar {
@@ -197,6 +203,7 @@ button.ghost {
 .scene {
   position: relative;
   min-height: 640px;
+  height: clamp(540px, 74vh, 760px);
   border-radius: 28px;
   overflow: hidden;
   background-color: rgba(66, 40, 18, 0.82);
@@ -255,6 +262,7 @@ button.ghost {
   bottom: 18px;
   transform: translateX(-50%);
   width: min(64vw, 640px);
+  max-width: 640px;
   aspect-ratio: 1 / 1;
   z-index: 4;
   display: flex;
@@ -567,8 +575,14 @@ button.ghost {
 
 @media (max-width: 1180px) {
   .hud-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .scene-stage, .scene { min-height: 720px; }
-  .hamster-stage { width: min(72vw, 620px); }
+  .scene-stage {
+    min-height: auto;
+  }
+  .scene {
+    height: clamp(480px, 68vh, 640px);
+    min-height: 480px;
+  }
+  .hamster-stage { width: min(72vw, 560px); }
   .side-panel {
     top: auto;
     bottom: 16px;
@@ -584,23 +598,40 @@ button.ghost {
   .battle-top { grid-template-columns: 1fr; }
   .boss-grid { grid-template-columns: 1fr; }
   .attack-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .scene-stage, .scene { min-height: 760px; }
-  .hamster-stage { width: min(86vw, 560px); }
+  .scene-stage {
+    min-height: auto;
+  }
+  .scene {
+    height: clamp(440px, 62vh, 560px);
+    min-height: 440px;
+  }
+  .hamster-stage { width: min(86vw, 500px); bottom: 14px; }
   .side-panel {
-    position: absolute;
-    left: 16px;
-    right: 16px;
-    width: auto;
+    position: static;
+    width: 100%;
+    margin-top: 12px;
   }
 }
 
 @media (max-width: 640px) {
   .app { width: min(100vw - 14px, 1240px); margin: 8px auto 18px; }
   .card { padding: 14px; border-radius: 22px; }
-  .hud-grid { grid-template-columns: 1fr 1fr; }
-  .panel-action img { width: 72px; height: 72px; }
-  .panel-action strong { font-size: 16px; }
-  .scene-stage, .scene { min-height: 700px; }
-  .hamster-stage { width: min(98vw, 520px); }
+  .top-actions { gap: 8px; }
+  .top-actions .name-input, .top-actions button { width: 100%; }
+  .hud-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .panel-action { padding: 12px; border-radius: 18px; }
+  .panel-action img { width: 64px; height: 64px; }
+  .panel-action strong { font-size: 15px; }
+  .scene { height: clamp(410px, 60vh, 520px); min-height: 410px; }
+  .hamster-stage { width: min(96vw, 460px); bottom: 12px; }
   .attack-panel { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 480px) {
+  .topbar p, .scene-head p, .hud-card p, .battle-screen p { font-size: 14px; }
+  h1 { font-size: 24px; }
+  .scene-head { align-items: flex-start; flex-direction: column; }
+  .tag { width: fit-content; }
+  .battle-screen__head { flex-direction: column; }
+  .battle-screen__head button { width: 100%; }
 }
