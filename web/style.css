@@ -1277,3 +1277,116 @@ button.primary {
     grid-template-columns: 1fr;
   }
 }
+
+.profile-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.profile-modal[hidden] {
+  display: none !important;
+}
+
+.profile-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(22, 10, 4, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.profile-modal__dialog {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 760px);
+  max-height: min(88vh, 900px);
+  overflow: auto;
+  border-radius: 28px;
+  padding: 22px;
+  background: linear-gradient(180deg, rgba(103, 60, 27, 0.96), rgba(72, 41, 16, 0.96));
+  border: 1px solid rgba(255, 233, 186, 0.16);
+  box-shadow: 0 26px 70px rgba(0,0,0,0.46);
+  display: grid;
+  gap: 18px;
+}
+
+.profile-modal__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.profile-modal__body {
+  display: grid;
+  gap: 18px;
+}
+
+.profile-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.profile-card {
+  border-radius: 20px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 233, 186, 0.10);
+  display: grid;
+  gap: 6px;
+}
+
+.profile-card--wide {
+  grid-column: 1 / -1;
+}
+
+.profile-card span,
+.profile-section__head span,
+.profile-note,
+.profile-row span {
+  color: rgba(255, 236, 208, 0.82);
+}
+
+.profile-card strong {
+  font-size: 22px;
+}
+
+.profile-section {
+  display: grid;
+  gap: 12px;
+}
+
+.profile-section__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.profile-list {
+  display: grid;
+  gap: 10px;
+}
+
+.profile-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 233, 186, 0.10);
+}
+
+.profile-row strong {
+  font-size: 18px;
+}
+
+.profile-note {
+  font-size: 13px;
+  line-height: 1.4;
+}

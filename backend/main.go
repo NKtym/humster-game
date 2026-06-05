@@ -54,6 +54,7 @@ type Boss struct {
 	AttackCooldowns map[string]time.Time `json:"attackCooldowns"`
 	KillsToday      int                  `json:"killsToday"`
 	KillsDay        string               `json:"killsDay"`
+	KillsTotal      int                  `json:"killsTotal"`
 }
 
 type AdventureNode struct {
@@ -94,17 +95,25 @@ type Player struct {
 }
 
 type GameState struct {
-	Player            Player          `json:"player"`
-	Location          string          `json:"location"`
-	Bosses            []Boss          `json:"bosses"`
-	ActiveBossID      string          `json:"activeBossId"`
-	Adventure         []AdventureNode `json:"adventure"`
-	ActiveAdventureID string          `json:"activeAdventureId"`
-	BossKillsToday    int             `json:"bossKillsToday"`
-	BossKillsDay      string          `json:"bossKillsDay"`
-	Log               []string        `json:"log"`
-	UpdatedAt         time.Time       `json:"updatedAt"`
-	LastEnergyRegenAt time.Time       `json:"lastEnergyRegenAt"`
+	Player             Player          `json:"player"`
+	Location           string          `json:"location"`
+	Bosses             []Boss          `json:"bosses"`
+	ActiveBossID       string          `json:"activeBossId"`
+	Adventure          []AdventureNode `json:"adventure"`
+	ActiveAdventureID  string          `json:"activeAdventureId"`
+	BossKillsToday     int             `json:"bossKillsToday"`
+	BossKillsDay       string          `json:"bossKillsDay"`
+	LocationPasses     int             `json:"locationPasses"`
+	BossDamageDay      int             `json:"bossDamageDay"`
+	BossDamageDayKey   string          `json:"bossDamageDayKey"`
+	BossDamageWeek     int             `json:"bossDamageWeek"`
+	BossDamageWeekKey  string          `json:"bossDamageWeekKey"`
+	BossDamageMonth    int             `json:"bossDamageMonth"`
+	BossDamageMonthKey string          `json:"bossDamageMonthKey"`
+	BossDamageAllTime  int             `json:"bossDamageAllTime"`
+	Log                []string        `json:"log"`
+	UpdatedAt          time.Time       `json:"updatedAt"`
+	LastEnergyRegenAt  time.Time       `json:"lastEnergyRegenAt"`
 }
 
 type Session struct {
@@ -885,12 +894,19 @@ func normalizeGameState(state *GameState) {
 	if state.Location == "" {
 		state.Location = defaults.Location
 	}
+	if state.LocationPasses < 0 {
+		state.LocationPasses = 0
+	}
+	normalizeBossDamageStats(state)
 	if len(state.Bosses) == 0 {
 		state.Bosses = newGameState().Bosses
 	}
 	normalizeBosses(state)
 	if len(state.Adventure) == 0 {
 		state.Adventure = defaultAdventureNodes()
+	}
+	if adventureFinished(state) {
+		resetAdventureLoop(state)
 	}
 	if state.ActiveAdventureID == "" {
 		state.ActiveAdventureID = defaults.ActiveAdventureID
@@ -1151,6 +1167,7 @@ func finalizeBossVictory(gs *GameState, idx int, now time.Time) {
 	boss.Defeated = true
 	boss.HP = 0
 	boss.KillsToday++
+	boss.KillsTotal++
 	boss.KillsDay = bossKillDayKey()
 	boss.BattleStartedAt = time.Time{}
 	boss.BattleEndsAt = time.Time{}
@@ -1229,6 +1246,8 @@ func (s *Server) attackBoss(gs *GameState, attackType string) error {
 		return fmt.Errorf("дневной лимит убийств этого босса достигнут: 8/8")
 	}
 
+	actualDamage := min(damage, boss.HP)
+	recordBossDamage(gs, actualDamage, now)
 	gs.Bosses[idx].HP = max(0, boss.HP-damage)
 	if cost > 0 {
 		if gs.Player.Inventory == nil {
@@ -1312,12 +1331,16 @@ func (s *Server) adventureStep(gs *GameState, nodeID string) error {
 	if gs.Adventure[idx].Progress >= node.RequiredPasses {
 		gs.Adventure[idx].Completed = true
 		appendLog(gs, fmt.Sprintf("%s полностью пройдена!", node.Name))
-		next := firstIncompleteAdventureIndex(gs)
-		if next >= 0 {
-			gs.ActiveAdventureID = gs.Adventure[next].ID
-			appendLog(gs, fmt.Sprintf("Открыта %s.", gs.Adventure[next].Name))
+		if adventureFinished(gs) {
+			gs.LocationPasses++
+			resetAdventureLoop(gs)
+			appendLog(gs, fmt.Sprintf("Локация пройдена полностью! Всего проходок локации: %d. Путь начинается заново.", gs.LocationPasses))
 		} else {
-			appendLog(gs, "Карта приключений пройдена полностью.")
+			next := firstIncompleteAdventureIndex(gs)
+			if next >= 0 {
+				gs.ActiveAdventureID = gs.Adventure[next].ID
+				appendLog(gs, fmt.Sprintf("Открыта %s.", gs.Adventure[next].Name))
+			}
 		}
 	}
 	return nil
@@ -1597,6 +1620,7 @@ func newGameState() GameState {
 				AttackCooldowns: map[string]time.Time{},
 				KillsToday:      0,
 				KillsDay:        bossKillDayKey(),
+				KillsTotal:      0,
 			},
 			{
 				ID:              "lizard",
@@ -1610,6 +1634,7 @@ func newGameState() GameState {
 				AttackCooldowns: map[string]time.Time{},
 				KillsToday:      0,
 				KillsDay:        bossKillDayKey(),
+				KillsTotal:      0,
 			},
 			{
 				ID:              "sand_lizard",
@@ -1623,16 +1648,25 @@ func newGameState() GameState {
 				AttackCooldowns: map[string]time.Time{},
 				KillsToday:      0,
 				KillsDay:        bossKillDayKey(),
+				KillsTotal:      0,
 			},
 		},
-		Adventure:         defaultAdventureNodes(),
-		ActiveAdventureID: adventureBlueprints[0].ID,
-		ActiveBossID:      "",
-		BossKillsToday:    0,
-		BossKillsDay:      bossKillDayKey(),
-		Log:               []string{"Добро пожаловать в поле хомяков."},
-		UpdatedAt:         time.Now(),
-		LastEnergyRegenAt: time.Now(),
+		Adventure:          defaultAdventureNodes(),
+		ActiveAdventureID:  adventureBlueprints[0].ID,
+		ActiveBossID:       "",
+		BossKillsToday:     0,
+		BossKillsDay:       bossKillDayKey(),
+		LocationPasses:     0,
+		BossDamageDay:      0,
+		BossDamageDayKey:   damageDayKey(time.Now()),
+		BossDamageWeek:     0,
+		BossDamageWeekKey:  damageWeekKey(time.Now()),
+		BossDamageMonth:    0,
+		BossDamageMonthKey: damageMonthKey(time.Now()),
+		BossDamageAllTime:  0,
+		Log:                []string{"Добро пожаловать в поле хомяков."},
+		UpdatedAt:          time.Now(),
+		LastEnergyRegenAt:  time.Now(),
 	}
 }
 
@@ -1686,6 +1720,94 @@ func adventureRewardForIndex(idx int) (int, int) {
 	default:
 		return 0, 0
 	}
+}
+
+func damageDayKey(now time.Time) string {
+	return now.In(gameLocation()).Format("2006-01-02")
+}
+
+func damageWeekKey(now time.Time) string {
+	local := now.In(gameLocation())
+	year, week := local.ISOWeek()
+	return fmt.Sprintf("%04d-W%02d", year, week)
+}
+
+func damageMonthKey(now time.Time) string {
+	return now.In(gameLocation()).Format("2006-01")
+}
+
+func normalizeBossDamageStats(gs *GameState) {
+	if gs == nil {
+		return
+	}
+	now := time.Now()
+	dayKey := damageDayKey(now)
+	weekKey := damageWeekKey(now)
+	monthKey := damageMonthKey(now)
+
+	if gs.BossDamageDayKey != dayKey {
+		gs.BossDamageDay = 0
+		gs.BossDamageDayKey = dayKey
+	}
+	if gs.BossDamageWeekKey != weekKey {
+		gs.BossDamageWeek = 0
+		gs.BossDamageWeekKey = weekKey
+	}
+	if gs.BossDamageMonthKey != monthKey {
+		gs.BossDamageMonth = 0
+		gs.BossDamageMonthKey = monthKey
+	}
+	if gs.BossDamageDay < 0 {
+		gs.BossDamageDay = 0
+	}
+	if gs.BossDamageWeek < 0 {
+		gs.BossDamageWeek = 0
+	}
+	if gs.BossDamageMonth < 0 {
+		gs.BossDamageMonth = 0
+	}
+	if gs.BossDamageAllTime < 0 {
+		gs.BossDamageAllTime = 0
+	}
+}
+
+func recordBossDamage(gs *GameState, amount int, now time.Time) {
+	if gs == nil || amount <= 0 {
+		return
+	}
+	normalizeBossDamageStats(gs)
+	gs.BossDamageDay += amount
+	gs.BossDamageWeek += amount
+	gs.BossDamageMonth += amount
+	gs.BossDamageAllTime += amount
+	gs.BossDamageDayKey = damageDayKey(now)
+	gs.BossDamageWeekKey = damageWeekKey(now)
+	gs.BossDamageMonthKey = damageMonthKey(now)
+}
+
+func resetAdventureLoop(gs *GameState) {
+	if gs == nil {
+		return
+	}
+	for i := range gs.Adventure {
+		gs.Adventure[i].Progress = 0
+		gs.Adventure[i].Completed = false
+	}
+	if len(gs.Adventure) > 0 {
+		gs.ActiveAdventureID = gs.Adventure[0].ID
+	}
+}
+
+func adventureFinished(gs *GameState) bool {
+	if gs == nil || len(gs.Adventure) == 0 {
+		return false
+	}
+	for i := range gs.Adventure {
+		if !gs.Adventure[i].Completed {
+			return false
+		}
+	}
+	return true
 }
 
 func refreshBossKillLimit(boss *Boss) {
@@ -1748,6 +1870,9 @@ func normalizeBosses(gs *GameState) {
 		}
 		if boss.KillsToday < 0 {
 			boss.KillsToday = 0
+		}
+		if boss.KillsTotal < 0 {
+			boss.KillsTotal = 0
 		}
 		refreshBossKillLimit(boss)
 

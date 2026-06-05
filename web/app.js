@@ -293,11 +293,19 @@ const DEFAULT_STATE = {
   },
   location: 'Поле',
   bosses: [
-    { id: 'rat', name: 'Крыса', hp: 70, maxHp: 70, attack: 4, reward: { seeds: 20, wheat: 2, carrot: 1, cucumber: 0 }, xp: 10, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '' },
-    { id: 'lizard', name: 'Ящерица', hp: 150, maxHp: 150, attack: 8, reward: { seeds: 50, wheat: 3, carrot: 0, cucumber: 1 }, xp: 20, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '' },
-    { id: 'sand_lizard', name: 'Песчаная ящерица', hp: 600, maxHp: 600, attack: 16, reward: { seeds: 200, wheat: 0, carrot: 3, cucumber: 1 }, xp: 50, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '' },
+    { id: 'rat', name: 'Крыса', hp: 70, maxHp: 70, attack: 4, reward: { seeds: 20, wheat: 2, carrot: 1, cucumber: 0 }, xp: 10, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'lizard', name: 'Ящерица', hp: 150, maxHp: 150, attack: 8, reward: { seeds: 50, wheat: 3, carrot: 0, cucumber: 1 }, xp: 20, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'sand_lizard', name: 'Песчаная ящерица', hp: 600, maxHp: 600, attack: 16, reward: { seeds: 200, wheat: 0, carrot: 3, cucumber: 1 }, xp: 50, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
   ],
   activeBossId: '',
+  locationPasses: 0,
+  bossDamageDay: 0,
+  bossDamageDayKey: damageDayKey(),
+  bossDamageWeek: 0,
+  bossDamageWeekKey: damageWeekKey(),
+  bossDamageMonth: 0,
+  bossDamageMonthKey: damageMonthKey(),
+  bossDamageAllTime: 0,
   adventure: ADVENTURE_DEFS.map((node) => ({
     id: node.id,
     name: node.label,
@@ -454,6 +462,7 @@ function normalizeBosses(stateBosses = []) {
     reward.cucumber = tpl.reward.cucumber;
     const attackCooldowns = existing.attackCooldowns && typeof existing.attackCooldowns === 'object' ? { ...existing.attackCooldowns } : {};
     const defeated = Boolean(existing.defeated) || clampNumber(existing.hp ?? maxHp, 0, maxHp) <= 0;
+    const killsTotal = clampNumber(existing.killsTotal ?? 0, 0, 9999999);
 
     return {
       ...existing,
@@ -470,6 +479,7 @@ function normalizeBosses(stateBosses = []) {
       attackCooldowns: defeated ? {} : Object.fromEntries(Object.entries(attackCooldowns).filter(([, v]) => cleanTimestamp(v))),
       killsToday,
       killsDay,
+      killsTotal,
     };
   });
 }
@@ -549,6 +559,15 @@ function normalizeState(state) {
     : structuredClone(DEFAULT_STATE.bosses);
 
   next.location = state.location || next.location;
+  next.locationPasses = Math.max(0, Number(state.locationPasses ?? next.locationPasses) || 0);
+  next.bossDamageDay = Math.max(0, Number(state.bossDamageDay ?? next.bossDamageDay) || 0);
+  next.bossDamageDayKey = state.bossDamageDayKey || next.bossDamageDayKey || damageDayKey();
+  next.bossDamageWeek = Math.max(0, Number(state.bossDamageWeek ?? next.bossDamageWeek) || 0);
+  next.bossDamageWeekKey = state.bossDamageWeekKey || next.bossDamageWeekKey || damageWeekKey();
+  next.bossDamageMonth = Math.max(0, Number(state.bossDamageMonth ?? next.bossDamageMonth) || 0);
+  next.bossDamageMonthKey = state.bossDamageMonthKey || next.bossDamageMonthKey || damageMonthKey();
+  next.bossDamageAllTime = Math.max(0, Number(state.bossDamageAllTime ?? next.bossDamageAllTime) || 0);
+  normalizeDamageStats(next);
   normalizeBossTimers(next);
   refreshBossKillLimit(next);
 
@@ -721,6 +740,69 @@ function getHamsterSpriteAsset(colorValue) {
   return '/assets/hamster/base.png';
 }
 
+function damageDayKey(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Amsterdam',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
+function damageWeekKey(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Amsterdam',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const zoned = new Date(`${lookup.year}-${lookup.month}-${lookup.day}T12:00:00Z`);
+  const weekday = zoned.getUTCDay() || 7;
+  const monday = new Date(zoned);
+  monday.setUTCDate(zoned.getUTCDate() - weekday + 1);
+  const isoYear = monday.getUTCFullYear();
+  const jan4 = new Date(Date.UTC(isoYear, 0, 4));
+  const jan4Day = jan4.getUTCDay() || 7;
+  const week1Monday = new Date(jan4);
+  week1Monday.setUTCDate(jan4.getUTCDate() - jan4Day + 1);
+  const week = Math.round((monday - week1Monday) / (7 * 24 * 60 * 60 * 1000)) + 1;
+  return `${isoYear}-W${String(week).padStart(2, '0')}`;
+}
+
+function damageMonthKey(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Amsterdam',
+    year: 'numeric',
+    month: '2-digit',
+  }).format(date);
+}
+
+function normalizeDamageStats(state) {
+  const next = state || {};
+  const today = damageDayKey();
+  const week = damageWeekKey();
+  const month = damageMonthKey();
+  next.bossDamageDay = Math.max(0, Number(next.bossDamageDay) || 0);
+  next.bossDamageWeek = Math.max(0, Number(next.bossDamageWeek) || 0);
+  next.bossDamageMonth = Math.max(0, Number(next.bossDamageMonth) || 0);
+  next.bossDamageAllTime = Math.max(0, Number(next.bossDamageAllTime) || 0);
+  if (next.bossDamageDayKey !== today) {
+    next.bossDamageDay = 0;
+    next.bossDamageDayKey = today;
+  }
+  if (next.bossDamageWeekKey !== week) {
+    next.bossDamageWeek = 0;
+    next.bossDamageWeekKey = week;
+  }
+  if (next.bossDamageMonthKey !== month) {
+    next.bossDamageMonth = 0;
+    next.bossDamageMonthKey = month;
+  }
+  if (!next.locationPasses || next.locationPasses < 0) next.locationPasses = 0;
+  return next;
+}
+
 let battleFinishTargetName = '';
 
 function ensureBattleFinishModal() {
@@ -762,6 +844,94 @@ async function confirmBattleFinish() {
   await syncAction('finish_battle', {});
   setView('battle');
   render();
+}
+
+let profileModalTarget = false;
+
+function ensureProfileModal() {
+  if (document.getElementById('profile-modal')) return;
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="profile-modal" class="profile-modal" hidden>
+      <div class="profile-modal__backdrop" data-profile-close></div>
+      <div class="profile-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="profile-title">
+        <div class="profile-modal__head">
+          <div>
+            <div class="eyebrow">Профиль игрока</div>
+            <h3 id="profile-title">Профиль хомяка</h3>
+          </div>
+          <button type="button" class="ghost" data-profile-close>Закрыть</button>
+        </div>
+        <div id="profile-modal-body" class="profile-modal__body"></div>
+      </div>
+    </div>
+  `);
+}
+
+function renderProfileModal(state) {
+  const modal = document.getElementById('profile-modal');
+  if (!modal) return;
+  const body = document.getElementById('profile-modal-body');
+  if (!body) return;
+  const player = state?.player || {};
+  const bosses = state?.bosses || [];
+  const bossRows = bosses.map((boss) => `
+    <div class="profile-row">
+      <span>${boss.name || boss.id}</span>
+      <strong>${Math.max(0, Number(boss.killsTotal) || 0)}</strong>
+    </div>
+  `).join('');
+  body.innerHTML = `
+    <div class="profile-grid">
+      <div class="profile-card">
+        <span>Уровень</span>
+        <strong>${player.level || 1}</strong>
+      </div>
+      <div class="profile-card">
+        <span>Урон по боссам за день</span>
+        <strong>${Math.max(0, Number(state?.bossDamageDay) || 0)}</strong>
+      </div>
+      <div class="profile-card">
+        <span>Урон по боссам за неделю</span>
+        <strong>${Math.max(0, Number(state?.bossDamageWeek) || 0)}</strong>
+      </div>
+      <div class="profile-card">
+        <span>Урон по боссам за месяц</span>
+        <strong>${Math.max(0, Number(state?.bossDamageMonth) || 0)}</strong>
+      </div>
+      <div class="profile-card profile-card--wide">
+        <span>Урон по боссам за всё время</span>
+        <strong>${Math.max(0, Number(state?.bossDamageAllTime) || 0)}</strong>
+      </div>
+      <div class="profile-card">
+        <span>Проходок локации</span>
+        <strong>${Math.max(0, Number(state?.locationPasses) || 0)}</strong>
+      </div>
+    </div>
+    <div class="profile-section">
+      <div class="profile-section__head">
+        <h4>Прохождения боссов</h4>
+        <span>Счётчик побед</span>
+      </div>
+      <div class="profile-list">
+        ${bossRows}
+      </div>
+    </div>
+    <div class="profile-note">Счётчики обновляются после каждого удара и победы над боссом.</div>
+  `;
+}
+
+function openProfileModal() {
+  ensureProfileModal();
+  profileModalTarget = true;
+  const modal = document.getElementById('profile-modal');
+  if (modal) modal.hidden = false;
+  renderProfileModal(currentState);
+}
+
+function closeProfileModal() {
+  profileModalTarget = false;
+  const modal = document.getElementById('profile-modal');
+  if (modal) modal.hidden = true;
 }
 
 function renderAccessoryMarkup(slot, value) {
@@ -1470,6 +1640,9 @@ function render() {
   }
   renderResourceStrip(currentState);
   updateScene(currentState);
+  if (document.getElementById('profile-modal')) {
+    renderProfileModal(currentState);
+  }
 
   const auth = $('#auth-screen');
   const main = $('#main-screen');
@@ -1547,6 +1720,13 @@ function initTopButtons() {
     render();
   };
 
+  const profileButton = $('#btn-profile');
+  if (profileButton) {
+    profileButton.onclick = () => {
+      openProfileModal();
+    };
+  }
+
   $('#btn-battle-panel').onclick = () => {
     setView('battle');
     render();
@@ -1572,6 +1752,11 @@ function initBattleButtons() {
   if (finishConfirm) {
     finishConfirm.onclick = confirmBattleFinish;
   }
+
+  ensureProfileModal();
+  document.querySelectorAll('[data-profile-close]').forEach((btn) => {
+    btn.onclick = closeProfileModal;
+  });
 }
 
 function initAdventureButtons() {
