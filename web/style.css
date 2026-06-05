@@ -1494,6 +1494,13 @@ button.primary {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
+.profile-actions {
+  display: flex;
+  justify-content: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 @media (max-width: 760px) {
   .social-profile {
     grid-template-columns: 1fr;

@@ -986,6 +986,23 @@ function renderProfileSummary(profile) {
   const player = state.player || {};
   const onlineText = profile?.online ? 'Онлайн' : `Был(а) ${formatSeenAt(profile?.lastSeenAt)}`;
   const xpNeed = xpForNextLevel(player.level || 1);
+  const bossDamageDay = Math.max(0, Number(state.bossDamageDay) || 0);
+  const bossDamageWeek = Math.max(0, Number(state.bossDamageWeek) || 0);
+  const bossDamageMonth = Math.max(0, Number(state.bossDamageMonth) || 0);
+  const bossDamageAllTime = Math.max(0, Number(state.bossDamageAllTime) || 0);
+  const bosses = Array.isArray(state.bosses) ? state.bosses : [];
+  const adventure = Array.isArray(state.adventure) ? state.adventure : [];
+  const bossTotal = bosses.reduce((sum, boss) => sum + Math.max(0, Number(boss?.killsTotal) || 0), 0);
+  const adventureTotal = adventure.reduce((sum, node) => sum + Math.max(0, Number(node?.progress) || 0), 0);
+  const actionButtons = profile?.isSelf
+    ? ''
+    : `
+      <div class="profile-actions">
+        ${profile?.isFriend
+          ? `<button type="button" class="ghost" data-profile-remove-friend="${profile?.login || ''}">Удалить из друзей</button>`
+          : `<button type="button" class="primary" data-profile-add-friend="${profile?.login || ''}">Добавить в друзья</button>`}
+      </div>
+    `;
   const stats = [
     { label: 'Логин', value: profile?.login || '—' },
     { label: 'Имя хомяка', value: player.name || 'Хомяк' },
@@ -994,14 +1011,11 @@ function renderProfileSummary(profile) {
     { label: 'HP', value: `${Math.max(1, Number(player.hp) || 1)}/${Math.max(1, Number(player.maxHp) || 1)}` },
     { label: 'Энергия', value: `${Math.max(0, Number(player.energy) || 0)}/${Math.max(1, Number(player.maxEnergy) || 1)}` },
     { label: 'Опыт', value: `${Math.max(0, Number(player.xp) || 0)}/${xpNeed}` },
-    { label: 'Урон за день', value: formatAchievementNumber(Math.max(0, Number(state.bossDamageDay) || 0)) },
-    { label: 'Урон за неделю', value: formatAchievementNumber(Math.max(0, Number(state.bossDamageWeek) || 0)) },
-    { label: 'Урон за месяц', value: formatAchievementNumber(Math.max(0, Number(state.bossDamageMonth) || 0)) },
-    { label: 'Урон за всё время', value: formatAchievementNumber(Math.max(0, Number(state.bossDamageAllTime) || 0)) },
+    { label: 'Урон за день', value: formatAchievementNumber(bossDamageDay) },
+    { label: 'Урон за неделю', value: formatAchievementNumber(bossDamageWeek) },
+    { label: 'Урон за месяц', value: formatAchievementNumber(bossDamageMonth) },
+    { label: 'Урон за всё время', value: formatAchievementNumber(bossDamageAllTime) },
   ];
-
-  const bosses = Array.isArray(state.bosses) ? state.bosses : [];
-  const adventure = Array.isArray(state.adventure) ? state.adventure : [];
 
   const bossRows = bosses.length
     ? bosses.map((boss, index) => `
@@ -1027,18 +1041,25 @@ function renderProfileSummary(profile) {
         ${hamsterPreviewMarkup(state)}
       </div>
       <div class="social-profile__meta">
-        <div class="social-profile__cards">
-          ${stats.map((card) => `
-            <div class="social-profile__card profile-card">
-              <span>${card.label}</span>
-              <strong>${card.value}</strong>
-            </div>
-          `).join('')}
+        ${actionButtons}
+        <div class="profile-section">
+          <div class="profile-section__head">
+            <strong>Статистика</strong>
+            <span>Показатели хомяка</span>
+          </div>
+          <div class="social-profile__cards">
+            ${stats.map((card) => `
+              <div class="social-profile__card profile-card">
+                <span>${card.label}</span>
+                <strong>${card.value}</strong>
+              </div>
+            `).join('')}
+          </div>
         </div>
         <div class="profile-section">
           <div class="profile-section__head">
             <strong>Победы над боссами</strong>
-            <span>${formatAchievementNumber(bosses.reduce((sum, boss) => sum + Math.max(0, Number(boss?.killsTotal) || 0), 0))} всего</span>
+            <span>${formatAchievementNumber(bossTotal)} всего</span>
           </div>
           <div class="profile-list">
             ${bossRows}
@@ -1047,7 +1068,7 @@ function renderProfileSummary(profile) {
         <div class="profile-section">
           <div class="profile-section__head">
             <strong>Карта: поле 1-5</strong>
-            <span>${formatAchievementNumber(adventure.reduce((sum, node) => sum + Math.max(0, Number(node?.progress) || 0), 0))} проходов</span>
+            <span>${formatAchievementNumber(adventureTotal)} проходов</span>
           </div>
           <div class="profile-list">
             ${adventureRows}
@@ -1117,6 +1138,22 @@ function bindProfileModalEvents() {
   document.querySelectorAll('[data-profile-close]').forEach((btn) => {
     btn.onclick = closeProfileModal;
   });
+  document.querySelectorAll('[data-profile-add-friend]').forEach((btn) => {
+    btn.onclick = async () => {
+      const login = btn.getAttribute('data-profile-add-friend') || '';
+      if (login) {
+        await mutateFriendRequest('add', login);
+      }
+    };
+  });
+  document.querySelectorAll('[data-profile-remove-friend]').forEach((btn) => {
+    btn.onclick = async () => {
+      const login = btn.getAttribute('data-profile-remove-friend') || '';
+      if (login) {
+        await mutateFriendRequest('remove', login);
+      }
+    };
+  });
 }
 
 function renderProfileModal(profile) {
@@ -1154,6 +1191,21 @@ async function loadProfileModal(login) {
     return;
   }
   profileModalTarget = target;
+  const selfLogin = normalizeLogin(currentUserLogin || currentState?.player?.name || '');
+  if (selfLogin && selfLogin === target && currentState) {
+    profileModalProfile = normalizeSocialProfile({
+      login: target,
+      state: currentState,
+      online: true,
+      isSelf: true,
+      friends: friendsModalProfile?.friends || [],
+      requests: friendsModalProfile?.requests || [],
+    });
+    profileModalLoading = false;
+    profileModalError = '';
+    renderProfileModal(profileModalProfile);
+    return;
+  }
   profileModalLoading = true;
   profileModalError = '';
   renderProfileModal(profileModalProfile);
