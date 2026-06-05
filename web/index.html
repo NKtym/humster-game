@@ -20,6 +20,7 @@
       <div class="top-actions">
         <input id="player-name-input" class="name-input" maxlength="20" placeholder="Имя хомяка" />
         <button id="btn-save-name" class="ghost" type="button">Сохранить имя</button>
+        <button id="btn-logout" class="ghost" type="button">Выйти</button>
         <button id="btn-new" class="ghost" type="button">Новая игра</button>
       </div>
     </header>
@@ -32,6 +33,32 @@
         </div>
       </div>
       <div class="hud-grid" id="resource-strip"></div>
+    </section>
+
+    <section id="auth-screen" class="card auth-screen">
+      <div class="auth-screen__copy">
+        <div class="eyebrow">Авторизация</div>
+        <h2 id="auth-title">Вход в игру</h2>
+        <p>Сохраняй прогресс на сервере и входи в игру по логину и паролю.</p>
+      </div>
+
+      <div class="auth-grid">
+        <label class="auth-field">
+          <span>Логин</span>
+          <input id="auth-login" maxlength="32" autocomplete="username" placeholder="Логин" />
+        </label>
+        <label class="auth-field">
+          <span>Пароль</span>
+          <input id="auth-password" type="password" maxlength="72" autocomplete="current-password" placeholder="Пароль" />
+        </label>
+
+        <div class="auth-actions">
+          <button id="btn-auth-login" class="primary" type="button">Войти</button>
+          <button id="btn-auth-register" class="ghost" type="button">Создать аккаунт</button>
+        </div>
+
+        <div id="auth-error" class="auth-error" aria-live="polite"></div>
+      </div>
     </section>
 
     <section id="main-screen">
@@ -50,8 +77,9 @@
             <div class="scene-fog"></div>
             <div class="scene-ground"></div>
 
-            <div class="hamster-stage">
+            <div class="hamster-stage" id="hamster-stage" role="button" tabindex="0" aria-label="Редактировать хомяка">
               <div class="ground-shadow"></div>
+              <div id="hamster-color-layer" hidden></div>
               <img id="hamster-sprite" src="/assets/hamster/base.png" alt="Хомяк" />
               <div id="hamster-outfit"></div>
             </div>
@@ -83,6 +111,18 @@
           </aside>
         </div>
       </section>
+    </section>
+
+    <section id="edit-screen" class="card battle-screen" hidden>
+      <div class="battle-screen__head">
+        <div>
+          <div class="eyebrow">Редактор хомяка</div>
+          <h2>Внешний вид</h2>
+          <p>Нажимай на категории и выбирай готовые слои без загрузки файлов.</p>
+        </div>
+        <button id="btn-edit-back" class="ghost" type="button">Вернуться к сцене</button>
+      </div>
+      <div id="edit-screen-body"></div>
     </section>
 
     <section id="battle-screen" class="card battle-screen" hidden>

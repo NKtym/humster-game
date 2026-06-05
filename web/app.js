@@ -6,10 +6,14 @@ const CURRENCY_LABELS = {
   seeds: 'Семечки',
   wheat: 'Пшеница',
   carrot: 'Морковь',
+  cucumber: 'Огурцы',
+  apple: 'Яблоки',
+  kormik: 'Кормик',
 };
 
 const API_BASE = (window.APP_CONFIG && window.APP_CONFIG.apiBaseUrl) ? window.APP_CONFIG.apiBaseUrl : '/api';
 const SESSION_KEY = 'humster_session_id';
+const AUTH_TOKEN_KEY = 'humster_auth_token';
 
 const ADVENTURE_DEFS = [
   { id: 'stage5', label: 'Бежать по полю', image: '/assets/adventure/stage5.png', x: 33.5, y: 24.8, energyCost: 1, requiredPasses: 4 },
@@ -21,7 +25,7 @@ const ADVENTURE_DEFS = [
 
 const CATALOG = {
   wallpapers: [
-    { id: 'wallpaper_day', name: 'Летнее поле', slot: 'wallpaper', img: '/assets/wallpapers/field_day.png' },
+    { id: 'wallpaper_day', name: 'Летний сад', slot: 'wallpaper', img: '/assets/wallpapers/field_day.png' },
     { id: 'wallpaper_sunset', name: 'Закатное поле', slot: 'wallpaper', img: '/assets/wallpapers/field_sunset.png' },
     { id: 'wallpaper_night', name: 'Ночное поле', slot: 'wallpaper', img: '/assets/wallpapers/field_night.png' },
   ],
@@ -32,6 +36,67 @@ const CATALOG = {
   ],
   adventure: ADVENTURE_DEFS,
 };
+
+const APPEARANCE_CATEGORIES = [
+  { id: 'background', label: 'Фон', icon: '🌿', slot: 'background' },
+  { id: 'color', label: 'Окрас', icon: '🎨', slot: 'color' },
+  { id: 'heldItem', label: 'В лапках', icon: '🫳', slot: 'heldItem' },
+  { id: 'headwear', label: 'Кепка', icon: '🧢', slot: 'headwear' },
+  { id: 'glasses', label: 'Очки', icon: '👓', slot: 'glasses' },
+  { id: 'mask', label: 'Маска', icon: '🎭', slot: 'mask' },
+  { id: 'body', label: 'Тело', icon: '🧥', slot: 'body' },
+  { id: 'shoes', label: 'Ноги', icon: '👟', slot: 'shoes' },
+];
+
+const APPEARANCE_OPTIONS = {
+  background: [
+    { id: 'wallpaper_day', name: 'Летний сад', img: '/assets/wallpapers/field_day.png' },
+  ],
+  color: [
+    { id: 'default', name: 'Натуральный', color: '#f1d5a9' },
+    { id: 'cream', name: 'Кремовый', color: '#f8e7c7' },
+    { id: 'caramel', name: 'Карамельный', color: '#c88a4b' },
+    { id: 'gray', name: 'Серый', color: '#b9b9bf' },
+  ],
+  heldItem: [
+    { id: 'none', name: 'Без предмета' },
+    { id: 'flower', name: 'Цветок' },
+    { id: 'seed_bag', name: 'Мешочек семечек' },
+    { id: 'carrot', name: 'Морковка' },
+  ],
+  headwear: [
+    { id: 'none', name: 'Без кепки' },
+    { id: 'cap', name: 'Кепка' },
+    { id: 'beanie', name: 'Шапка' },
+  ],
+  glasses: [
+    { id: 'none', name: 'Без очков' },
+    { id: 'glasses_round', name: 'Очки' },
+    { id: 'glasses_sun', name: 'Солнцезащитные' },
+  ],
+  mask: [
+    { id: 'none', name: 'Без маски' },
+    { id: 'mask_simple', name: 'Маска' },
+  ],
+  body: [
+    { id: 'none', name: 'Без одежды' },
+    { id: 'jacket', name: 'Куртка' },
+    { id: 'hoodie', name: 'Худи' },
+  ],
+  shoes: [
+    { id: 'none', name: 'Без обуви' },
+    { id: 'sneakers', name: 'Кроссовки' },
+    { id: 'boots', name: 'Ботинки' },
+  ],
+};
+
+const ADVENTURE_REWARDS = [
+  { xp: 1, seeds: 2 },
+  { xp: 1, seeds: 3 },
+  { xp: 2, seeds: 5 },
+  { xp: 3, seeds: 6 },
+  { xp: 3, seeds: 10 },
+];
 
 const telegram = window.Telegram?.WebApp || null;
 if (telegram) {
@@ -63,10 +128,20 @@ const DEFAULT_STATE = {
     maxEnergy: 40,
     attack: 2,
     defense: 0,
-    currency: { seeds: 10, wheat: 3, carrot: 0 },
+    currency: { seeds: 10, wheat: 3, carrot: 0, cucumber: 0, apple: 0, kormik: 0 },
     inventory: { wallpaper_day: 1 },
     equipped: { wallpaper: 'wallpaper_day' },
     wallpaper: 'wallpaper_day',
+    appearance: {
+      background: 'wallpaper_day',
+      color: 'default',
+      heldItem: 'none',
+      headwear: 'none',
+      glasses: 'none',
+      mask: 'none',
+      body: 'none',
+      shoes: 'none',
+    },
   },
   location: 'Поле',
   bosses: [
@@ -91,7 +166,10 @@ const DEFAULT_STATE = {
 
 let currentState = structuredClone(DEFAULT_STATE);
 let view = 'main';
+let editCategory = 'background';
 let pendingAdventureShakeId = null;
+let isAuthenticated = false;
+let currentUserLogin = '';
 
 function getSessionId() {
   let sid = localStorage.getItem(SESSION_KEY);
@@ -107,28 +185,69 @@ function apiUrl(path) {
   return `${base}${tail}`;
 }
 
-async function api(path, payload) {
+function getAuthToken() {
+  return localStorage.getItem(AUTH_TOKEN_KEY) || '';
+}
+
+function setAuthToken(token) {
+  if (token) {
+    localStorage.setItem(AUTH_TOKEN_KEY, token);
+  } else {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+  }
+}
+
+function authHeaders(extra = {}) {
+  const headers = { ...extra };
+  const token = getAuthToken();
+  if (token) {
+    headers['X-Auth-Token'] = token;
+  } else {
+    headers['X-Game-Session'] = getSessionId();
+  }
+  return headers;
+}
+
+async function api(path, payload, method = 'POST') {
   try {
     const res = await fetch(apiUrl(path), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Game-Session': getSessionId(),
-      },
-      body: JSON.stringify(payload),
+      method,
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: method === 'GET' ? undefined : JSON.stringify(payload),
     });
-    return await res.json();
+    const data = await res.json().catch(() => null);
+    return { ok: res.ok, status: res.status, data };
   } catch (error) {
-    return null;
+    return { ok: false, status: 0, data: null };
   }
 }
 
 async function loadState() {
+  const token = getAuthToken();
   try {
+    if (token) {
+      const res = await fetch(apiUrl('/auth/me'), {
+        method: 'GET',
+        headers: authHeaders(),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data && data.ok && data.state) {
+        currentState = normalizeState(data.state);
+        currentUserLogin = data.user || currentState.player.name || '';
+        isAuthenticated = true;
+        render();
+        return;
+      }
+      setAuthToken('');
+      isAuthenticated = false;
+      currentUserLogin = '';
+    }
+
     const res = await fetch(apiUrl('/state'), {
-      headers: { 'X-Game-Session': getSessionId() },
+      method: 'GET',
+      headers: authHeaders(),
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => null);
     if (data && data.state) {
       currentState = normalizeState(data.state);
     }
@@ -178,6 +297,16 @@ function normalizeState(state) {
   next.player.energy = clampNumber(next.player.energy, 0, 40);
   next.player.maxHp = clampNumber(next.player.maxHp, 1, 9999);
   next.player.hp = clampNumber(next.player.hp, 0, next.player.maxHp);
+  next.player.appearance = {
+    background: next.player.appearance?.background || next.player.wallpaper || 'wallpaper_day',
+    color: next.player.appearance?.color || 'default',
+    heldItem: next.player.appearance?.heldItem || 'none',
+    headwear: next.player.appearance?.headwear || 'none',
+    glasses: next.player.appearance?.glasses || 'none',
+    mask: next.player.appearance?.mask || 'none',
+    body: next.player.appearance?.body || 'none',
+    shoes: next.player.appearance?.shoes || 'none',
+  };
 
   next.bosses = Array.isArray(state.bosses)
     ? state.bosses.map((boss) => ({
@@ -303,6 +432,11 @@ function formatReward(reward = {}) {
   return parts.length ? parts.join(', ') : 'Награда отсутствует';
 }
 
+function adventureRewardLabel(index) {
+  const reward = ADVENTURE_REWARDS[index] || { xp: 0, seeds: 0 };
+  return `+${reward.xp || 0} XP, +${reward.seeds || 0} семечек`;
+}
+
 function wallpaperName(id) {
   return (CATALOG.wallpapers.find((w) => w.id === id) || CATALOG.wallpapers[0]).name;
 }
@@ -311,15 +445,30 @@ function getWallpaperAsset(id) {
   return CATALOG.wallpapers.find((w) => w.id === id) || CATALOG.wallpapers[0];
 }
 
+function getAppearanceOption(slot, value) {
+  const list = APPEARANCE_OPTIONS[slot] || [];
+  return list.find((item) => item.id === value) || list[0] || null;
+}
+
+function renderAccessoryMarkup(slot, value) {
+  if (!value || value === 'none') return '';
+  const item = getAppearanceOption(slot, value);
+  if (!item) return '';
+  const label = item.name || value;
+  return `<div class="appearance-layer appearance-layer--${slot} appearance-layer--${value}">${label}</div>`;
+}
 
 function renderResourceStrip(state) {
   const p = state.player;
   const currencies = p.currency || {};
   const chips = [
-    { label: 'Хомяк', value: `${p.name} • ур. ${p.level}`, accent: true },
+    { label: isAuthenticated ? (currentUserLogin || 'Аккаунт') : 'Гость', value: `${p.name} • ур. ${p.level}`, accent: true },
     { label: 'Семечки', value: `${currencies.seeds || 0}` },
     { label: 'Пшеница', value: `${currencies.wheat || 0}` },
     { label: 'Морковь', value: `${currencies.carrot || 0}` },
+    { label: 'Огурцы', value: `${currencies.cucumber || 0}` },
+    { label: 'Яблоки', value: `${currencies.apple || 0}` },
+    { label: 'Кормик', value: `${currencies.kormik || 0}` },
     { label: 'Энергия', value: `${p.energy || 0}/${p.maxEnergy || 40}`, sub: getEnergyCountdown(state) },
   ];
 
@@ -333,34 +482,43 @@ function renderResourceStrip(state) {
 }
 
 function updateScene(state) {
-  const wallpaperId = state.player.wallpaper || state.player.equipped?.wallpaper || 'wallpaper_day';
+  const appearance = state.player.appearance || {};
+  const wallpaperId = appearance.background || state.player.wallpaper || state.player.equipped?.wallpaper || 'wallpaper_day';
   const wallpaper = getWallpaperAsset(wallpaperId);
 
   $('#scene-wallpaper').style.backgroundImage = `url("${wallpaper.img}")`;
   $('#scene-meta').textContent = wallpaper.name;
 
-  const head = state.player.equipped?.head;
-  const body = state.player.equipped?.body;
-  const feet = state.player.equipped?.feet;
+  const colorOption = getAppearanceOption('color', appearance.color || 'default');
+  const colorLayer = $('#hamster-color-layer');
+  if (colorLayer) {
+    if (colorOption && colorOption.color && colorOption.id !== 'default') {
+      colorLayer.hidden = false;
+      colorLayer.style.backgroundColor = colorOption.color;
+      colorLayer.style.webkitMaskImage = 'url(/assets/hamster/base.png)';
+      colorLayer.style.maskImage = 'url(/assets/hamster/base.png)';
+    } else {
+      colorLayer.hidden = true;
+      colorLayer.style.backgroundColor = 'transparent';
+      colorLayer.style.webkitMaskImage = 'none';
+      colorLayer.style.maskImage = 'none';
+    }
+  }
+
+  const body = appearance.body || 'none';
+  const head = appearance.headwear || 'none';
+  const glasses = appearance.glasses || 'none';
+  const mask = appearance.mask || 'none';
+  const shoes = appearance.shoes || 'none';
+  const held = appearance.heldItem || 'none';
 
   $('#hamster-outfit').innerHTML = `
-    ${head === 'straw_cap' ? `
-      <div class="outfit-head">
-        <div class="cap"></div>
-        <div class="cap-brim"></div>
-      </div>
-    ` : ''}
-    ${body === 'grain_cloak' ? `
-      <div class="outfit-body">
-        <div class="cloak"></div>
-        <div class="cloak-belt"></div>
-      </div>
-    ` : ''}
-    ${feet === 'carrot_boots' ? `
-      <div class="outfit-feet">
-        <div class="boots"></div>
-      </div>
-    ` : ''}
+    ${head !== 'none' ? `<div class="appearance-layer appearance-layer--headwear appearance-layer--${head}"></div>` : ''}
+    ${glasses !== 'none' ? `<div class="appearance-layer appearance-layer--glasses appearance-layer--${glasses}"></div>` : ''}
+    ${mask !== 'none' ? `<div class="appearance-layer appearance-layer--mask appearance-layer--${mask}"></div>` : ''}
+    ${body !== 'none' ? `<div class="appearance-layer appearance-layer--body appearance-layer--${body}"></div>` : ''}
+    ${shoes !== 'none' ? `<div class="appearance-layer appearance-layer--shoes appearance-layer--${shoes}"></div>` : ''}
+    ${held !== 'none' ? `<div class="appearance-layer appearance-layer--heldItem appearance-layer--${held}"></div>` : ''}
   `;
 }
 
@@ -403,25 +561,41 @@ function applyLocalAction(action, payload = {}) {
       if (nodeId && currentState.adventure.some((node) => node.id === nodeId)) {
         const idx = currentState.adventure.findIndex((node) => node.id === nodeId);
         if (!isAdventureLocked(currentState, idx)) {
-          state.activeAdventureId = nodeId;
+          currentState.activeAdventureId = nodeId;
         }
       }
       return;
     }
     case 'adventure_step': {
-      const nodeId = payload.nodeId || state.activeAdventureId;
-      const idx = state.adventure.findIndex((node) => node.id === nodeId);
+      const nodeId = payload.nodeId;
+      const idx = currentState.adventure.findIndex((node) => node.id === nodeId);
       if (idx < 0) return;
-      if (isAdventureLocked(state, idx)) return;
-      const node = state.adventure[idx];
-      if (node.completed) return;
-      if ((state.player.energy || 0) < node.energyCost) return;
-      state.player.energy -= node.energyCost;
-      node.progress += 1;
-      if (node.progress >= node.requiredPasses) {
-        node.completed = true;
-        const next = state.adventure.find((item) => !item.completed);
-        if (next) state.activeAdventureId = next.id;
+      const node = currentState.adventure[idx];
+      if (isAdventureLocked(currentState, idx) || node.completed || currentState.player.energy < node.energyCost) return;
+      currentState.player.energy -= node.energyCost;
+      currentState.adventure[idx].progress += 1;
+      const reward = ADVENTURE_REWARDS[idx] || { xp: 0, seeds: 0 };
+      currentState.player.xp += reward.xp || 0;
+      currentState.player.currency.seeds = (currentState.player.currency.seeds || 0) + (reward.seeds || 0);
+      recalcLevel(currentState);
+      if (currentState.adventure[idx].progress >= node.requiredPasses) {
+        currentState.adventure[idx].completed = true;
+        const next = currentState.adventure.find((item) => !item.completed);
+        currentState.activeAdventureId = next ? next.id : currentState.activeAdventureId;
+      }
+      return;
+    }
+    case 'set_appearance': {
+      const slot = payload.slot;
+      const value = payload.value;
+      if (!slot || !value) return;
+      currentState.player.appearance = {
+        ...(currentState.player.appearance || {}),
+        [slot]: value,
+      };
+      if (slot === 'background') {
+        currentState.player.wallpaper = value;
+        currentState.player.appearance.background = value;
       }
       return;
     }
@@ -434,24 +608,18 @@ function applyLocalAction(action, payload = {}) {
   }
 }
 
-function recalcLevel(state) {
-  while (state.player.xp >= state.player.level * 10) {
-    const need = state.player.level * 10;
-    state.player.xp -= need;
-    state.player.level += 1;
-    state.player.maxHp += 2;
-    state.player.hp = state.player.maxHp;
-    state.player.attack += 1;
-    state.player.defense += 1;
-  }
-}
-
 async function syncAction(action, payload = {}) {
   const response = await api('/action', { action, ...payload });
-  if (response && response.ok && response.state) {
-    currentState = normalizeState(response.state);
+  if (response.ok && response.data && response.data.state) {
+    currentState = normalizeState(response.data.state);
   } else {
-    applyLocalAction(action, payload);
+    if (response.status === 401) {
+      setAuthToken('');
+      isAuthenticated = false;
+      currentUserLogin = '';
+    } else {
+      applyLocalAction(action, payload);
+    }
   }
   render();
 }
@@ -592,18 +760,19 @@ function renderAdventureScreen() {
               locked ? 'is-locked' : '',
               pendingAdventureShakeId === node.id ? 'is-shaking' : '',
             ].filter(Boolean).join(' ');
+            const reward = ADVENTURE_REWARDS[idx] || { xp: 0, seeds: 0 };
             return `
               <button
                 type="button"
                 class="${classes}"
                 data-adventure-node="${node.id}"
-                aria-label="${node.name} • ${node.energyCost} энергии за проход • ${node.progress}/${node.requiredPasses}"
+                aria-label="${node.name} • ${node.energyCost} энергии за проход • ${node.progress}/${node.requiredPasses} • +${reward.xp} XP и +${reward.seeds} семечек"
                 style="left: ${defNode.x}%; top: ${defNode.y}%"
                 ${locked ? 'disabled' : ''}
               >
                 <span class="adventure-node__ring"></span>
                 <img src="${defNode.image}" alt="${node.name}">
-                <span class="adventure-node__badge">${node.id.replace('stage', '')}</span>
+                <span class="adventure-node__badge">${idx + 1}</span>
               </button>
             `;
           }).join('')}
@@ -625,6 +794,10 @@ function renderAdventureScreen() {
           <div class="stat-box">
             <span>Пройдено</span>
             <strong>${progress}</strong>
+          </div>
+          <div class="stat-box">
+            <span>Награда за действие</span>
+            <strong>${adventureRewardLabel(currentState.adventure.findIndex((n) => n.id === selected.id))}</strong>
           </div>
           <div class="stat-box">
             <span>Энергия</span>
@@ -656,7 +829,7 @@ function renderAdventureScreen() {
         <div class="adventure-note">
           ${selected?.completed
             ? 'Эта точка уже пройдена. Можно посмотреть другие участки карты.'
-            : `Нужно ${selected?.requiredPasses || 0} проходов по ${selected?.energyCost || 0} энергии. После завершения откроется следующая точка.`}
+            : `Нужно ${selected?.requiredPasses || 0} проходов по ${selected?.energyCost || 0} энергии. За каждый успешный проход: ${adventureRewardLabel(currentState.adventure.findIndex((n) => n.id === selected.id))}.`}
         </div>
       </aside>
     </div>
@@ -702,41 +875,176 @@ function renderAdventureScreen() {
   }
 }
 
+function renderAppearanceOptionButton(option, slot) {
+  const selected = (currentState.player.appearance?.[slot] || (slot === 'background' ? currentState.player.wallpaper : 'none')) === option.id;
+  const thumbStyle = option.color ? `style="--chip-color: ${option.color};"` : '';
+  const thumbImage = option.img ? `<img src="${option.img}" alt="" />` : `<span class="appearance-thumb-fallback">${option.name.slice(0, 2)}</span>`;
+  return `
+    <button type="button" class="appearance-option ${selected ? 'is-selected' : ''}" data-appearance-slot="${slot}" data-appearance-value="${option.id}">
+      <div class="appearance-option__thumb" ${thumbStyle}>${thumbImage}</div>
+      <div class="appearance-option__text">
+        <strong>${option.name}</strong>
+      </div>
+    </button>
+  `;
+}
+
+function renderEditScreen() {
+  const body = $('#edit-screen-body');
+  if (!body) return;
+
+  const activeSlot = APPEARANCE_CATEGORIES.find((item) => item.id === editCategory) || APPEARANCE_CATEGORIES[0];
+  const options = APPEARANCE_OPTIONS[activeSlot.slot] || [];
+  const currentValue = currentState.player.appearance?.[activeSlot.slot] || (activeSlot.slot === 'background' ? currentState.player.wallpaper : 'none');
+
+  body.innerHTML = `
+    <div class="edit-layout">
+      <div class="edit-preview card">
+        <div class="edit-preview__title">
+          <div>
+            <div class="eyebrow">Предпросмотр</div>
+            <h3>${currentState.player.name || 'Хомяк'}</h3>
+          </div>
+          <div class="tag">${activeSlot.label}</div>
+        </div>
+        <div class="edit-preview__scene" style="background-image: url('${getWallpaperAsset(currentState.player.appearance?.background || currentState.player.wallpaper || 'wallpaper_day').img}')">
+          <div class="edit-preview__fog"></div>
+          <div class="edit-preview__ground"></div>
+          <div class="edit-preview__hamster">
+            <div class="ground-shadow"></div>
+            <div class="edit-preview__color-layer" ${(() => {
+              const color = getAppearanceOption('color', currentState.player.appearance?.color || 'default');
+              return color && color.color && color.id !== 'default' ? `style="background-color:${color.color};-webkit-mask-image:url(/assets/hamster/base.png);mask-image:url(/assets/hamster/base.png);"` : 'hidden';
+            })()}></div>
+            <img class="edit-preview__base" src="/assets/hamster/base.png" alt="Хомяк" />
+            ${currentState.player.appearance?.headwear && currentState.player.appearance.headwear !== 'none' ? `<div class="appearance-layer appearance-layer--headwear appearance-layer--${currentState.player.appearance.headwear}"></div>` : ''}
+            ${currentState.player.appearance?.glasses && currentState.player.appearance.glasses !== 'none' ? `<div class="appearance-layer appearance-layer--glasses appearance-layer--${currentState.player.appearance.glasses}"></div>` : ''}
+            ${currentState.player.appearance?.mask && currentState.player.appearance.mask !== 'none' ? `<div class="appearance-layer appearance-layer--mask appearance-layer--${currentState.player.appearance.mask}"></div>` : ''}
+            ${currentState.player.appearance?.body && currentState.player.appearance.body !== 'none' ? `<div class="appearance-layer appearance-layer--body appearance-layer--${currentState.player.appearance.body}"></div>` : ''}
+            ${currentState.player.appearance?.shoes && currentState.player.appearance.shoes !== 'none' ? `<div class="appearance-layer appearance-layer--shoes appearance-layer--${currentState.player.appearance.shoes}"></div>` : ''}
+            ${currentState.player.appearance?.heldItem && currentState.player.appearance.heldItem !== 'none' ? `<div class="appearance-layer appearance-layer--heldItem appearance-layer--${currentState.player.appearance.heldItem}"></div>` : ''}
+          </div>
+        </div>
+        <div class="edit-preview__note">Картинки можно заменить на свои AI-слои без загрузки в игре — только фиксированные варианты.</div>
+      </div>
+
+      <aside class="edit-panel">
+        <div class="edit-panel__tabs">
+          ${APPEARANCE_CATEGORIES.map((item) => `
+            <button type="button" class="edit-tab ${item.id === activeSlot.id ? 'is-active' : ''}" data-edit-category="${item.id}">
+              <span>${item.icon}</span>
+              <strong>${item.label}</strong>
+            </button>
+          `).join('')}
+        </div>
+
+        <div class="edit-panel__head">
+          <div>
+            <div class="eyebrow">${activeSlot.label}</div>
+            <h3>${activeSlot.id === 'background' ? 'Выбор фона' : 'Выбор предмета'}</h3>
+          </div>
+          <div class="tag">Выбрано: ${getAppearanceOption(activeSlot.slot, currentValue)?.name || '—'}</div>
+        </div>
+
+        <div class="appearance-grid">
+          ${options.map((opt) => renderAppearanceOptionButton(opt, activeSlot.slot)).join('')}
+        </div>
+      </aside>
+    </div>
+  `;
+
+  document.querySelectorAll('[data-edit-category]').forEach((btn) => {
+    btn.onclick = () => {
+      editCategory = btn.dataset.editCategory || 'background';
+      render();
+    };
+  });
+
+  document.querySelectorAll('[data-appearance-slot]').forEach((btn) => {
+    btn.onclick = async () => {
+      await syncAction('set_appearance', {
+        slot: btn.dataset.appearanceSlot,
+        value: btn.dataset.appearanceValue,
+      });
+      render();
+    };
+  });
+}
+
 function render() {
   currentState = normalizeState(currentState);
   currentState = advanceLocalEnergy(currentState);
   $('#player-name-input').value = currentState.player.name || 'Хомяк';
+  const authTitle = $('#auth-title');
+  if (authTitle) {
+    authTitle.textContent = isAuthenticated ? `Добро пожаловать, ${currentUserLogin || currentState.player.name || 'хомяк'}` : 'Вход в игру';
+  }
   renderResourceStrip(currentState);
   updateScene(currentState);
 
+  const auth = $('#auth-screen');
   const main = $('#main-screen');
   const battle = $('#battle-screen');
   const adventure = $('#adventure-screen');
+  const edit = $('#edit-screen');
+
+  if (auth) auth.hidden = isAuthenticated;
+  if (!isAuthenticated) {
+    main.hidden = true;
+    battle.hidden = true;
+    adventure.hidden = true;
+    edit.hidden = true;
+    return;
+  }
 
   if (view === 'battle') {
     main.hidden = true;
     adventure.hidden = true;
+    edit.hidden = true;
     battle.hidden = false;
     renderBattleScreen();
   } else if (view === 'adventure') {
     main.hidden = true;
     battle.hidden = true;
+    edit.hidden = true;
     adventure.hidden = false;
     renderAdventureScreen();
+  } else if (view === 'edit') {
+    main.hidden = true;
+    battle.hidden = true;
+    adventure.hidden = true;
+    edit.hidden = false;
+    renderEditScreen();
   } else {
     battle.hidden = true;
     adventure.hidden = true;
+    edit.hidden = true;
     main.hidden = false;
   }
 }
 
 function initTopButtons() {
+  const hamsterStage = document.getElementById('hamster-stage');
+  if (hamsterStage) {
+    hamsterStage.onclick = () => {
+      view = 'edit';
+      render();
+    };
+    hamsterStage.onkeydown = (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        view = 'edit';
+        render();
+      }
+    };
+  }
+
   $('#btn-save-name').onclick = async () => {
     const name = $('#player-name-input').value.trim();
     if (!name) return;
     const response = await api('/name', { name });
-    if (response && response.ok && response.state) {
-      currentState = normalizeState(response.state);
+    if (response.ok && response.data && response.data.state) {
+      currentState = normalizeState(response.data.state);
     } else {
       currentState.player.name = name;
     }
@@ -744,7 +1052,6 @@ function initTopButtons() {
   };
 
   $('#btn-new').onclick = async () => {
-    localStorage.removeItem(SESSION_KEY);
     currentState = normalizeState(DEFAULT_STATE);
     view = 'main';
     await syncAction('new_run', {});
@@ -779,12 +1086,63 @@ function initAdventureButtons() {
   }
 }
 
+function initEditButtons() {
+  const back = $('#btn-edit-back');
+  if (back) {
+    back.onclick = () => {
+      view = 'main';
+      render();
+    };
+  }
+}
+
+
+async function submitAuth(mode) {
+  const authError = $('#auth-error');
+  if (authError) authError.textContent = '';
+  const login = $('#auth-login').value.trim();
+  const password = $('#auth-password').value;
+  const response = await api(`/auth/${mode}`, { login, password });
+  if (response.ok && response.data && response.data.token && response.data.state) {
+    setAuthToken(response.data.token);
+    currentState = normalizeState(response.data.state);
+    currentUserLogin = response.data.user || login;
+    isAuthenticated = true;
+    view = 'main';
+    render();
+    return;
+  }
+
+  const message = response.data && response.data.error ? response.data.error : 'Не удалось войти';
+  if (authError) authError.textContent = message;
+}
+
+function initAuthButtons() {
+  const loginBtn = $('#btn-auth-login');
+  const registerBtn = $('#btn-auth-register');
+  const logoutBtn = $('#btn-logout');
+  if (loginBtn) loginBtn.onclick = () => submitAuth('login');
+  if (registerBtn) registerBtn.onclick = () => submitAuth('register');
+  if (logoutBtn) {
+    logoutBtn.onclick = async () => {
+      await api('/auth/logout', {}, 'POST');
+      setAuthToken('');
+      isAuthenticated = false;
+      currentUserLogin = '';
+      currentState = normalizeState(DEFAULT_STATE);
+      render();
+    };
+  }
+}
+
 let uiTicker = null;
 
 window.addEventListener('DOMContentLoaded', async () => {
+  initAuthButtons();
   initTopButtons();
   initBattleButtons();
   initAdventureButtons();
+  initEditButtons();
   render();
   await loadState();
 

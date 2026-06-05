@@ -1,10 +1,24 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: hamster
+      POSTGRES_PASSWORD: hamster
+      POSTGRES_DB: hamster_game
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     environment:
       PORT: "8080"
+      DATABASE_URL: "postgres://hamster:hamster@postgres:5432/hamster_game?sslmode=disable"
+    depends_on:
+      - postgres
     expose:
       - "8080"
 
@@ -16,3 +30,6 @@ services:
       - backend
     ports:
       - "8080:80"
+
+volumes:
+  postgres_data:

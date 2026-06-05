@@ -1,15 +1,20 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
 	"math/big"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -18,9 +23,12 @@ import (
 type Currency string
 
 const (
-	Seeds  Currency = "seeds"
-	Wheat  Currency = "wheat"
-	Carrot Currency = "carrot"
+	Seeds    Currency = "seeds"
+	Wheat    Currency = "wheat"
+	Carrot   Currency = "carrot"
+	Cucumber Currency = "cucumber"
+	Apple    Currency = "apple"
+	Kormik   Currency = "kormik"
 )
 
 type Item struct {
@@ -52,20 +60,32 @@ type AdventureNode struct {
 	Completed      bool   `json:"completed"`
 }
 
+type Appearance struct {
+	Background string `json:"background"`
+	Color      string `json:"color"`
+	HeldItem   string `json:"heldItem"`
+	Headwear   string `json:"headwear"`
+	Glasses    string `json:"glasses"`
+	Mask       string `json:"mask"`
+	Body       string `json:"body"`
+	Shoes      string `json:"shoes"`
+}
+
 type Player struct {
-	Name      string            `json:"name"`
-	Level     int               `json:"level"`
-	XP        int               `json:"xp"`
-	HP        int               `json:"hp"`
-	MaxHP     int               `json:"maxHp"`
-	Energy    int               `json:"energy"`
-	MaxEnergy int               `json:"maxEnergy"`
-	Attack    int               `json:"attack"`
-	Defense   int               `json:"defense"`
-	Currency  map[Currency]int  `json:"currency"`
-	Inventory map[string]int    `json:"inventory"`
-	Equipped  map[string]string `json:"equipped"`
-	Wallpaper string            `json:"wallpaper"`
+	Name       string            `json:"name"`
+	Level      int               `json:"level"`
+	XP         int               `json:"xp"`
+	HP         int               `json:"hp"`
+	MaxHP      int               `json:"maxHp"`
+	Energy     int               `json:"energy"`
+	MaxEnergy  int               `json:"maxEnergy"`
+	Attack     int               `json:"attack"`
+	Defense    int               `json:"defense"`
+	Currency   map[Currency]int  `json:"currency"`
+	Inventory  map[string]int    `json:"inventory"`
+	Equipped   map[string]string `json:"equipped"`
+	Wallpaper  string            `json:"wallpaper"`
+	Appearance Appearance        `json:"appearance"`
 }
 
 type GameState struct {
@@ -86,9 +106,11 @@ type Session struct {
 }
 
 type Server struct {
-	mu       sync.Mutex
-	sessions map[string]*Session
-	items    map[string]Item
+	mu        sync.Mutex
+	sessions  map[string]*Session
+	items     map[string]Item
+	dbURL     string
+	localPath string
 }
 
 type ActionRequest struct {
@@ -98,6 +120,8 @@ type ActionRequest struct {
 	BossID     string `json:"bossId,omitempty"`
 	NodeID     string `json:"nodeId,omitempty"`
 	AttackType string `json:"attackType,omitempty"`
+	Slot       string `json:"slot,omitempty"`
+	Value      string `json:"value,omitempty"`
 }
 
 type ActionResponse struct {
@@ -105,6 +129,34 @@ type ActionResponse struct {
 	State GameState `json:"state"`
 	Error string    `json:"error,omitempty"`
 }
+
+type AuthRequest struct {
+	Login    string `json:"login"`
+	Password string `json:"password"`
+}
+
+type AuthResponse struct {
+	OK    bool      `json:"ok"`
+	Token string    `json:"token,omitempty"`
+	User  string    `json:"user,omitempty"`
+	State GameState `json:"state"`
+	Error string    `json:"error,omitempty"`
+}
+
+type userRecord struct {
+	ID    string
+	Login string
+	Salt  string
+	Hash  string
+}
+
+type stateLease struct {
+	state   *GameState
+	release func()
+	commit  func() error
+}
+
+var errNoRows = errors.New("no rows")
 
 var adventureBlueprints = []AdventureNode{
 	{ID: "stage5", Name: "Бежать по полю", EnergyCost: 1, RequiredPasses: 4},
@@ -121,6 +173,10 @@ func main() {
 	mux.HandleFunc("/api/state", srv.handleState)
 	mux.HandleFunc("/api/action", srv.handleAction)
 	mux.HandleFunc("/api/name", srv.handleName)
+	mux.HandleFunc("/api/auth/register", srv.handleRegister)
+	mux.HandleFunc("/api/auth/login", srv.handleLogin)
+	mux.HandleFunc("/api/auth/me", srv.handleMe)
+	mux.HandleFunc("/api/auth/logout", srv.handleLogout)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -136,7 +192,7 @@ func main() {
 }
 
 func newServer() *Server {
-	return &Server{
+	srv := &Server{
 		sessions: map[string]*Session{},
 		items: map[string]Item{
 			"straw_cap": {
@@ -189,12 +245,35 @@ func newServer() *Server {
 			},
 		},
 	}
+
+	dbURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	if dbURL == "" {
+		log.Println("DATABASE_URL is not set; game progress will stay in memory until a database is configured.")
+		return srv
+	}
+
+	srv.dbURL = dbURL
+	if err := srv.ensureSchema(); err != nil {
+		log.Printf("postgres init failed: %v", err)
+		srv.dbURL = ""
+	}
+	return srv
 }
 
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
-	sessionID := sessionIDFromRequest(w, r)
-	sess := s.getSession(sessionID)
-	writeJSON(w, ActionResponse{OK: true, State: sess.snapshot()})
+	lease, err := s.leaseState(w, r)
+	if err != nil {
+		writeJSON(w, ActionResponse{OK: false, Error: err.Error()})
+		return
+	}
+	defer lease.release()
+
+	advanceEnergy(lease.state)
+	if err := lease.commit(); err != nil {
+		writeJSON(w, ActionResponse{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, ActionResponse{OK: true, State: copyState(*lease.state)})
 }
 
 func (s *Server) handleName(w http.ResponseWriter, r *http.Request) {
@@ -219,15 +298,22 @@ func (s *Server) handleName(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionID := sessionIDFromRequest(w, r)
-	sess := s.getSession(sessionID)
-	sess.mu.Lock()
-	defer sess.mu.Unlock()
+	lease, err := s.leaseState(w, r)
+	if err != nil {
+		writeJSON(w, ActionResponse{OK: false, Error: err.Error()})
+		return
+	}
+	defer lease.release()
 
-	advanceEnergy(&sess.state)
-	sess.state.Player.Name = name
-	appendLog(&sess.state, fmt.Sprintf("Теперь тебя зовут %s.", name))
-	writeJSON(w, ActionResponse{OK: true, State: sess.state})
+	advanceEnergy(lease.state)
+	lease.state.Player.Name = name
+	appendLog(lease.state, fmt.Sprintf("Теперь тебя зовут %s.", name))
+
+	if err := lease.commit(); err != nil {
+		writeJSON(w, ActionResponse{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, ActionResponse{OK: true, State: copyState(*lease.state)})
 }
 
 func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
@@ -242,48 +328,599 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionID := sessionIDFromRequest(w, r)
-	sess := s.getSession(sessionID)
-	sess.mu.Lock()
-	defer sess.mu.Unlock()
+	lease, err := s.leaseState(w, r)
+	if err != nil {
+		writeJSON(w, ActionResponse{OK: false, Error: err.Error()})
+		return
+	}
+	defer lease.release()
 
-	advanceEnergy(&sess.state)
-	sess.state.UpdatedAt = time.Now()
+	advanceEnergy(lease.state)
+	lease.state.UpdatedAt = time.Now()
 
-	var err error
 	switch req.Action {
 	case "explore_field":
-		err = s.exploreField(&sess.state)
+		err = s.exploreField(lease.state)
 	case "select_boss":
-		err = s.selectBoss(&sess.state, req.BossID)
+		err = s.selectBoss(lease.state, req.BossID)
 	case "clear_boss":
-		err = s.clearBoss(&sess.state)
+		err = s.clearBoss(lease.state)
 	case "attack_boss":
-		err = s.attackBoss(&sess.state, req.AttackType)
+		err = s.attackBoss(lease.state, req.AttackType)
 	case "buy_item":
-		err = s.buyItem(&sess.state, req.ItemID)
+		err = s.buyItem(lease.state, req.ItemID)
 	case "equip_item":
-		err = s.equipItem(&sess.state, req.ItemID)
+		err = s.equipItem(lease.state, req.ItemID)
 	case "rest":
-		err = rest(&sess.state)
+		err = rest(lease.state)
 	case "select_adventure":
-		err = s.selectAdventure(&sess.state, req.NodeID)
+		err = s.selectAdventure(lease.state, req.NodeID)
 	case "adventure_step":
-		err = s.adventureStep(&sess.state, req.NodeID)
+		err = s.adventureStep(lease.state, req.NodeID)
 	case "new_run":
-		sess.state = newGameState()
-		appendLog(&sess.state, "Новая игра началась.")
+		*lease.state = newGameState()
+		appendLog(lease.state, "Новая игра началась.")
+	case "set_appearance":
+		err = s.setAppearance(lease.state, req.Slot, req.Value)
 	default:
 		err = fmt.Errorf("неизвестное действие")
 	}
 
 	if err != nil {
-		appendLog(&sess.state, err.Error())
-		writeJSON(w, ActionResponse{OK: false, Error: err.Error(), State: sess.state})
+		appendLog(lease.state, err.Error())
+		if commitErr := lease.commit(); commitErr != nil {
+			writeJSON(w, ActionResponse{OK: false, Error: commitErr.Error(), State: copyState(*lease.state)})
+			return
+		}
+		writeJSON(w, ActionResponse{OK: false, Error: err.Error(), State: copyState(*lease.state)})
 		return
 	}
 
-	writeJSON(w, ActionResponse{OK: true, State: sess.state})
+	if err := lease.commit(); err != nil {
+		writeJSON(w, ActionResponse{OK: false, Error: err.Error(), State: copyState(*lease.state)})
+		return
+	}
+	writeJSON(w, ActionResponse{OK: true, State: copyState(*lease.state)})
+}
+
+func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req AuthRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, AuthResponse{OK: false, Error: "bad json"})
+		return
+	}
+	login := normalizeLogin(req.Login)
+	password := strings.TrimSpace(req.Password)
+	if err := validateCredentials(login, password); err != nil {
+		writeJSON(w, AuthResponse{OK: false, Error: err.Error()})
+		return
+	}
+
+	ctx := context.Background()
+	exists, err := s.userByLogin(ctx, login)
+	if err != nil && !errors.Is(err, errNoRows) {
+		writeJSON(w, AuthResponse{OK: false, Error: "не удалось проверить логин"})
+		return
+	}
+	if exists != nil {
+		writeJSON(w, AuthResponse{OK: false, Error: "такой логин уже занят"})
+		return
+	}
+
+	salt := randomID()
+	hash := passwordHash(password, salt)
+	userID := randomID()
+	if strings.TrimSpace(s.dbURL) == "" {
+		if err := s.withLocalStore(func(store *localStore) error {
+			store.ensure()
+			for _, u := range store.Users {
+				if u.Login == login {
+					return fmt.Errorf("такой логин уже занят")
+				}
+			}
+			store.Users[userID] = userRecord{ID: userID, Login: login, Salt: salt, Hash: hash}
+			return nil
+		}); err != nil {
+			writeJSON(w, AuthResponse{OK: false, Error: err.Error()})
+			return
+		}
+	} else if err := s.execPSQL(ctx, `INSERT INTO users (id, login, password_salt, password_hash) VALUES (:'id', :'login', :'salt', :'hash')`, map[string]string{"id": userID, "login": login, "salt": salt, "hash": hash}); err != nil {
+		writeJSON(w, AuthResponse{OK: false, Error: "не удалось создать пользователя"})
+		return
+	}
+
+	state := newGameState()
+	state.Player.Name = login
+	if err := s.saveState(ctx, userID, state); err != nil {
+		writeJSON(w, AuthResponse{OK: false, Error: "не удалось сохранить прогресс"})
+		return
+	}
+
+	token, err := s.createSession(ctx, userID)
+	if err != nil {
+		writeJSON(w, AuthResponse{OK: false, Error: "не удалось создать сессию"})
+		return
+	}
+
+	writeJSON(w, AuthResponse{OK: true, Token: token, User: login, State: copyState(state)})
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req AuthRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, AuthResponse{OK: false, Error: "bad json"})
+		return
+	}
+	login := normalizeLogin(req.Login)
+	password := strings.TrimSpace(req.Password)
+	if err := validateCredentials(login, password); err != nil {
+		writeJSON(w, AuthResponse{OK: false, Error: err.Error()})
+		return
+	}
+
+	ctx := context.Background()
+	user, err := s.userByLogin(ctx, login)
+	if err != nil {
+		writeJSON(w, AuthResponse{OK: false, Error: "неверный логин или пароль"})
+		return
+	}
+	if !verifyPassword(password, user.Salt, user.Hash) {
+		writeJSON(w, AuthResponse{OK: false, Error: "неверный логин или пароль"})
+		return
+	}
+
+	state, err := s.loadState(ctx, user.ID)
+	if err != nil {
+		writeJSON(w, AuthResponse{OK: false, Error: "не удалось загрузить прогресс"})
+		return
+	}
+	if state.Player.Name == "" {
+		state.Player.Name = login
+	}
+	if err := s.saveState(ctx, user.ID, state); err != nil {
+		writeJSON(w, AuthResponse{OK: false, Error: "не удалось сохранить прогресс"})
+		return
+	}
+
+	token, err := s.createSession(ctx, user.ID)
+	if err != nil {
+		writeJSON(w, AuthResponse{OK: false, Error: "не удалось создать сессию"})
+		return
+	}
+
+	writeJSON(w, AuthResponse{OK: true, Token: token, User: login, State: copyState(state)})
+}
+
+func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID, ok := s.userIDFromRequest(r)
+	if !ok {
+		writeJSON(w, AuthResponse{OK: false, Error: "не авторизован"})
+		return
+	}
+	ctx := context.Background()
+	login, err := s.loginByUserID(ctx, userID)
+	if err != nil {
+		writeJSON(w, AuthResponse{OK: false, Error: "не авторизован"})
+		return
+	}
+	state, err := s.loadState(ctx, userID)
+	if err != nil {
+		writeJSON(w, AuthResponse{OK: false, Error: "не удалось загрузить прогресс"})
+		return
+	}
+	writeJSON(w, AuthResponse{OK: true, User: login, State: copyState(state)})
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	token := requestAuthToken(r)
+	if token == "" {
+		writeJSON(w, AuthResponse{OK: true})
+		return
+	}
+	if strings.TrimSpace(s.dbURL) == "" {
+		_ = s.withLocalStore(func(store *localStore) error {
+			delete(store.Sessions, sessionTokenHash(token))
+			return nil
+		})
+		writeJSON(w, AuthResponse{OK: true})
+		return
+	}
+	_ = s.execPSQL(context.Background(), `DELETE FROM auth_sessions WHERE token_hash = :'token_hash'`, map[string]string{
+		"token_hash": sessionTokenHash(token),
+	})
+	writeJSON(w, AuthResponse{OK: true})
+}
+
+func (s *Server) leaseState(w http.ResponseWriter, r *http.Request) (*stateLease, error) {
+	if userID, ok := s.userIDFromRequest(r); ok {
+		ctx := context.Background()
+		state, err := s.loadState(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+		return &stateLease{
+			state:   &state,
+			release: func() {},
+			commit: func() error {
+				return s.saveState(ctx, userID, state)
+			},
+		}, nil
+	}
+
+	sid := sessionIDFromRequest(w, r)
+	sess := s.getSession(sid)
+	sess.mu.Lock()
+	return &stateLease{
+		state:   &sess.state,
+		release: func() { sess.mu.Unlock() },
+		commit:  func() error { return nil },
+	}, nil
+}
+
+func (s *Server) userIDFromRequest(r *http.Request) (string, bool) {
+	token := requestAuthToken(r)
+	if token == "" {
+		return "", false
+	}
+	if strings.TrimSpace(s.dbURL) == "" {
+		userID, ok := s.localUserIDForToken(token)
+		if !ok {
+			return "", false
+		}
+		return userID, true
+	}
+	ctx := context.Background()
+	out, err := s.queryPSQL(ctx, `
+		SELECT user_id
+		FROM auth_sessions
+		WHERE token_hash = :'token_hash' AND expires_at > NOW()
+		LIMIT 1
+	`, map[string]string{
+		"token_hash": sessionTokenHash(token),
+	})
+	if err != nil {
+		return "", false
+	}
+	userID := strings.TrimSpace(out)
+	if userID == "" {
+		return "", false
+	}
+	return userID, true
+}
+
+func requestAuthToken(r *http.Request) string {
+	token := strings.TrimSpace(r.Header.Get("X-Auth-Token"))
+	if token != "" {
+		return token
+	}
+	if auth := strings.TrimSpace(r.Header.Get("Authorization")); strings.HasPrefix(strings.ToLower(auth), "bearer ") {
+		return strings.TrimSpace(auth[7:])
+	}
+	if c, err := r.Cookie("humster_auth"); err == nil {
+		return strings.TrimSpace(c.Value)
+	}
+	return ""
+}
+
+func normalizeLogin(login string) string {
+	return strings.ToLower(strings.TrimSpace(login))
+}
+
+func validateCredentials(login, password string) error {
+	if len([]rune(login)) < 3 {
+		return fmt.Errorf("логин должен быть не короче 3 символов")
+	}
+	if len([]rune(login)) > 32 {
+		return fmt.Errorf("логин слишком длинный")
+	}
+	if len([]rune(password)) < 6 {
+		return fmt.Errorf("пароль должен быть не короче 6 символов")
+	}
+	if len([]rune(password)) > 72 {
+		return fmt.Errorf("пароль слишком длинный")
+	}
+	return nil
+}
+
+func passwordHash(password, salt string) string {
+	sum := sha256.Sum256([]byte(salt + ":" + password))
+	return hex.EncodeToString(sum[:])
+}
+
+func verifyPassword(password, salt, hash string) bool {
+	candidate := passwordHash(password, salt)
+	return subtle.ConstantTimeCompare([]byte(candidate), []byte(hash)) == 1
+}
+
+func sessionTokenHash(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+func (s *Server) createSession(ctx context.Context, userID string) (string, error) {
+	token := randomID() + randomID()
+	if strings.TrimSpace(s.dbURL) == "" {
+		if err := s.withLocalStore(func(store *localStore) error {
+			store.ensure()
+			store.Sessions[sessionTokenHash(token)] = localSessionRecord{
+				UserID:    userID,
+				ExpiresAt: time.Now().Add(30 * 24 * time.Hour).UTC(),
+			}
+			return nil
+		}); err != nil {
+			return "", err
+		}
+		return token, nil
+	}
+	expiresAt := time.Now().Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339Nano)
+	return token, s.execPSQL(ctx, `
+		INSERT INTO auth_sessions (token_hash, user_id, expires_at)
+		VALUES (:'token_hash', :'user_id', :'expires_at'::timestamptz)
+	`, map[string]string{
+		"token_hash": sessionTokenHash(token),
+		"user_id":    userID,
+		"expires_at": expiresAt,
+	})
+}
+
+func (s *Server) ensureSchema() error {
+	if strings.TrimSpace(s.dbURL) == "" {
+		return s.withLocalStore(func(store *localStore) error {
+			store.ensure()
+			return nil
+		})
+	}
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS users (
+			id TEXT PRIMARY KEY,
+			login TEXT NOT NULL UNIQUE,
+			password_salt TEXT NOT NULL,
+			password_hash TEXT NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS game_states (
+			user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+			state_json JSONB NOT NULL,
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS auth_sessions (
+			token_hash TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			expires_at TIMESTAMPTZ NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions(expires_at)`,
+	}
+	for _, stmt := range stmts {
+		if err := s.execPSQL(context.Background(), stmt, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Server) userByLogin(ctx context.Context, login string) (*userRecord, error) {
+	if strings.TrimSpace(s.dbURL) == "" {
+		var found *userRecord
+		err := s.withLocalStore(func(store *localStore) error {
+			store.ensure()
+			for _, u := range store.Users {
+				if u.Login == login {
+					copy := u
+					found = &copy
+					return nil
+				}
+			}
+			return errNoRows
+		})
+		if err != nil {
+			return nil, err
+		}
+		if found == nil {
+			return nil, errNoRows
+		}
+		return found, nil
+	}
+	out, err := s.queryPSQL(ctx, `
+		SELECT id, login, password_salt, password_hash
+		FROM users
+		WHERE login = :'login'
+		LIMIT 1
+	`, map[string]string{"login": login})
+	if err != nil {
+		return nil, err
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return nil, errNoRows
+	}
+	parts := strings.SplitN(out, "	", 4)
+	if len(parts) != 4 {
+		return nil, fmt.Errorf("неожиданный ответ базы данных")
+	}
+	return &userRecord{
+		ID:    parts[0],
+		Login: parts[1],
+		Salt:  parts[2],
+		Hash:  parts[3],
+	}, nil
+}
+
+func (s *Server) loginByUserID(ctx context.Context, userID string) (string, error) {
+	if strings.TrimSpace(s.dbURL) == "" {
+		var login string
+		err := s.withLocalStore(func(store *localStore) error {
+			store.ensure()
+			for _, u := range store.Users {
+				if u.ID == userID {
+					login = u.Login
+					return nil
+				}
+			}
+			return errNoRows
+		})
+		if err != nil {
+			return "", err
+		}
+		if strings.TrimSpace(login) == "" {
+			return "", errNoRows
+		}
+		return login, nil
+	}
+	out, err := s.queryPSQL(ctx, `
+		SELECT login
+		FROM users
+		WHERE id = :'user_id'
+		LIMIT 1
+	`, map[string]string{"user_id": userID})
+	if err != nil {
+		return "", err
+	}
+	login := strings.TrimSpace(out)
+	if login == "" {
+		return "", errNoRows
+	}
+	return login, nil
+}
+
+func (s *Server) loadState(ctx context.Context, userID string) (GameState, error) {
+	if strings.TrimSpace(s.dbURL) == "" {
+		var state GameState
+		err := s.withLocalStore(func(store *localStore) error {
+			store.ensure()
+			if existing, ok := store.States[userID]; ok {
+				state = existing
+				return nil
+			}
+			state = newGameState()
+			store.States[userID] = copyState(state)
+			return nil
+		})
+		if err != nil {
+			return GameState{}, err
+		}
+		if state.Player.Currency == nil {
+			state.Player.Currency = map[Currency]int{}
+		}
+		if state.Player.Inventory == nil {
+			state.Player.Inventory = map[string]int{}
+		}
+		if state.Player.Equipped == nil {
+			state.Player.Equipped = map[string]string{}
+		}
+		if state.Player.Appearance == (Appearance{}) {
+			state.Player.Appearance = newGameState().Player.Appearance
+		}
+		return state, nil
+	}
+	out, err := s.queryPSQL(ctx, `
+		SELECT state_json::text
+		FROM game_states
+		WHERE user_id = :'user_id'
+		LIMIT 1
+	`, map[string]string{"user_id": userID})
+	if err != nil {
+		return GameState{}, err
+	}
+	raw := strings.TrimSpace(out)
+	if raw == "" {
+		state := newGameState()
+		if err := s.saveState(ctx, userID, state); err != nil {
+			return GameState{}, err
+		}
+		return state, nil
+	}
+	var state GameState
+	if err := json.Unmarshal([]byte(raw), &state); err != nil {
+		return GameState{}, err
+	}
+	if state.Player.Currency == nil {
+		state.Player.Currency = map[Currency]int{}
+	}
+	if state.Player.Inventory == nil {
+		state.Player.Inventory = map[string]int{}
+	}
+	if state.Player.Equipped == nil {
+		state.Player.Equipped = map[string]string{}
+	}
+	if state.Player.Appearance == (Appearance{}) {
+		state.Player.Appearance = newGameState().Player.Appearance
+	}
+	return state, nil
+}
+
+func (s *Server) saveState(ctx context.Context, userID string, state GameState) error {
+	if strings.TrimSpace(s.dbURL) == "" {
+		return s.withLocalStore(func(store *localStore) error {
+			store.ensure()
+			store.States[userID] = copyState(state)
+			return nil
+		})
+	}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	return s.execPSQL(ctx, `
+		INSERT INTO game_states (user_id, state_json, updated_at)
+		VALUES (:'user_id', :'state_json'::jsonb, NOW())
+		ON CONFLICT (user_id)
+		DO UPDATE SET state_json = EXCLUDED.state_json, updated_at = NOW()
+	`, map[string]string{
+		"user_id":    userID,
+		"state_json": string(payload),
+	})
+}
+
+func (s *Server) queryPSQL(ctx context.Context, query string, vars map[string]string) (string, error) {
+	if strings.TrimSpace(s.dbURL) == "" {
+		return "", fmt.Errorf("база данных не подключена")
+	}
+	args := []string{
+		s.dbURL,
+		"-X",
+		"-v", "ON_ERROR_STOP=1",
+		"-Atq",
+		"-F", "	",
+	}
+	for k, v := range vars {
+		args = append(args, "-v", fmt.Sprintf("%s=%s", k, v))
+	}
+	args = append(args, "-c", query)
+	cmd := exec.CommandContext(ctx, "psql", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return "", fmt.Errorf(msg)
+		}
+		return "", err
+	}
+	return string(out), nil
+}
+
+func (s *Server) execPSQL(ctx context.Context, query string, vars map[string]string) error {
+	_, err := s.queryPSQL(ctx, query, vars)
+	return err
 }
 
 func (s *Server) exploreField(gs *GameState) error {
@@ -298,7 +935,7 @@ func (s *Server) exploreField(gs *GameState) error {
 	switch {
 	case roll < 35:
 		gain := 1 + randInt(4)
-		currencies := []Currency{Seeds, Wheat, Carrot}
+		currencies := []Currency{Seeds, Wheat, Carrot, Cucumber, Apple, Kormik}
 		cur := currencies[randInt(len(currencies))]
 		gs.Player.Currency[cur] += gain
 		appendLog(gs, fmt.Sprintf("На поле найдено +%d %s.", gain, currencyLabel(cur)))
@@ -428,6 +1065,13 @@ func (s *Server) adventureStep(gs *GameState, nodeID string) error {
 
 	gs.Player.Energy -= node.EnergyCost
 	gs.Adventure[idx].Progress++
+	xpGain, seedGain := adventureRewardForIndex(idx)
+	if xpGain > 0 || seedGain > 0 {
+		gs.Player.XP += xpGain
+		gs.Player.Currency[Seeds] += seedGain
+		appendLog(gs, fmt.Sprintf("Награда за действие: +%d опыта и +%d семечек.", xpGain, seedGain))
+		recalcLevel(gs)
+	}
 	appendLog(gs, fmt.Sprintf("%s пройден на %d/%d.", node.Name, gs.Adventure[idx].Progress, node.RequiredPasses))
 
 	if gs.Adventure[idx].Progress >= node.RequiredPasses {
@@ -477,6 +1121,41 @@ func (s *Server) equipItem(gs *GameState, itemID string) error {
 		gs.Player.Wallpaper = itemID
 	}
 	appendLog(gs, fmt.Sprintf("Экипирован предмет: %s.", item.Name))
+	return nil
+}
+
+func (s *Server) setAppearance(gs *GameState, slot, value string) error {
+	slot = strings.TrimSpace(slot)
+	value = strings.TrimSpace(value)
+	if slot == "" {
+		return fmt.Errorf("неизвестный слот")
+	}
+	if value == "" {
+		return fmt.Errorf("значение не выбрано")
+	}
+
+	switch slot {
+	case "background":
+		gs.Player.Appearance.Background = value
+		gs.Player.Wallpaper = value
+	case "color":
+		gs.Player.Appearance.Color = value
+	case "heldItem":
+		gs.Player.Appearance.HeldItem = value
+	case "headwear":
+		gs.Player.Appearance.Headwear = value
+	case "glasses":
+		gs.Player.Appearance.Glasses = value
+	case "mask":
+		gs.Player.Appearance.Mask = value
+	case "body":
+		gs.Player.Appearance.Body = value
+	case "shoes":
+		gs.Player.Appearance.Shoes = value
+	default:
+		return fmt.Errorf("неизвестный слот")
+	}
+	appendLog(gs, fmt.Sprintf("Хомяк изменил внешний вид: %s.", slot))
 	return nil
 }
 
@@ -552,9 +1231,12 @@ func newGameState() GameState {
 			Attack:    2,
 			Defense:   0,
 			Currency: map[Currency]int{
-				Seeds:  10,
-				Wheat:  3,
-				Carrot: 0,
+				Seeds:    10,
+				Wheat:    3,
+				Carrot:   0,
+				Cucumber: 0,
+				Apple:    0,
+				Kormik:   0,
 			},
 			Inventory: map[string]int{
 				"wallpaper_day": 1,
@@ -563,6 +1245,16 @@ func newGameState() GameState {
 				"wallpaper": "wallpaper_day",
 			},
 			Wallpaper: "wallpaper_day",
+			Appearance: Appearance{
+				Background: "wallpaper_day",
+				Color:      "default",
+				HeldItem:   "none",
+				Headwear:   "none",
+				Glasses:    "none",
+				Mask:       "none",
+				Body:       "none",
+				Shoes:      "none",
+			},
 		},
 		Location: "Поле",
 		Bosses: []Boss{
@@ -639,6 +1331,23 @@ func adventureSelectable(gs *GameState, idx int) bool {
 		return true
 	}
 	return idx <= unlocked
+}
+
+func adventureRewardForIndex(idx int) (int, int) {
+	switch idx {
+	case 0:
+		return 1, 2
+	case 1:
+		return 1, 3
+	case 2:
+		return 2, 5
+	case 3:
+		return 3, 6
+	case 4:
+		return 3, 10
+	default:
+		return 0, 0
+	}
 }
 
 func currentBoss(gs *GameState, id string) (*Boss, int, bool) {
@@ -800,6 +1509,12 @@ func currencyLabel(cur Currency) string {
 		return "пшеницы"
 	case Carrot:
 		return "моркови"
+	case Cucumber:
+		return "огурцов"
+	case Apple:
+		return "яблок"
+	case Kormik:
+		return "кормика"
 	default:
 		return string(cur)
 	}
@@ -818,8 +1533,8 @@ func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Game-Session")
-		w.Header().Set("Access-Control-Expose-Headers", "X-Game-Session")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Game-Session, X-Auth-Token, Authorization")
+		w.Header().Set("Access-Control-Expose-Headers", "X-Game-Session, X-Auth-Token")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
