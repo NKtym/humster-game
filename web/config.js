@@ -1,3 +1,3 @@
 window.APP_CONFIG = {
-  apiBaseUrl: '/api',
+  apiBaseUrl: 'https://humster-game-docker.onrender.com/api',
 };
