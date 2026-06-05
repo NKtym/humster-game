@@ -117,6 +117,65 @@ const ATTACKS = [
   { id: 'bite', label: 'Укус', damage: 30 },
 ];
 
+const BOSS_KILL_LIMIT = 8;
+
+const BOSS_BLUEPRINTS = {
+  rat: { name: 'Крыса', hp: 70, attack: 4, xp: 10, reward: { seeds: 10, wheat: 2, carrot: 1, cucumber: 0 } },
+  lizard: { name: 'Ящерица', hp: 150, attack: 8, xp: 20, reward: { seeds: 50, wheat: 3, carrot: 0, cucumber: 1 } },
+  sand_lizard: { name: 'Песчаная ящерица', hp: 600, attack: 16, xp: 50, reward: { seeds: 200, wheat: 0, carrot: 3, cucumber: 1 } },
+};
+
+function getAmsterdamDayKey(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Amsterdam',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${lookup.year}-${lookup.month}-${lookup.day}`;
+}
+
+function bossKillDayKey() {
+  return getAmsterdamDayKey(new Date());
+}
+
+function refreshBossKillLimit(state) {
+  if (!state) return state;
+  const today = bossKillDayKey();
+  if (state.bossKillsDay !== today) {
+    state.bossKillsDay = today;
+    state.bossKillsToday = 0;
+  }
+  state.bossKillsToday = clampNumber(state.bossKillsToday, 0, BOSS_KILL_LIMIT);
+  return state;
+}
+
+function xpForNextLevel(level) {
+  const safeLevel = Math.max(1, Number(level) || 1);
+  return 10 * (2 ** (safeLevel - 1));
+}
+
+function recalcLevel(state) {
+  if (!state || !state.player) return state;
+  const player = state.player;
+  player.level = Math.max(1, Number(player.level) || 1);
+  player.xp = Math.max(0, Number(player.xp) || 0);
+  while (player.xp >= xpForNextLevel(player.level)) {
+    player.xp -= xpForNextLevel(player.level);
+    player.level += 1;
+    player.maxHp = Math.max(1, Number(player.maxHp) || 1) + 2;
+    player.hp = player.maxHp;
+    player.attack = Math.max(0, Number(player.attack) || 0) + 1;
+    player.defense = Math.max(0, Number(player.defense) || 0) + 1;
+    if (Array.isArray(state.log)) {
+      state.log.push(`Уровень повышен! Теперь уровень ${player.level}.`);
+      if (state.log.length > 100) state.log = state.log.slice(-100);
+    }
+  }
+  return state;
+}
+
 const DEFAULT_STATE = {
   player: {
     name: 'Хомяк',
@@ -145,11 +204,13 @@ const DEFAULT_STATE = {
   },
   location: 'Поле',
   bosses: [
-    { id: 'rat', name: 'Крыса', hp: 200, maxHp: 200, attack: 4, reward: { seeds: 10, wheat: 1 }, xp: 10, defeated: false },
-    { id: 'lizard', name: 'Ящерица', hp: 500, maxHp: 500, attack: 8, reward: { seeds: 30, wheat: 3 }, xp: 20, defeated: false },
-    { id: 'sand_lizard', name: 'Песчаная ящерица', hp: 2000, maxHp: 2000, attack: 16, reward: { seeds: 100, wheat: 10, carrot: 1 }, xp: 50, defeated: false },
+    { id: 'rat', name: 'Крыса', hp: 70, maxHp: 70, attack: 4, reward: { seeds: 10, wheat: 2, carrot: 1, cucumber: 0 }, xp: 10, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {} },
+    { id: 'lizard', name: 'Ящерица', hp: 150, maxHp: 150, attack: 8, reward: { seeds: 50, wheat: 3, carrot: 0, cucumber: 1 }, xp: 20, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {} },
+    { id: 'sand_lizard', name: 'Песчаная ящерица', hp: 600, maxHp: 600, attack: 16, reward: { seeds: 200, wheat: 0, carrot: 3, cucumber: 1 }, xp: 50, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {} },
   ],
   activeBossId: '',
+  bossKillsToday: 0,
+  bossKillsDay: bossKillDayKey(),
   adventure: ADVENTURE_DEFS.map((node) => ({
     id: node.id,
     name: node.label,
@@ -285,6 +346,74 @@ function mergeAdventure(stateAdventure = []) {
   });
 }
 
+function normalizeBosses(stateBosses = []) {
+  const map = new Map();
+  for (const boss of stateBosses) {
+    if (boss && typeof boss === 'object' && boss.id) {
+      map.set(boss.id, boss);
+    }
+  }
+  return Object.entries(BOSS_BLUEPRINTS).map(([id, tpl]) => {
+    const existing = map.get(id) || {};
+    const maxHp = clampNumber(existing.maxHp ?? tpl.hp, 1, 999999);
+    const hp = clampNumber(existing.hp ?? maxHp, 0, maxHp);
+    const reward = { ...tpl.reward, ...((existing.reward && typeof existing.reward === 'object') ? existing.reward : {}) };
+    // Keep blueprint rewards authoritative for required currencies.
+    reward.seeds = tpl.reward.seeds;
+    reward.wheat = tpl.reward.wheat;
+    reward.carrot = tpl.reward.carrot;
+    reward.cucumber = tpl.reward.cucumber;
+    const attackCooldowns = existing.attackCooldowns && typeof existing.attackCooldowns === 'object' ? { ...existing.attackCooldowns } : {};
+    return {
+      ...existing,
+      id,
+      name: existing.name || tpl.name,
+      hp: existing.defeated ? 0 : hp,
+      maxHp,
+      attack: clampNumber(existing.attack ?? tpl.attack, 0, 999999),
+      reward,
+      xp: clampNumber(existing.xp ?? tpl.xp, 0, 999999),
+      defeated: Boolean(existing.defeated) || hp <= 0,
+      battleStartedAt: cleanTimestamp(existing.battleStartedAt),
+      battleEndsAt: cleanTimestamp(existing.battleEndsAt),
+      attackCooldowns: existing.defeated ? {} : Object.fromEntries(Object.entries(attackCooldowns).filter(([, v]) => cleanTimestamp(v))),
+    };
+  });
+}
+
+function normalizeBossTimers(state) {
+  const next = state;
+  const now = Date.now();
+  const bosses = Array.isArray(next?.bosses) ? next.bosses : [];
+  let changed = false;
+
+  for (const boss of bosses) {
+    if (!boss || typeof boss !== 'object') continue;
+    if (!boss.defeated && cleanTimestamp(boss.battleEndsAt)) {
+      const endsAt = toMillis(boss.battleEndsAt);
+      if (endsAt && now > endsAt) {
+        boss.hp = boss.maxHp;
+        boss.battleStartedAt = '';
+        boss.battleEndsAt = '';
+        boss.attackCooldowns = {};
+        if (next.activeBossId === boss.id) next.activeBossId = '';
+        changed = true;
+      }
+    }
+    if (boss.defeated) {
+      boss.battleStartedAt = '';
+      boss.battleEndsAt = '';
+      boss.attackCooldowns = {};
+    } else if (!cleanTimestamp(boss.battleStartedAt) && cleanTimestamp(boss.battleEndsAt)) {
+      boss.battleStartedAt = new Date(Math.max(0, toMillis(boss.battleEndsAt) - (8 * 60 * 60 * 1000))).toISOString();
+    } else {
+      boss.battleStartedAt = cleanTimestamp(boss.battleStartedAt);
+      boss.battleEndsAt = cleanTimestamp(boss.battleEndsAt);
+    }
+  }
+  return changed;
+}
+
 function normalizeState(state) {
   const next = structuredClone(DEFAULT_STATE);
   if (!state || typeof state !== 'object') return next;
@@ -309,14 +438,15 @@ function normalizeState(state) {
   };
 
   next.bosses = Array.isArray(state.bosses)
-    ? state.bosses.map((boss) => ({
-        ...boss,
-        reward: { ...(boss.reward || {}) },
-      }))
+    ? normalizeBosses(state.bosses)
     : structuredClone(DEFAULT_STATE.bosses);
 
   next.location = state.location || next.location;
+  normalizeBossTimers(next);
   next.activeBossId = state.activeBossId || '';
+  next.bossKillsToday = clampNumber(state.bossKillsToday ?? next.bossKillsToday, 0, BOSS_KILL_LIMIT);
+  next.bossKillsDay = state.bossKillsDay || next.bossKillsDay;
+  refreshBossKillLimit(next);
 
   next.adventure = mergeAdventure(state.adventure);
   next.activeAdventureId = state.activeAdventureId && next.adventure.some((node) => node.id === state.activeAdventureId)
@@ -335,11 +465,23 @@ function toMillis(value) {
   return Number.isFinite(ms) ? ms : 0;
 }
 
+function cleanTimestamp(value) {
+  const ms = toMillis(value);
+  return ms > 0 ? new Date(ms).toISOString() : '';
+}
+
 function formatCountdown(ms) {
   const total = Math.max(0, Math.ceil(ms / 1000));
-  const minutes = Math.floor(total / 60);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
   const seconds = total % 60;
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function timeRemainingLabel(isoString) {
+  const ms = toMillis(isoString);
+  if (!ms) return '';
+  return formatCountdown(ms - Date.now());
 }
 
 function advanceLocalEnergy(state) {
@@ -392,6 +534,18 @@ function getEnergyCountdown(state) {
   const elapsed = Date.now() - lastTick;
   const remaining = (4 * 60 * 1000) - (elapsed % (4 * 60 * 1000));
   return `+1 через ${formatCountdown(remaining)}`;
+}
+
+function bossBattleCountdown(boss) {
+  const endsAt = cleanTimestamp(boss?.battleEndsAt);
+  if (!endsAt) return '';
+  return formatCountdown(toMillis(endsAt) - Date.now());
+}
+
+function bossAttackCooldownRemaining(boss, attackId) {
+  const until = cleanTimestamp(boss?.attackCooldowns?.[attackId]);
+  if (!until) return '';
+  return formatCountdown(toMillis(until) - Date.now());
 }
 
 function bossById(state, id) {
@@ -461,14 +615,20 @@ function renderAccessoryMarkup(slot, value) {
 function renderResourceStrip(state) {
   const p = state.player;
   const currencies = p.currency || {};
+  const xpNeed = xpForNextLevel(p.level || 1);
+  const xpLeft = Math.max(0, xpNeed - (p.xp || 0));
   const chips = [
     { label: isAuthenticated ? (currentUserLogin || 'Аккаунт') : 'Гость', value: `${p.name} • ур. ${p.level}`, accent: true },
+    { label: 'Опыт', value: `${p.xp || 0}/${xpNeed}` },
+    { label: 'До след. уровня', value: `${xpLeft}` },
     { label: 'Семечки', value: `${currencies.seeds || 0}` },
     { label: 'Пшеница', value: `${currencies.wheat || 0}` },
     { label: 'Морковь', value: `${currencies.carrot || 0}` },
     { label: 'Огурцы', value: `${currencies.cucumber || 0}` },
     { label: 'Яблоки', value: `${currencies.apple || 0}` },
     { label: 'Кормик', value: `${currencies.kormik || 0}` },
+    { label: 'Боссы сегодня', value: `${state.bossKillsToday || 0}/${BOSS_KILL_LIMIT}` },
+    { label: 'Осталось боссов', value: `${Math.max(0, BOSS_KILL_LIMIT - (state.bossKillsToday || 0))}` },
     { label: 'Энергия', value: `${p.energy || 0}/${p.maxEnergy || 40}`, sub: getEnergyCountdown(state) },
   ];
 
@@ -540,14 +700,45 @@ function applyLocalAction(action, payload = {}) {
   switch (action) {
     case 'select_boss': {
       state.activeBossId = payload.bossId || '';
+      if (state.activeBossId && bossById(state, state.activeBossId) && !bossById(state, state.activeBossId).defeated) {
+        const active = bossById(state, state.activeBossId);
+        if (!active.battleStartedAt || !active.battleEndsAt) {
+          const now = Date.now();
+          active.battleStartedAt = new Date(now).toISOString();
+          active.battleEndsAt = new Date(now + (8 * 60 * 60 * 1000)).toISOString();
+        }
+      }
       return;
     }
     case 'attack_boss': {
       if (!boss || boss.defeated) return;
       const dmg = attackDamage(payload.attackType);
+      const now = Date.now();
+      if (!boss.battleEndsAt) {
+        boss.battleStartedAt = new Date(now).toISOString();
+        boss.battleEndsAt = new Date(now + (8 * 60 * 60 * 1000)).toISOString();
+      }
+      if (boss.battleEndsAt && toMillis(boss.battleEndsAt) < now) {
+        boss.hp = boss.maxHp;
+        boss.battleStartedAt = '';
+        boss.battleEndsAt = '';
+        boss.attackCooldowns = {};
+        state.activeBossId = '';
+        return;
+      }
+      boss.attackCooldowns = boss.attackCooldowns || {};
+      const cooldownUntil = toMillis(boss.attackCooldowns[payload.attackType]);
+      if (cooldownUntil && now < cooldownUntil) return;
+      if (boss.hp - dmg <= 0 && (state.bossKillsToday || 0) >= BOSS_KILL_LIMIT) return;
       boss.hp = Math.max(0, boss.hp - dmg);
+      boss.attackCooldowns[payload.attackType] = new Date(now + (6 * 60 * 60 * 1000)).toISOString();
       if (boss.hp === 0) {
         boss.defeated = true;
+        boss.battleStartedAt = '';
+        boss.battleEndsAt = '';
+        boss.attackCooldowns = {};
+        state.bossKillsToday = clampNumber((state.bossKillsToday || 0) + 1, 0, BOSS_KILL_LIMIT);
+        state.bossKillsDay = bossKillDayKey();
         for (const [cur, amt] of Object.entries(boss.reward || {})) {
           state.player.currency[cur] = (state.player.currency[cur] || 0) + amt;
         }
@@ -610,16 +801,14 @@ function applyLocalAction(action, payload = {}) {
 
 async function syncAction(action, payload = {}) {
   const response = await api('/action', { action, ...payload });
-  if (response.ok && response.data && response.data.state) {
+  if (response.data && response.data.state) {
     currentState = normalizeState(response.data.state);
+  } else if (response.status === 401) {
+    setAuthToken('');
+    isAuthenticated = false;
+    currentUserLogin = '';
   } else {
-    if (response.status === 401) {
-      setAuthToken('');
-      isAuthenticated = false;
-      currentUserLogin = '';
-    } else {
-      applyLocalAction(action, payload);
-    }
+    applyLocalAction(action, payload);
   }
   render();
 }
@@ -629,12 +818,13 @@ function renderBossSelection() {
   $('#battle-screen-subtitle').textContent = 'Нажми на босса, чтобы начать бой.';
   const body = $('#battle-screen-body');
   body.innerHTML = `
-    <div class="modal-note">Выбери босса, чтобы открыть бой. Награда выдаётся сразу после победы.</div>
+    <div class="modal-note">Выбери босса, чтобы открыть бой. Награда выдаётся сразу после победы. Осталось побед сегодня: ${Math.max(0, BOSS_KILL_LIMIT - (currentState.bossKillsToday || 0))}.</div>
     <div class="boss-grid">
       ${(currentState.bosses || []).map((boss) => {
         const cat = CATALOG.bosses.find((item) => item.id === boss.id) || boss;
         const rewardText = formatReward(boss.reward);
         const hpText = `${boss.maxHp || boss.hp} HP`;
+        const battleTimer = !boss.defeated && boss.battleEndsAt ? bossBattleCountdown(boss) : '';
         return `
           <article class="boss-card ${boss.defeated ? 'is-defeated' : ''}">
             <img class="boss-card__img" src="${cat.img}" alt="${boss.name}" />
@@ -644,6 +834,7 @@ function renderBossSelection() {
                 <span>${hpText}</span>
               </div>
               <div class="boss-card__reward">Награда: ${rewardText}</div>
+              ${battleTimer ? `<div class="boss-card__timer">До конца битвы: ${battleTimer}</div>` : ''}
               <button class="primary boss-select" data-boss="${boss.id}" type="button">
                 ${boss.defeated ? 'Открыть ещё раз' : 'Выбрать и начать бой'}
               </button>
@@ -672,13 +863,15 @@ function renderBattleScreen() {
   }
 
   $('#battle-screen-title').textContent = `Бой: ${activeBoss.name}`;
+  const battleRemaining = activeBoss.defeated ? '' : bossBattleCountdown(activeBoss);
   $('#battle-screen-subtitle').textContent = activeBoss.defeated
     ? 'Босс уже побеждён. Можно выбрать другого.'
-    : 'Удары идут снизу панели. После каждого удара босс отвечает, если ещё жив.';
+    : `Удары идут снизу панели. После каждого удара босс отвечает, если ещё жив. Битва закончится через ${battleRemaining}. Сегодня: ${currentState.bossKillsToday || 0}/${BOSS_KILL_LIMIT}. Осталось: ${Math.max(0, BOSS_KILL_LIMIT - (currentState.bossKillsToday || 0))}.`;
 
   const body = $('#battle-screen-body');
   const percent = activeBoss.maxHp ? Math.max(0, Math.min(100, (activeBoss.hp / activeBoss.maxHp) * 100)) : 0;
   const cat = CATALOG.bosses.find((item) => item.id === activeBoss.id) || activeBoss;
+  const isBattleExpired = !activeBoss.defeated && activeBoss.battleEndsAt && toMillis(activeBoss.battleEndsAt) <= Date.now();
 
   body.innerHTML = `
     <div class="battle-top">
@@ -692,7 +885,7 @@ function renderBattleScreen() {
         </div>
         <div class="battle-bar"><div style="width: ${percent}%"></div></div>
         <div class="battle-reward">Награда: ${formatReward(activeBoss.reward)}</div>
-        <div class="battle-note">${activeBoss.defeated ? 'Босс уже побеждён. Выбирай следующего.' : 'Выбирай удар снизу и добивай босса.'}</div>
+        <div class="battle-note">${activeBoss.defeated ? 'Босс уже побеждён. Выбирай следующего.' : `Битва закончится через ${battleRemaining}. Убийств сегодня: ${currentState.bossKillsToday || 0}/${BOSS_KILL_LIMIT}. Осталось сегодня: ${Math.max(0, BOSS_KILL_LIMIT - (currentState.bossKillsToday || 0))}.`}${isBattleExpired ? ' Время вышло, бой проигран.' : ''}</div>
         <div class="battle-controls">
           <button class="ghost" id="btn-boss-change" type="button">Выбрать другого</button>
         </div>
@@ -700,12 +893,15 @@ function renderBattleScreen() {
     </div>
 
     <div class="attack-panel">
-      ${(ATTACKS.map((attack) => `
-        <button class="attack-btn" data-attack="${attack.id}" ${activeBoss.defeated ? 'disabled' : ''}>
-          <span>${attack.label}</span>
+      ${ATTACKS.map((attack) => {
+        const cd = bossAttackCooldownRemaining(activeBoss, attack.id);
+        const cooldownUntil = cleanTimestamp(activeBoss.attackCooldowns?.[attack.id]);
+        const disabled = activeBoss.defeated || (cooldownUntil && toMillis(cooldownUntil) > Date.now());
+        return `<button class="attack-btn" data-attack="${attack.id}" ${disabled ? 'disabled' : ''}>
+          <span>${attack.label}${cd ? ` • ${cd}` : ''}</span>
           <strong>${attack.damage} урона</strong>
-        </button>
-      `)).join('')}
+        </button>`;
+      }).join('')}
     </div>
   `;
 

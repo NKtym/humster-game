@@ -41,14 +41,17 @@ type Item struct {
 }
 
 type Boss struct {
-	ID       string           `json:"id"`
-	Name     string           `json:"name"`
-	HP       int              `json:"hp"`
-	MaxHP    int              `json:"maxHp"`
-	Attack   int              `json:"attack"`
-	Reward   map[Currency]int `json:"reward"`
-	XP       int              `json:"xp"`
-	Defeated bool             `json:"defeated"`
+	ID              string               `json:"id"`
+	Name            string               `json:"name"`
+	HP              int                  `json:"hp"`
+	MaxHP           int                  `json:"maxHp"`
+	Attack          int                  `json:"attack"`
+	Reward          map[Currency]int     `json:"reward"`
+	XP              int                  `json:"xp"`
+	Defeated        bool                 `json:"defeated"`
+	BattleStartedAt time.Time            `json:"battleStartedAt"`
+	BattleEndsAt    time.Time            `json:"battleEndsAt"`
+	AttackCooldowns map[string]time.Time `json:"attackCooldowns"`
 }
 
 type AdventureNode struct {
@@ -95,6 +98,8 @@ type GameState struct {
 	ActiveBossID      string          `json:"activeBossId"`
 	Adventure         []AdventureNode `json:"adventure"`
 	ActiveAdventureID string          `json:"activeAdventureId"`
+	BossKillsToday    int             `json:"bossKillsToday"`
+	BossKillsDay      string          `json:"bossKillsDay"`
 	Log               []string        `json:"log"`
 	UpdatedAt         time.Time       `json:"updatedAt"`
 	LastEnergyRegenAt time.Time       `json:"lastEnergyRegenAt"`
@@ -157,6 +162,11 @@ type stateLease struct {
 }
 
 var errNoRows = errors.New("no rows")
+
+const (
+	bossAttackCooldown = 6 * time.Hour
+	bossBattleDuration = 8 * time.Hour
+)
 
 var adventureBlueprints = []AdventureNode{
 	{ID: "stage5", Name: "Бежать по полю", EnergyCost: 1, RequiredPasses: 4},
@@ -269,6 +279,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	defer lease.release()
 
 	advanceEnergy(lease.state)
+	advanceBossTimers(lease.state)
 	if err := lease.commit(); err != nil {
 		writeJSON(w, ActionResponse{OK: false, Error: err.Error()})
 		return
@@ -306,6 +317,7 @@ func (s *Server) handleName(w http.ResponseWriter, r *http.Request) {
 	defer lease.release()
 
 	advanceEnergy(lease.state)
+	advanceBossTimers(lease.state)
 	lease.state.Player.Name = name
 	appendLog(lease.state, fmt.Sprintf("Теперь тебя зовут %s.", name))
 
@@ -336,6 +348,7 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	defer lease.release()
 
 	advanceEnergy(lease.state)
+	advanceBossTimers(lease.state)
 	lease.state.UpdatedAt = time.Now()
 
 	switch req.Action {
@@ -830,6 +843,9 @@ func (s *Server) loadState(ctx context.Context, userID string) (GameState, error
 		if state.Player.Appearance == (Appearance{}) {
 			state.Player.Appearance = newGameState().Player.Appearance
 		}
+		refreshBossKillLimit(&state)
+		normalizeBosses(&state)
+		advanceBossTimers(&state)
 		return state, nil
 	}
 	out, err := s.queryPSQL(ctx, `
@@ -865,6 +881,9 @@ func (s *Server) loadState(ctx context.Context, userID string) (GameState, error
 	if state.Player.Appearance == (Appearance{}) {
 		state.Player.Appearance = newGameState().Player.Appearance
 	}
+	refreshBossKillLimit(&state)
+	normalizeBosses(&state)
+	advanceBossTimers(&state)
 	return state, nil
 }
 
@@ -964,6 +983,10 @@ func (s *Server) selectBoss(gs *GameState, bossID string) error {
 		return fmt.Errorf("босс не найден")
 	}
 
+	now := time.Now()
+	if !boss.Defeated {
+		startBossBattle(boss, now)
+	}
 	gs.ActiveBossID = bossID
 	if boss.Defeated {
 		appendLog(gs, fmt.Sprintf("%s уже побеждён. Можно выбрать другого босса.", boss.Name))
@@ -980,6 +1003,9 @@ func (s *Server) clearBoss(gs *GameState) error {
 }
 
 func (s *Server) attackBoss(gs *GameState, attackType string) error {
+	refreshBossKillLimit(gs)
+	advanceBossTimers(gs)
+
 	boss, idx, ok := currentBoss(gs, gs.ActiveBossID)
 	if !ok {
 		return fmt.Errorf("сначала выбери босса")
@@ -993,11 +1019,43 @@ func (s *Server) attackBoss(gs *GameState, attackType string) error {
 		return fmt.Errorf("неизвестный удар")
 	}
 
+	now := time.Now()
+	if boss.BattleEndsAt.IsZero() {
+		startBossBattle(&gs.Bosses[idx], now)
+		boss = &gs.Bosses[idx]
+	}
+	if !boss.BattleEndsAt.IsZero() && now.After(boss.BattleEndsAt) {
+		advanceBossTimers(gs)
+		boss, idx, ok = currentBoss(gs, gs.ActiveBossID)
+		if !ok {
+			return fmt.Errorf("битва уже завершилась по таймеру")
+		}
+		if boss.Defeated {
+			return fmt.Errorf("этот босс уже побеждён")
+		}
+	}
+	if boss.AttackCooldowns == nil {
+		boss.AttackCooldowns = map[string]time.Time{}
+	}
+	if until, ok := boss.AttackCooldowns[attackType]; ok && now.Before(until) {
+		return fmt.Errorf("удар %s ещё перезаряжается", label)
+	}
+
+	if boss.HP-damage <= 0 && gs.BossKillsToday >= 8 {
+		return fmt.Errorf("дневной лимит убийств боссов достигнут: 8/8")
+	}
+
 	gs.Bosses[idx].HP = max(0, boss.HP-damage)
+	gs.Bosses[idx].AttackCooldowns[attackType] = now.Add(bossAttackCooldown)
 	appendLog(gs, fmt.Sprintf("Хомяк использовал %s и нанёс %d урона %s.", label, damage, boss.Name))
 
 	if gs.Bosses[idx].HP == 0 {
 		gs.Bosses[idx].Defeated = true
+		gs.BossKillsToday++
+		gs.BossKillsDay = bossKillDayKey()
+		gs.Bosses[idx].BattleStartedAt = time.Time{}
+		gs.Bosses[idx].BattleEndsAt = time.Time{}
+		gs.Bosses[idx].AttackCooldowns = map[string]time.Time{}
 		for cur, amount := range gs.Bosses[idx].Reward {
 			gs.Player.Currency[cur] += amount
 		}
@@ -1207,8 +1265,8 @@ func applyItemStats(gs *GameState, item Item) {
 }
 
 func recalcLevel(gs *GameState) {
-	for gs.Player.XP >= gs.Player.Level*10 {
-		need := gs.Player.Level * 10
+	for gs.Player.XP >= xpForNextLevel(gs.Player.Level) {
+		need := xpForNextLevel(gs.Player.Level)
 		gs.Player.XP -= need
 		gs.Player.Level++
 		gs.Player.MaxHP += 2
@@ -1260,39 +1318,44 @@ func newGameState() GameState {
 		Location: "Поле",
 		Bosses: []Boss{
 			{
-				ID:       "rat",
-				Name:     "Крыса",
-				HP:       200,
-				MaxHP:    200,
-				Attack:   4,
-				Reward:   map[Currency]int{Seeds: 10, Wheat: 1},
-				XP:       10,
-				Defeated: false,
+				ID:              "rat",
+				Name:            "Крыса",
+				HP:              70,
+				MaxHP:           70,
+				Attack:          4,
+				Reward:          map[Currency]int{Seeds: 10, Wheat: 2, Carrot: 1, Cucumber: 0},
+				XP:              10,
+				Defeated:        false,
+				AttackCooldowns: map[string]time.Time{},
 			},
 			{
-				ID:       "lizard",
-				Name:     "Ящерица",
-				HP:       500,
-				MaxHP:    500,
-				Attack:   8,
-				Reward:   map[Currency]int{Seeds: 30, Wheat: 3},
-				XP:       20,
-				Defeated: false,
+				ID:              "lizard",
+				Name:            "Ящерица",
+				HP:              150,
+				MaxHP:           150,
+				Attack:          8,
+				Reward:          map[Currency]int{Seeds: 50, Wheat: 3, Carrot: 0, Cucumber: 1},
+				XP:              20,
+				Defeated:        false,
+				AttackCooldowns: map[string]time.Time{},
 			},
 			{
-				ID:       "sand_lizard",
-				Name:     "Песчаная ящерица",
-				HP:       2000,
-				MaxHP:    2000,
-				Attack:   16,
-				Reward:   map[Currency]int{Seeds: 100, Wheat: 10, Carrot: 1},
-				XP:       50,
-				Defeated: false,
+				ID:              "sand_lizard",
+				Name:            "Песчаная ящерица",
+				HP:              600,
+				MaxHP:           600,
+				Attack:          16,
+				Reward:          map[Currency]int{Seeds: 200, Wheat: 0, Carrot: 3, Cucumber: 1},
+				XP:              50,
+				Defeated:        false,
+				AttackCooldowns: map[string]time.Time{},
 			},
 		},
 		Adventure:         defaultAdventureNodes(),
 		ActiveAdventureID: adventureBlueprints[0].ID,
 		ActiveBossID:      "",
+		BossKillsToday:    0,
+		BossKillsDay:      bossKillDayKey(),
 		Log:               []string{"Добро пожаловать в поле хомяков."},
 		UpdatedAt:         time.Now(),
 		LastEnergyRegenAt: time.Now(),
@@ -1351,6 +1414,152 @@ func adventureRewardForIndex(idx int) (int, int) {
 	}
 }
 
+func refreshBossKillLimit(gs *GameState) {
+	day := bossKillDayKey()
+	if gs.BossKillsDay != day {
+		gs.BossKillsDay = day
+		gs.BossKillsToday = 0
+	}
+	if gs.BossKillsToday < 0 {
+		gs.BossKillsToday = 0
+	}
+	if gs.BossKillsToday > 8 {
+		gs.BossKillsToday = 8
+	}
+}
+
+func normalizeBosses(gs *GameState) {
+	type bossTemplate struct {
+		name   string
+		hp     int
+		attack int
+		xp     int
+		reward map[Currency]int
+	}
+	templates := map[string]bossTemplate{
+		"rat":         {name: "Крыса", hp: 70, attack: 4, xp: 10, reward: map[Currency]int{Seeds: 10, Wheat: 2, Carrot: 1, Cucumber: 0}},
+		"lizard":      {name: "Ящерица", hp: 150, attack: 8, xp: 20, reward: map[Currency]int{Seeds: 50, Wheat: 3, Carrot: 0, Cucumber: 1}},
+		"sand_lizard": {name: "Песчаная ящерица", hp: 600, attack: 16, xp: 50, reward: map[Currency]int{Seeds: 200, Wheat: 0, Carrot: 3, Cucumber: 1}},
+	}
+	for i := range gs.Bosses {
+		boss := &gs.Bosses[i]
+		if tpl, ok := templates[boss.ID]; ok {
+			if boss.Name == "" {
+				boss.Name = tpl.name
+			}
+			if boss.MaxHP <= 0 {
+				boss.MaxHP = tpl.hp
+			}
+			if boss.Attack <= 0 {
+				boss.Attack = tpl.attack
+			}
+			if boss.XP <= 0 {
+				boss.XP = tpl.xp
+			}
+			if boss.Reward == nil {
+				boss.Reward = map[Currency]int{}
+			}
+			for cur, amount := range tpl.reward {
+				boss.Reward[cur] = amount
+			}
+			if boss.AttackCooldowns == nil {
+				boss.AttackCooldowns = map[string]time.Time{}
+			}
+			if boss.HP < 0 {
+				boss.HP = 0
+			}
+			if boss.HP > boss.MaxHP {
+				boss.HP = boss.MaxHP
+			}
+			if boss.Defeated {
+				boss.HP = 0
+				boss.BattleStartedAt = time.Time{}
+				boss.BattleEndsAt = time.Time{}
+				boss.AttackCooldowns = map[string]time.Time{}
+			}
+		}
+	}
+}
+
+func startBossBattle(boss *Boss, now time.Time) {
+	if boss == nil || boss.Defeated {
+		return
+	}
+	if boss.AttackCooldowns == nil {
+		boss.AttackCooldowns = map[string]time.Time{}
+	}
+	if boss.BattleStartedAt.IsZero() || boss.BattleEndsAt.IsZero() || now.After(boss.BattleEndsAt) {
+		boss.BattleStartedAt = now
+		boss.BattleEndsAt = now.Add(bossBattleDuration)
+	}
+}
+
+func resetBossBattle(boss *Boss) {
+	if boss == nil {
+		return
+	}
+	boss.BattleStartedAt = time.Time{}
+	boss.BattleEndsAt = time.Time{}
+	boss.AttackCooldowns = map[string]time.Time{}
+}
+
+func advanceBossTimers(gs *GameState) {
+	now := time.Now()
+	for i := range gs.Bosses {
+		boss := &gs.Bosses[i]
+		if boss.AttackCooldowns == nil {
+			boss.AttackCooldowns = map[string]time.Time{}
+		}
+		if boss.Defeated {
+			resetBossBattle(boss)
+			continue
+		}
+		if !boss.BattleEndsAt.IsZero() && now.After(boss.BattleEndsAt) {
+			appendLog(gs, fmt.Sprintf("Битва с %s завершилась поражением по таймеру.", boss.Name))
+			boss.HP = boss.MaxHP
+			resetBossBattle(boss)
+			if gs.ActiveBossID == boss.ID {
+				gs.ActiveBossID = ""
+			}
+			continue
+		}
+		if boss.BattleStartedAt.IsZero() && !boss.BattleEndsAt.IsZero() {
+			boss.BattleStartedAt = now.Add(-bossBattleDuration + time.Minute)
+		}
+	}
+}
+
+func bossKillDayKey() string {
+	return time.Now().In(gameLocation()).Format("2006-01-02")
+}
+
+var (
+	gameLocationOnce  sync.Once
+	gameLocationValue *time.Location
+)
+
+func gameLocation() *time.Location {
+	gameLocationOnce.Do(func() {
+		loc, err := time.LoadLocation("Europe/Amsterdam")
+		if err != nil {
+			gameLocationValue = time.Local
+			return
+		}
+		gameLocationValue = loc
+	})
+	if gameLocationValue == nil {
+		return time.Local
+	}
+	return gameLocationValue
+}
+
+func xpForNextLevel(level int) int {
+	if level < 1 {
+		level = 1
+	}
+	return 10 * (1 << uint(level-1))
+}
+
 func currentBoss(gs *GameState, id string) (*Boss, int, bool) {
 	for i := range gs.Bosses {
 		if gs.Bosses[i].ID == id {
@@ -1374,6 +1583,7 @@ func allBossesDefeated(gs *GameState) bool {
 
 func advanceEnergy(gs *GameState) {
 	now := time.Now()
+	refreshBossKillLimit(gs)
 	if gs.LastEnergyRegenAt.IsZero() {
 		gs.LastEnergyRegenAt = now
 	}
@@ -1427,6 +1637,7 @@ func (s *Session) snapshot() GameState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	advanceEnergy(&s.state)
+	advanceBossTimers(&s.state)
 	return copyState(s.state)
 }
 
@@ -1452,6 +1663,12 @@ func copyBosses(in []Boss) []Boss {
 	for i, boss := range in {
 		out[i] = boss
 		out[i].Reward = copyCurrency(boss.Reward)
+		if boss.AttackCooldowns != nil {
+			out[i].AttackCooldowns = make(map[string]time.Time, len(boss.AttackCooldowns))
+			for k, v := range boss.AttackCooldowns {
+				out[i].AttackCooldowns[k] = v
+			}
+		}
 	}
 	return out
 }
