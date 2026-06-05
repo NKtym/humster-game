@@ -743,7 +743,7 @@ func (s *Server) userByLogin(ctx context.Context, login string) (*userRecord, er
 	out, err := s.queryPSQL(ctx, `
 		SELECT id, login, password_salt, password_hash
 		FROM users
-		WHERE login = 'username'
+		WHERE login = :'login'
 		LIMIT 1
 	`, map[string]string{"login": login})
 	if err != nil {
@@ -903,7 +903,8 @@ func (s *Server) queryPSQL(ctx context.Context, query string, vars map[string]st
 		"-F", "	",
 	}
 	for k, v := range vars {
-		args = append(args, "-v", fmt.Sprintf("%s=%s", k, v))
+		esc := strings.ReplaceAll(v, "'", "''")
+		query = strings.ReplaceAll(query, ":'"+k+"'", "'"+esc+"'")
 	}
 	args = append(args, "-c", query)
 	cmd := exec.CommandContext(ctx, "psql", args...)
