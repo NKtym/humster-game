@@ -42,6 +42,34 @@ body::before {
     linear-gradient(180deg, rgba(92, 51, 20, 0.14) 0%, rgba(60, 28, 10, 0.30) 100%);
 }
 
+body.is-guest .topbar {
+  align-items: flex-start;
+}
+
+body.is-guest .topbar-copy h1,
+body.is-guest .topbar-copy p,
+body.is-guest .top-actions,
+body.is-guest .hud-card,
+body.is-guest #main-screen,
+body.is-guest #battle-screen,
+body.is-guest #adventure-screen,
+body.is-guest #edit-screen {
+  display: none !important;
+}
+
+body.is-guest #auth-screen {
+  margin-top: 10px;
+}
+
+body.is-guest #auth-screen .auth-screen__copy h2,
+body.is-guest #auth-screen .auth-screen__copy p {
+  display: none;
+}
+
+body.is-authenticated #auth-screen {
+  display: none;
+}
+
 button, input { font: inherit; }
 h1, h2, h3, h4, p { margin: 0; }
 
@@ -94,11 +122,16 @@ h3 {
 }
 
 .top-actions {
-  display: flex;
+  display: grid;
   gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, max-content));
+  justify-content: end;
   align-items: center;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+}
+@media (min-width: 760px) {
+  .top-actions {
+    grid-template-columns: repeat(4, minmax(0, max-content));
+  }
 }
 
 .name-input,
@@ -483,8 +516,8 @@ button.primary {
 
 
 .appearance-layer--headwear.appearance-layer--cap {
-  top: 3%;
-  left: 47%;
+  top: 6%;
+  left: 43%;
   width: 43%;
   height: 35%;
   background: url('/assets/hamster/cap.png') center top / contain no-repeat;
@@ -495,7 +528,7 @@ button.primary {
 
 .appearance-layer--glasses.appearance-layer--glasses_round {
   top: 21%;
-  width: 98%;
+  width: 196%;
   height: 34%;
   background: url('/assets/hamster/glasses_round.png') center center / contain no-repeat;
   background-color: transparent;

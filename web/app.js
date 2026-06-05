@@ -2012,6 +2012,8 @@ function render() {
   if (authTitle) {
     authTitle.textContent = isAuthenticated ? `Добро пожаловать, ${currentUserLogin || currentState.player.name || 'хомяк'}` : 'Вход в игру';
   }
+  document.body.classList.toggle('is-authenticated', isAuthenticated);
+  document.body.classList.toggle('is-guest', !isAuthenticated);
   renderResourceStrip(currentState);
   updateScene(currentState);
   if (document.getElementById('profile-modal')) {
@@ -2094,12 +2096,15 @@ function initTopButtons() {
     render();
   };
 
-  $('#btn-new').onclick = async () => {
-    currentState = normalizeState(DEFAULT_STATE);
-    setView('main');
-    await syncAction('new_run', {});
-    render();
-  };
+  const newGameButton = $('#btn-new');
+  if (newGameButton) {
+    newGameButton.onclick = async () => {
+      currentState = normalizeState(DEFAULT_STATE);
+      setView('main');
+      await syncAction('new_run', {});
+      render();
+    };
+  }
 
   const profileButton = $('#btn-profile');
   if (profileButton) {
@@ -2122,15 +2127,21 @@ function initTopButtons() {
     };
   }
 
-  $('#btn-battle-panel').onclick = () => {
-    setView('battle');
-    render();
-  };
+  const battlePanelButton = $('#btn-battle-panel');
+  if (battlePanelButton) {
+    battlePanelButton.onclick = () => {
+      setView('battle');
+      render();
+    };
+  }
 
-  $('#btn-map-panel').onclick = () => {
-    setView('adventure');
-    render();
-  };
+  const mapPanelButton = $('#btn-map-panel');
+  if (mapPanelButton) {
+    mapPanelButton.onclick = () => {
+      setView('adventure');
+      render();
+    };
+  }
 }
 
 function initBattleButtons() {
