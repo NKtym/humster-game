@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -95,25 +96,27 @@ type Player struct {
 }
 
 type GameState struct {
-	Player             Player          `json:"player"`
-	Location           string          `json:"location"`
-	Bosses             []Boss          `json:"bosses"`
-	ActiveBossID       string          `json:"activeBossId"`
-	Adventure          []AdventureNode `json:"adventure"`
-	ActiveAdventureID  string          `json:"activeAdventureId"`
-	BossKillsToday     int             `json:"bossKillsToday"`
-	BossKillsDay       string          `json:"bossKillsDay"`
-	LocationPasses     int             `json:"locationPasses"`
-	BossDamageDay      int             `json:"bossDamageDay"`
-	BossDamageDayKey   string          `json:"bossDamageDayKey"`
-	BossDamageWeek     int             `json:"bossDamageWeek"`
-	BossDamageWeekKey  string          `json:"bossDamageWeekKey"`
-	BossDamageMonth    int             `json:"bossDamageMonth"`
-	BossDamageMonthKey string          `json:"bossDamageMonthKey"`
-	BossDamageAllTime  int             `json:"bossDamageAllTime"`
-	Log                []string        `json:"log"`
-	UpdatedAt          time.Time       `json:"updatedAt"`
-	LastEnergyRegenAt  time.Time       `json:"lastEnergyRegenAt"`
+	Player                  Player          `json:"player"`
+	Location                string          `json:"location"`
+	Bosses                  []Boss          `json:"bosses"`
+	ActiveBossID            string          `json:"activeBossId"`
+	Adventure               []AdventureNode `json:"adventure"`
+	ActiveAdventureID       string          `json:"activeAdventureId"`
+	BossKillsToday          int             `json:"bossKillsToday"`
+	BossKillsDay            string          `json:"bossKillsDay"`
+	LocationPasses          int             `json:"locationPasses"`
+	BossDamageDay           int             `json:"bossDamageDay"`
+	BossDamageDayKey        string          `json:"bossDamageDayKey"`
+	BossDamageWeek          int             `json:"bossDamageWeek"`
+	BossDamageWeekKey       string          `json:"bossDamageWeekKey"`
+	BossDamageMonth         int             `json:"bossDamageMonth"`
+	BossDamageMonthKey      string          `json:"bossDamageMonthKey"`
+	BossDamageAllTime       int             `json:"bossDamageAllTime"`
+	BossBattleDamageCurrent int             `json:"bossBattleDamageCurrent"`
+	BossBattleDamageBest    int             `json:"bossBattleDamageBest"`
+	Log                     []string        `json:"log"`
+	UpdatedAt               time.Time       `json:"updatedAt"`
+	LastEnergyRegenAt       time.Time       `json:"lastEnergyRegenAt"`
 }
 
 type Session struct {
@@ -159,6 +162,40 @@ type AuthResponse struct {
 	Error string    `json:"error,omitempty"`
 }
 
+type socialFriendSummary struct {
+	UserID     string    `json:"userId"`
+	Login      string    `json:"login"`
+	State      GameState `json:"state"`
+	Online     bool      `json:"online"`
+	LastSeenAt time.Time `json:"lastSeenAt"`
+}
+
+type socialProfile struct {
+	UserID     string                `json:"userId"`
+	Login      string                `json:"login"`
+	State      GameState             `json:"state"`
+	Online     bool                  `json:"online"`
+	LastSeenAt time.Time             `json:"lastSeenAt"`
+	IsSelf     bool                  `json:"isSelf"`
+	IsFriend   bool                  `json:"isFriend"`
+	Friends    []socialFriendSummary `json:"friends,omitempty"`
+}
+
+type socialProfileResponse struct {
+	OK      bool          `json:"ok"`
+	Profile socialProfile `json:"profile"`
+	Error   string        `json:"error,omitempty"`
+}
+
+type socialMutationResponse struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+type socialFriendRequest struct {
+	Login string `json:"login"`
+}
+
 type userRecord struct {
 	ID    string
 	Login string
@@ -198,6 +235,9 @@ func main() {
 	mux.HandleFunc("/api/auth/login", srv.handleLogin)
 	mux.HandleFunc("/api/auth/me", srv.handleMe)
 	mux.HandleFunc("/api/auth/logout", srv.handleLogout)
+	mux.HandleFunc("/api/social/profile", srv.handleSocialProfile)
+	mux.HandleFunc("/api/social/friends/add", srv.handleSocialFriendAdd)
+	mux.HandleFunc("/api/social/friends/remove", srv.handleSocialFriendRemove)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -579,6 +619,99 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, AuthResponse{OK: true})
 }
 
+func (s *Server) handleSocialProfile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	login := normalizeLogin(r.URL.Query().Get("login"))
+	if login == "" {
+		writeJSON(w, socialProfileResponse{OK: false, Error: "логин не может быть пустым"})
+		return
+	}
+	requesterID, _ := s.userIDFromRequest(r)
+	profile, err := s.socialProfileByLogin(context.Background(), login, requesterID)
+	if err != nil {
+		writeJSON(w, socialProfileResponse{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, socialProfileResponse{OK: true, Profile: *profile})
+}
+
+func (s *Server) handleSocialFriendAdd(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req socialFriendRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "bad json"})
+		return
+	}
+	login := normalizeLogin(req.Login)
+	if login == "" {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "логин не может быть пустым"})
+		return
+	}
+	requesterID, ok := s.userIDFromRequest(r)
+	if !ok {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "не авторизован"})
+		return
+	}
+	ctx := context.Background()
+	target, err := s.userByLogin(ctx, login)
+	if err != nil {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "пользователь не найден"})
+		return
+	}
+	if target.ID == requesterID {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "нельзя добавить себя в друзья"})
+		return
+	}
+	if err := s.addFriendship(ctx, requesterID, target.ID); err != nil {
+		writeJSON(w, socialMutationResponse{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, socialMutationResponse{OK: true})
+}
+
+func (s *Server) handleSocialFriendRemove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req socialFriendRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "bad json"})
+		return
+	}
+	login := normalizeLogin(req.Login)
+	if login == "" {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "логин не может быть пустым"})
+		return
+	}
+	requesterID, ok := s.userIDFromRequest(r)
+	if !ok {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "не авторизован"})
+		return
+	}
+	ctx := context.Background()
+	target, err := s.userByLogin(ctx, login)
+	if err != nil {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "пользователь не найден"})
+		return
+	}
+	if target.ID == requesterID {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "нельзя удалить себя из друзей"})
+		return
+	}
+	if err := s.removeFriendship(ctx, requesterID, target.ID); err != nil {
+		writeJSON(w, socialMutationResponse{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, socialMutationResponse{OK: true})
+}
+
 func (s *Server) leaseState(w http.ResponseWriter, r *http.Request) (*stateLease, error) {
 	if userID, ok := s.userIDFromRequest(r); ok {
 		ctx := context.Background()
@@ -737,8 +870,15 @@ func (s *Server) ensureSchema() error {
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			expires_at TIMESTAMPTZ NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS user_friendships (
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			friend_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			PRIMARY KEY (user_id, friend_id)
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions(expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_user_friendships_friend_id ON user_friendships(friend_id)`,
 	}
 	for _, stmt := range stmts {
 		if err := s.execPSQL(context.Background(), stmt, nil); err != nil {
@@ -830,6 +970,215 @@ func (s *Server) loginByUserID(ctx context.Context, userID string) (string, erro
 		return "", errNoRows
 	}
 	return login, nil
+}
+
+func normalizeOnlineStatus(lastSeen time.Time) bool {
+	if lastSeen.IsZero() {
+		return false
+	}
+	now := time.Now().UTC()
+	seen := lastSeen.UTC()
+	delta := now.Sub(seen)
+	return delta >= 0 && delta <= 5*time.Minute
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func uniqueSortedStrings(values []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func addUniqueString(values []string, needle string) []string {
+	needle = strings.TrimSpace(needle)
+	if needle == "" {
+		return uniqueSortedStrings(values)
+	}
+	for _, value := range values {
+		if value == needle {
+			return uniqueSortedStrings(values)
+		}
+	}
+	values = append(values, needle)
+	return uniqueSortedStrings(values)
+}
+
+func removeString(values []string, needle string) []string {
+	needle = strings.TrimSpace(needle)
+	if needle == "" {
+		return uniqueSortedStrings(values)
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value != needle {
+			out = append(out, value)
+		}
+	}
+	return uniqueSortedStrings(out)
+}
+
+func (s *Server) friendIDs(ctx context.Context, userID string) ([]string, error) {
+	if strings.TrimSpace(s.dbURL) == "" {
+		var ids []string
+		err := s.withLocalStore(func(store *localStore) error {
+			store.ensure()
+			ids = append(ids, store.Friends[userID]...)
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		return uniqueSortedStrings(ids), nil
+	}
+	out, err := s.queryPSQL(ctx, `
+		SELECT friend_id
+		FROM user_friendships
+		WHERE user_id = :'user_id'
+		ORDER BY created_at ASC, friend_id ASC
+	`, map[string]string{"user_id": userID})
+	if err != nil {
+		return nil, err
+	}
+	rows := strings.Split(strings.TrimSpace(out), "\n")
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		row = strings.TrimSpace(row)
+		if row != "" {
+			ids = append(ids, row)
+		}
+	}
+	return uniqueSortedStrings(ids), nil
+}
+
+func (s *Server) areFriends(ctx context.Context, userID, friendID string) bool {
+	ids, err := s.friendIDs(ctx, userID)
+	if err != nil {
+		return false
+	}
+	return containsString(ids, friendID)
+}
+
+func (s *Server) addFriendship(ctx context.Context, userID, friendID string) error {
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(friendID) == "" {
+		return fmt.Errorf("неверные данные")
+	}
+	if userID == friendID {
+		return fmt.Errorf("нельзя добавить себя в друзья")
+	}
+	if strings.TrimSpace(s.dbURL) == "" {
+		return s.withLocalStore(func(store *localStore) error {
+			store.ensure()
+			store.Friends[userID] = addUniqueString(store.Friends[userID], friendID)
+			store.Friends[friendID] = addUniqueString(store.Friends[friendID], userID)
+			return nil
+		})
+	}
+	return s.execPSQL(ctx, `
+		INSERT INTO user_friendships (user_id, friend_id)
+		VALUES (:'user_id', :'friend_id'), (:'friend_id', :'user_id')
+		ON CONFLICT DO NOTHING
+	`, map[string]string{
+		"user_id":   userID,
+		"friend_id": friendID,
+	})
+}
+
+func (s *Server) removeFriendship(ctx context.Context, userID, friendID string) error {
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(friendID) == "" {
+		return fmt.Errorf("неверные данные")
+	}
+	if userID == friendID {
+		return fmt.Errorf("нельзя удалить себя из друзей")
+	}
+	if strings.TrimSpace(s.dbURL) == "" {
+		return s.withLocalStore(func(store *localStore) error {
+			store.ensure()
+			store.Friends[userID] = removeString(store.Friends[userID], friendID)
+			store.Friends[friendID] = removeString(store.Friends[friendID], userID)
+			return nil
+		})
+	}
+	return s.execPSQL(ctx, `
+		DELETE FROM user_friendships
+		WHERE (user_id = :'user_id' AND friend_id = :'friend_id')
+		   OR (user_id = :'friend_id' AND friend_id = :'user_id')
+	`, map[string]string{
+		"user_id":   userID,
+		"friend_id": friendID,
+	})
+}
+
+func (s *Server) socialProfileByLogin(ctx context.Context, login string, requesterID string) (*socialProfile, error) {
+	user, err := s.userByLogin(ctx, login)
+	if err != nil {
+		return nil, fmt.Errorf("пользователь не найден")
+	}
+	state, err := s.loadState(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+	profile := &socialProfile{
+		UserID:     user.ID,
+		Login:      user.Login,
+		State:      copyState(state),
+		Online:     normalizeOnlineStatus(state.UpdatedAt),
+		LastSeenAt: state.UpdatedAt,
+		IsSelf:     strings.TrimSpace(requesterID) != "" && requesterID == user.ID,
+		IsFriend:   strings.TrimSpace(requesterID) != "" && requesterID == user.ID,
+	}
+	if requesterID != "" && requesterID != user.ID {
+		profile.IsFriend = s.areFriends(ctx, requesterID, user.ID)
+	}
+	if profile.IsSelf {
+		friendIDs, err := s.friendIDs(ctx, user.ID)
+		if err == nil {
+			profile.Friends = make([]socialFriendSummary, 0, len(friendIDs))
+			for _, friendID := range friendIDs {
+				if friendID == user.ID {
+					continue
+				}
+				friendLogin, err := s.loginByUserID(ctx, friendID)
+				if err != nil || strings.TrimSpace(friendLogin) == "" {
+					continue
+				}
+				friendState, err := s.loadState(ctx, friendID)
+				if err != nil {
+					continue
+				}
+				profile.Friends = append(profile.Friends, socialFriendSummary{
+					UserID:     friendID,
+					Login:      friendLogin,
+					State:      copyState(friendState),
+					Online:     normalizeOnlineStatus(friendState.UpdatedAt),
+					LastSeenAt: friendState.UpdatedAt,
+				})
+			}
+			sort.Slice(profile.Friends, func(i, j int) bool {
+				return strings.ToLower(profile.Friends[i].Login) < strings.ToLower(profile.Friends[j].Login)
+			})
+		}
+	}
+	return profile, nil
 }
 
 func normalizeGameState(state *GameState) {
@@ -1083,9 +1432,11 @@ func (s *Server) selectBoss(gs *GameState, bossID string) error {
 			return fmt.Errorf("дневной лимит этого босса уже исчерпан")
 		}
 		prepareBossBattle(boss, now)
+		resetBossBattleDamage(gs)
 		appendLog(gs, fmt.Sprintf("%s можно пройти ещё раз.", boss.Name))
 	} else {
 		startBossBattle(boss, now)
+		resetBossBattleDamage(gs)
 		appendLog(gs, fmt.Sprintf("Выбран босс: %s.", boss.Name))
 	}
 	gs.ActiveBossID = bossID
@@ -1102,6 +1453,7 @@ func (s *Server) clearBoss(gs *GameState) error {
 		return fmt.Errorf("сначала заверши текущую битву")
 	}
 
+	resetBossBattleDamage(gs)
 	gs.ActiveBossID = ""
 	appendLog(gs, "Выбор босса закрыт.")
 	return nil
@@ -1130,6 +1482,7 @@ func (s *Server) finishBossBattle(gs *GameState) error {
 	gs.Player.Currency[Kormik]--
 	gs.Bosses[idx].HP = gs.Bosses[idx].MaxHP
 	resetBossBattle(&gs.Bosses[idx])
+	resetBossBattleDamage(gs)
 	gs.ActiveBossID = ""
 	appendLog(gs, fmt.Sprintf("Битва с %s завершена за 1 кормик.", boss.Name))
 	return nil
@@ -1152,6 +1505,7 @@ func (s *Server) retryBoss(gs *GameState) error {
 
 	if boss.Defeated || boss.HP <= 0 || boss.BattleStartedAt.IsZero() || boss.BattleEndsAt.IsZero() {
 		prepareBossBattle(&gs.Bosses[idx], time.Now())
+		resetBossBattleDamage(gs)
 		appendLog(gs, fmt.Sprintf("%s можно пройти ещё раз.", boss.Name))
 		return nil
 	}
@@ -1248,6 +1602,7 @@ func (s *Server) attackBoss(gs *GameState, attackType string) error {
 
 	actualDamage := min(damage, boss.HP)
 	recordBossDamage(gs, actualDamage, now)
+	recordBossBattleDamage(gs, actualDamage)
 	gs.Bosses[idx].HP = max(0, boss.HP-damage)
 	if cost > 0 {
 		if gs.Player.Inventory == nil {
@@ -1651,22 +2006,24 @@ func newGameState() GameState {
 				KillsTotal:      0,
 			},
 		},
-		Adventure:          defaultAdventureNodes(),
-		ActiveAdventureID:  adventureBlueprints[0].ID,
-		ActiveBossID:       "",
-		BossKillsToday:     0,
-		BossKillsDay:       bossKillDayKey(),
-		LocationPasses:     0,
-		BossDamageDay:      0,
-		BossDamageDayKey:   damageDayKey(time.Now()),
-		BossDamageWeek:     0,
-		BossDamageWeekKey:  damageWeekKey(time.Now()),
-		BossDamageMonth:    0,
-		BossDamageMonthKey: damageMonthKey(time.Now()),
-		BossDamageAllTime:  0,
-		Log:                []string{"Добро пожаловать в поле хомяков."},
-		UpdatedAt:          time.Now(),
-		LastEnergyRegenAt:  time.Now(),
+		Adventure:               defaultAdventureNodes(),
+		ActiveAdventureID:       adventureBlueprints[0].ID,
+		ActiveBossID:            "",
+		BossKillsToday:          0,
+		BossKillsDay:            bossKillDayKey(),
+		LocationPasses:          0,
+		BossDamageDay:           0,
+		BossDamageDayKey:        damageDayKey(time.Now()),
+		BossDamageWeek:          0,
+		BossDamageWeekKey:       damageWeekKey(time.Now()),
+		BossDamageMonth:         0,
+		BossDamageMonthKey:      damageMonthKey(time.Now()),
+		BossDamageAllTime:       0,
+		BossBattleDamageCurrent: 0,
+		BossBattleDamageBest:    0,
+		Log:                     []string{"Добро пожаловать в поле хомяков."},
+		UpdatedAt:               time.Now(),
+		LastEnergyRegenAt:       time.Now(),
 	}
 }
 
@@ -1769,6 +2126,15 @@ func normalizeBossDamageStats(gs *GameState) {
 	if gs.BossDamageAllTime < 0 {
 		gs.BossDamageAllTime = 0
 	}
+	if gs.BossBattleDamageCurrent < 0 {
+		gs.BossBattleDamageCurrent = 0
+	}
+	if gs.BossBattleDamageBest < 0 {
+		gs.BossBattleDamageBest = 0
+	}
+	if gs.BossBattleDamageBest < gs.BossBattleDamageCurrent {
+		gs.BossBattleDamageBest = gs.BossBattleDamageCurrent
+	}
 }
 
 func recordBossDamage(gs *GameState, amount int, now time.Time) {
@@ -1783,6 +2149,22 @@ func recordBossDamage(gs *GameState, amount int, now time.Time) {
 	gs.BossDamageDayKey = damageDayKey(now)
 	gs.BossDamageWeekKey = damageWeekKey(now)
 	gs.BossDamageMonthKey = damageMonthKey(now)
+}
+
+func recordBossBattleDamage(gs *GameState, amount int) {
+	if gs == nil || amount <= 0 {
+		return
+	}
+	if gs.BossBattleDamageCurrent < 0 {
+		gs.BossBattleDamageCurrent = 0
+	}
+	if gs.BossBattleDamageBest < 0 {
+		gs.BossBattleDamageBest = 0
+	}
+	gs.BossBattleDamageCurrent += amount
+	if gs.BossBattleDamageCurrent > gs.BossBattleDamageBest {
+		gs.BossBattleDamageBest = gs.BossBattleDamageCurrent
+	}
 }
 
 func resetAdventureLoop(gs *GameState) {
@@ -1906,6 +2288,13 @@ func startBossBattle(boss *Boss, now time.Time) {
 	}
 }
 
+func resetBossBattleDamage(gs *GameState) {
+	if gs == nil {
+		return
+	}
+	gs.BossBattleDamageCurrent = 0
+}
+
 func resetBossBattle(boss *Boss) {
 	if boss == nil {
 		return
@@ -1937,6 +2326,7 @@ func advanceBossTimers(gs *GameState) {
 		if boss.Defeated {
 			resetBossBattle(boss)
 			if gs.ActiveBossID == boss.ID {
+				resetBossBattleDamage(gs)
 				gs.ActiveBossID = ""
 			}
 			continue
@@ -1946,6 +2336,7 @@ func advanceBossTimers(gs *GameState) {
 			boss.HP = boss.MaxHP
 			resetBossBattle(boss)
 			if gs.ActiveBossID == boss.ID {
+				resetBossBattleDamage(gs)
 				gs.ActiveBossID = ""
 			}
 			continue

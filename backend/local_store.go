@@ -18,6 +18,7 @@ type localStore struct {
 	Users    map[string]userRecord         `json:"users"`
 	States   map[string]GameState          `json:"states"`
 	Sessions map[string]localSessionRecord `json:"sessions"`
+	Friends  map[string][]string           `json:"friends"`
 }
 
 func (s *Server) localStorePath() string {
@@ -36,6 +37,9 @@ func (store *localStore) ensure() {
 	}
 	if store.Sessions == nil {
 		store.Sessions = map[string]localSessionRecord{}
+	}
+	if store.Friends == nil {
+		store.Friends = map[string][]string{}
 	}
 }
 

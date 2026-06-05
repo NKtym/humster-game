@@ -11,6 +11,20 @@ const CURRENCY_LABELS = {
   kormik: 'Кормик',
 };
 
+const BATTLE_DAMAGE_ACHIEVEMENTS = (() => {
+  const thresholds = [];
+  let value = 100;
+  const maxThreshold = 2000000;
+  while (value < maxThreshold) {
+    thresholds.push(value);
+    value *= 5;
+  }
+  if (thresholds[thresholds.length - 1] !== maxThreshold) {
+    thresholds.push(maxThreshold);
+  }
+  return thresholds;
+})();
+
 const API_BASE = (window.APP_CONFIG && window.APP_CONFIG.apiBaseUrl) ? window.APP_CONFIG.apiBaseUrl : '/api';
 const SESSION_KEY = 'humster_session_id';
 const AUTH_TOKEN_KEY = 'humster_auth_token';
@@ -306,6 +320,8 @@ const DEFAULT_STATE = {
   bossDamageMonth: 0,
   bossDamageMonthKey: damageMonthKey(),
   bossDamageAllTime: 0,
+  bossBattleDamageCurrent: 0,
+  bossBattleDamageBest: 0,
   adventure: ADVENTURE_DEFS.map((node) => ({
     id: node.id,
     name: node.label,
@@ -567,6 +583,11 @@ function normalizeState(state) {
   next.bossDamageMonth = Math.max(0, Number(state.bossDamageMonth ?? next.bossDamageMonth) || 0);
   next.bossDamageMonthKey = state.bossDamageMonthKey || next.bossDamageMonthKey || damageMonthKey();
   next.bossDamageAllTime = Math.max(0, Number(state.bossDamageAllTime ?? next.bossDamageAllTime) || 0);
+  next.bossBattleDamageCurrent = Math.max(0, Number(state.bossBattleDamageCurrent ?? next.bossBattleDamageCurrent) || 0);
+  next.bossBattleDamageBest = Math.max(0, Number(state.bossBattleDamageBest ?? next.bossBattleDamageBest) || 0);
+  if (next.bossBattleDamageBest < next.bossBattleDamageCurrent) {
+    next.bossBattleDamageBest = next.bossBattleDamageCurrent;
+  }
   normalizeDamageStats(next);
   normalizeBossTimers(next);
   refreshBossKillLimit(next);
@@ -846,7 +867,11 @@ async function confirmBattleFinish() {
   render();
 }
 
-let profileModalTarget = false;
+let profileModalTarget = '';
+let profileModalProfile = null;
+let profileModalLoading = false;
+let profileModalError = '';
+let achievementsModalTab = 'battle';
 
 function ensureProfileModal() {
   if (document.getElementById('profile-modal')) return;
@@ -859,78 +884,427 @@ function ensureProfileModal() {
             <div class="eyebrow">Профиль игрока</div>
             <h3 id="profile-title">Профиль хомяка</h3>
           </div>
-          <button type="button" class="ghost" data-profile-close>Закрыть</button>
+          <div class="social-profile__actions">
+            <button type="button" class="ghost" id="btn-profile-home">Мой профиль</button>
+            <button type="button" class="ghost" data-profile-close>Закрыть</button>
+          </div>
         </div>
+        <div class="social-modal__toolbar">
+          <input id="friend-login-input" maxlength="32" placeholder="Логин друга" />
+          <button id="btn-friend-add" type="button" class="primary">Добавить</button>
+        </div>
+        <div id="profile-modal-error" class="auth-error" aria-live="polite"></div>
         <div id="profile-modal-body" class="profile-modal__body"></div>
       </div>
     </div>
   `);
 }
 
-function renderProfileModal(state) {
-  const modal = document.getElementById('profile-modal');
-  if (!modal) return;
-  const body = document.getElementById('profile-modal-body');
-  if (!body) return;
-  const player = state?.player || {};
-  const bosses = state?.bosses || [];
-  const bossRows = bosses.map((boss) => `
-    <div class="profile-row">
-      <span>${boss.name || boss.id}</span>
-      <strong>${Math.max(0, Number(boss.killsTotal) || 0)}</strong>
-    </div>
-  `).join('');
-  body.innerHTML = `
-    <div class="profile-grid">
-      <div class="profile-card">
-        <span>Уровень</span>
-        <strong>${player.level || 1}</strong>
-      </div>
-      <div class="profile-card">
-        <span>Урон по боссам за день</span>
-        <strong>${Math.max(0, Number(state?.bossDamageDay) || 0)}</strong>
-      </div>
-      <div class="profile-card">
-        <span>Урон по боссам за неделю</span>
-        <strong>${Math.max(0, Number(state?.bossDamageWeek) || 0)}</strong>
-      </div>
-      <div class="profile-card">
-        <span>Урон по боссам за месяц</span>
-        <strong>${Math.max(0, Number(state?.bossDamageMonth) || 0)}</strong>
-      </div>
-      <div class="profile-card profile-card--wide">
-        <span>Урон по боссам за всё время</span>
-        <strong>${Math.max(0, Number(state?.bossDamageAllTime) || 0)}</strong>
-      </div>
-      <div class="profile-card">
-        <span>Проходок локации</span>
-        <strong>${Math.max(0, Number(state?.locationPasses) || 0)}</strong>
+function hamsterPreviewMarkup(state) {
+  const appearance = state?.player?.appearance || {};
+  const wallpaperId = appearance.background || state?.player?.wallpaper || state?.player?.equipped?.wallpaper || 'wallpaper_day';
+  const wallpaper = getWallpaperAsset(wallpaperId);
+  const hamsterSprite = getHamsterSpriteAsset(appearance.color || 'default');
+  const body = appearance.body || 'none';
+  const head = appearance.headwear || 'none';
+  const glasses = appearance.glasses || 'none';
+  const mask = appearance.mask || 'none';
+  const shoes = appearance.shoes || 'none';
+  const held = appearance.heldItem || 'none';
+
+  return `
+    <div class="hamster-preview">
+      <div class="hamster-preview__wallpaper" style="background-image:url('${wallpaper.img}')"></div>
+      <div class="hamster-preview__fog"></div>
+      <div class="hamster-preview__ground"></div>
+      <div class="hamster-preview__stage">
+        <div class="hamster-preview__shadow"></div>
+        <img class="hamster-preview__sprite" src="${hamsterSprite}" alt="Хомяк" />
+        <div class="hamster-preview__outfit">
+          ${head !== 'none' ? `<div class="appearance-layer appearance-layer--headwear appearance-layer--${head}"></div>` : ''}
+          ${glasses !== 'none' ? `<div class="appearance-layer appearance-layer--glasses appearance-layer--${glasses}"></div>` : ''}
+          ${mask !== 'none' ? `<div class="appearance-layer appearance-layer--mask appearance-layer--${mask}"></div>` : ''}
+          ${body !== 'none' ? `<div class="appearance-layer appearance-layer--body appearance-layer--${body}"></div>` : ''}
+          ${shoes !== 'none' ? `<div class="appearance-layer appearance-layer--shoes appearance-layer--${shoes}"></div>` : ''}
+          ${held !== 'none' ? `<div class="appearance-layer appearance-layer--heldItem appearance-layer--${held}"></div>` : ''}
+        </div>
       </div>
     </div>
-    <div class="profile-section">
-      <div class="profile-section__head">
-        <h4>Прохождения боссов</h4>
-        <span>Счётчик побед</span>
-      </div>
-      <div class="profile-list">
-        ${bossRows}
-      </div>
-    </div>
-    <div class="profile-note">Счётчики обновляются после каждого удара и победы над боссом.</div>
   `;
 }
 
-function openProfileModal() {
+function formatSeenAt(value) {
+  if (!value) return 'Неизвестно';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Неизвестно';
+  return date.toLocaleString('ru-RU');
+}
+
+function renderSocialFriendCard(friend, targetLogin) {
+  const state = friend?.state || {};
+  const p = state.player || {};
+  const level = Math.max(1, Number(p.level) || 1);
+  const status = friend?.online ? 'Онлайн' : `Был(а) ${formatSeenAt(friend?.lastSeenAt)}`;
+  return `
+    <article class="social-friend">
+      <button type="button" class="social-friend__avatar" data-social-open="${friend.login}">${hamsterPreviewMarkup(state)}</button>
+      <div class="social-friend__body">
+        <div class="social-friend__head">
+          <strong>${friend.login}</strong>
+          <span class="social-friend__status">${status}</span>
+        </div>
+        <div class="social-friend__meta">${p.name || 'Хомяк'} • ур. ${level}</div>
+        <div class="social-friend__actions">
+          <button type="button" class="ghost" data-social-open="${friend.login}">Открыть профиль</button>
+          ${targetLogin === currentUserLogin ? `<button type="button" class="ghost" data-social-remove="${friend.login}">Удалить</button>` : ''}
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function renderProfileSummary(profile) {
+  const state = profile?.state || {};
+  const player = state.player || {};
+  const friends = Array.isArray(profile?.friends) ? profile.friends : [];
+  const onlineText = profile?.online ? 'Онлайн' : `Был(а) ${formatSeenAt(profile?.lastSeenAt)}`;
+  const friendCount = friends.length;
+  const isSelf = Boolean(profile?.isSelf);
+
+  const stats = [
+    { label: 'Логин', value: profile?.login || '—' },
+    { label: 'Имя хомяка', value: player.name || 'Хомяк' },
+    { label: 'Уровень', value: String(player.level || 1) },
+    { label: 'Статус', value: onlineText },
+    { label: 'Друзья', value: String(friendCount) },
+    { label: 'HP', value: `${Math.max(1, Number(player.hp) || 1)}/${Math.max(1, Number(player.maxHp) || 1)}` },
+  ];
+
+  return `
+    <div class="social-profile">
+      <div class="social-profile__avatar">
+        ${hamsterPreviewMarkup(state)}
+      </div>
+      <div class="social-profile__meta">
+        <div class="social-profile__cards">
+          ${stats.map((card) => `
+            <div class="social-profile__card">
+              <span>${card.label}</span>
+              <strong>${card.value}</strong>
+            </div>
+          `).join('')}
+        </div>
+        <div class="social-note">
+          ${isSelf ? 'Это твой профиль и список друзей.' : 'Профиль друга открыт для просмотра.'}
+        </div>
+        <div class="social-profile__actions">
+          ${!isSelf && isAuthenticated ? (profile?.isFriend
+            ? `<button type="button" class="ghost" id="btn-social-remove">Удалить из друзей</button>`
+            : `<button type="button" class="primary" id="btn-social-add-target">Добавить в друзья</button>`) : ''}
+          ${!isSelf ? `<button type="button" class="ghost" id="btn-profile-home">Мой профиль</button>` : ''}
+        </div>
+      </div>
+    </div>
+    ${isSelf ? `
+      <div class="social-friends">
+        <div class="social-friends__head">
+          <h4>Друзья</h4>
+          <span>${friendCount} шт.</span>
+        </div>
+        <div class="social-friends__grid">
+          ${friends.length ? friends.map((friend) => renderSocialFriendCard(friend, profile.login)).join('') : '<div class="social-note">Пока друзей нет. Введи логин и нажми «Добавить».</div>'}
+        </div>
+      </div>
+    ` : ''}
+  `;
+}
+
+function bindProfileModalEvents() {
+  document.querySelectorAll('[data-profile-close]').forEach((btn) => {
+    btn.onclick = closeProfileModal;
+  });
+  document.querySelectorAll('[data-social-open]').forEach((btn) => {
+    btn.onclick = () => {
+      const login = btn.getAttribute('data-social-open') || '';
+      if (login) openProfileModal(login);
+    };
+  });
+  document.querySelectorAll('[data-social-remove]').forEach((btn) => {
+    btn.onclick = async () => {
+      const login = btn.getAttribute('data-social-remove') || '';
+      if (login) {
+        await mutateFriendship('remove', login);
+      }
+    };
+  });
+  const homeBtn = document.getElementById('btn-profile-home');
+  if (homeBtn) {
+    homeBtn.onclick = () => openProfileModal(currentUserLogin || profileModalTarget || currentState?.player?.name || '');
+  }
+  const addBtn = document.getElementById('btn-friend-add');
+  if (addBtn) {
+    addBtn.onclick = async () => {
+      const input = document.getElementById('friend-login-input');
+      const login = input ? input.value.trim() : '';
+      if (!login) return;
+      await mutateFriendship('add', login);
+      if (input) input.value = '';
+    };
+  }
+  const addTargetBtn = document.getElementById('btn-social-add-target');
+  if (addTargetBtn) {
+    addTargetBtn.onclick = async () => {
+      if (profileModalTarget) {
+        await mutateFriendship('add', profileModalTarget);
+      }
+    };
+  }
+  const removeBtn = document.getElementById('btn-social-remove');
+  if (removeBtn) {
+    removeBtn.onclick = async () => {
+      if (profileModalTarget) {
+        await mutateFriendship('remove', profileModalTarget);
+      }
+    };
+  }
+}
+
+function renderProfileModal(profile) {
+  const modal = document.getElementById('profile-modal');
+  if (!modal) return;
+  const body = document.getElementById('profile-modal-body');
+  const title = document.getElementById('profile-title');
+  const error = document.getElementById('profile-modal-error');
+  const addInput = document.getElementById('friend-login-input');
+  const homeBtn = document.getElementById('btn-profile-home');
+
+  if (title) {
+    title.textContent = profile?.isSelf ? 'Профиль хомяка' : `Профиль: ${profile?.login || 'игрок'}`;
+  }
+  if (error) {
+    error.textContent = profileModalError || '';
+  }
+  if (homeBtn) {
+    homeBtn.hidden = !profile || profile.isSelf;
+  }
+  if (addInput) {
+    addInput.placeholder = profile?.isSelf ? 'Логин друга' : 'Добавить по логину';
+  }
+  if (body) {
+    if (profileModalLoading) {
+      body.innerHTML = '<div class="social-note">Загрузка профиля...</div>';
+    } else if (profile) {
+      body.innerHTML = renderProfileSummary(profile);
+    } else {
+      body.innerHTML = '<div class="social-note">Профиль не найден.</div>';
+    }
+  }
+  bindProfileModalEvents();
+}
+
+async function loadProfileModal(login) {
+  const target = normalizeLogin(login || currentUserLogin || currentState?.player?.name || '');
+  if (!target) {
+    profileModalProfile = null;
+    profileModalError = 'Сначала создай аккаунт или войди в игру';
+    profileModalLoading = false;
+    renderProfileModal(null);
+    return;
+  }
+  profileModalTarget = target;
+  profileModalLoading = true;
+  profileModalError = '';
+  renderProfileModal(profileModalProfile);
+  try {
+    const res = await fetch(apiUrl(`/social/profile?login=${encodeURIComponent(target)}`), {
+      method: 'GET',
+      headers: authHeaders(),
+    });
+    const data = await res.json().catch(() => null);
+    if (res.ok && data && data.ok && data.profile) {
+      profileModalProfile = normalizeSocialProfile(data.profile);
+      profileModalLoading = false;
+      profileModalError = '';
+      renderProfileModal(profileModalProfile);
+      return;
+    }
+    profileModalError = data && data.error ? data.error : 'Не удалось загрузить профиль';
+    profileModalProfile = null;
+  } catch (error) {
+    profileModalError = 'Не удалось загрузить профиль';
+    profileModalProfile = null;
+  }
+  profileModalLoading = false;
+  renderProfileModal(profileModalProfile);
+}
+
+function normalizeSocialProfile(profile) {
+  const state = normalizeState(profile?.state || DEFAULT_STATE);
+  const friends = Array.isArray(profile?.friends) ? profile.friends.map((friend) => ({
+    ...friend,
+    state: normalizeState(friend?.state || DEFAULT_STATE),
+  })) : [];
+  return {
+    ...profile,
+    state,
+    friends,
+    isSelf: Boolean(profile?.isSelf),
+    isFriend: Boolean(profile?.isFriend),
+    online: Boolean(profile?.online),
+  };
+}
+
+async function openProfileModal(login = currentUserLogin || currentState?.player?.name || '') {
   ensureProfileModal();
-  profileModalTarget = true;
   const modal = document.getElementById('profile-modal');
   if (modal) modal.hidden = false;
-  renderProfileModal(currentState);
+  if (!isAuthenticated) {
+    profileModalTarget = '';
+    profileModalProfile = null;
+    profileModalLoading = false;
+    profileModalError = 'Сначала войди в игру, чтобы пользоваться друзьями';
+    renderProfileModal(null);
+    return;
+  }
+  await loadProfileModal(login);
 }
 
 function closeProfileModal() {
-  profileModalTarget = false;
   const modal = document.getElementById('profile-modal');
+  if (modal) modal.hidden = true;
+  profileModalTarget = '';
+  profileModalLoading = false;
+  profileModalError = '';
+}
+
+async function mutateFriendship(mode, login) {
+  const targetLogin = normalizeLogin(login);
+  if (!targetLogin) return;
+  const path = mode === 'remove' ? '/social/friends/remove' : '/social/friends/add';
+  const response = await api(path, { login: targetLogin }, 'POST');
+  if (!response.ok || !response.data || !response.data.ok) {
+    profileModalError = response.data && response.data.error ? response.data.error : 'Не удалось обновить друзей';
+    renderProfileModal(profileModalProfile);
+    return;
+  }
+  await loadProfileModal(profileModalTarget || currentUserLogin || targetLogin);
+}
+
+function ensureAchievementsModal() {
+  if (document.getElementById('achievements-modal')) return;
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="achievements-modal" class="achievements-modal" hidden>
+      <div class="achievements-modal__backdrop" data-achievements-close></div>
+      <div class="achievements-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="achievements-title">
+        <div class="achievements-modal__head">
+          <div>
+            <div class="eyebrow">Достижения по игре</div>
+            <h3 id="achievements-title">Битвы</h3>
+          </div>
+          <button type="button" class="ghost" data-achievements-close>Закрыть</button>
+        </div>
+        <div class="achievements-modal__tabs">
+          <button type="button" class="achievements-modal__tab is-active" data-achievements-tab="battle">Битвы</button>
+        </div>
+        <div id="achievements-modal-body" class="achievements-modal__body"></div>
+      </div>
+    </div>
+  `);
+}
+
+function formatAchievementNumber(value) {
+  return Number(value).toLocaleString('ru-RU');
+}
+
+function renderBattleAchievements() {
+  const best = Math.max(0, Number(currentState?.bossBattleDamageBest) || 0);
+  const current = Math.max(0, Number(currentState?.bossBattleDamageCurrent) || 0);
+  const rows = BATTLE_DAMAGE_ACHIEVEMENTS.map((threshold) => {
+    const unlocked = best >= threshold;
+    const progress = Math.min(threshold, best);
+    const percent = Math.max(0, Math.min(100, (progress / threshold) * 100));
+    return `
+      <div class="achievement-step ${unlocked ? 'is-done' : ''}">
+        <div class="achievement-step__head">
+          <strong>Нанесите ${formatAchievementNumber(threshold)} урона за одну битву</strong>
+          <span>${unlocked ? 'Выполнено' : `${formatAchievementNumber(Math.max(0, threshold - best))} осталось`}</span>
+        </div>
+        <div class="achievement-step__bar"><div style="width: ${percent}%"></div></div>
+        <div class="achievement-step__state">${unlocked ? `Лучший результат: ${formatAchievementNumber(best)}` : `Текущий лучший результат: ${formatAchievementNumber(best)}`}</div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="achievement-summary">
+      <div class="profile-card">
+        <span>Лучший урон за одну битву</span>
+        <strong>${formatAchievementNumber(best)}</strong>
+      </div>
+      <div class="profile-card">
+        <span>Текущий урон в бою</span>
+        <strong>${formatAchievementNumber(current)}</strong>
+      </div>
+    </div>
+    <details class="achievement-accordion" open>
+      <summary>
+        <div>
+          <strong>Битвы</strong>
+          <span>Нажми, чтобы свернуть или раскрыть список достижений</span>
+        </div>
+        <span class="achievement-accordion__hint">${BATTLE_DAMAGE_ACHIEVEMENTS.length} целей</span>
+      </summary>
+      <div class="achievement-accordion__content">
+        ${rows}
+      </div>
+    </details>
+  `;
+}
+
+function bindAchievementsModalEvents() {
+  document.querySelectorAll('[data-achievements-close]').forEach((btn) => {
+    btn.onclick = closeAchievementsModal;
+  });
+  document.querySelectorAll('[data-achievements-tab]').forEach((btn) => {
+    btn.onclick = () => {
+      achievementsModalTab = btn.getAttribute('data-achievements-tab') || 'battle';
+      renderAchievementsModal();
+    };
+  });
+}
+
+function renderAchievementsModal() {
+  const modal = document.getElementById('achievements-modal');
+  if (!modal) return;
+  const body = document.getElementById('achievements-modal-body');
+  const title = document.getElementById('achievements-title');
+  if (title) {
+    title.textContent = achievementsModalTab === 'battle' ? 'Битвы' : 'Достижения';
+  }
+  const tabs = document.querySelectorAll('[data-achievements-tab]');
+  tabs.forEach((tab) => {
+    const active = (tab.getAttribute('data-achievements-tab') || '') === achievementsModalTab;
+    tab.classList.toggle('is-active', active);
+  });
+  if (body) {
+    if (achievementsModalTab === 'battle') {
+      body.innerHTML = renderBattleAchievements();
+    } else {
+      body.innerHTML = '<div class="social-note">Раздел в разработке.</div>';
+    }
+  }
+  bindAchievementsModalEvents();
+}
+
+function openAchievementsModal() {
+  ensureAchievementsModal();
+  const modal = document.getElementById('achievements-modal');
+  if (modal) modal.hidden = false;
+  renderAchievementsModal();
+}
+
+function closeAchievementsModal() {
+  const modal = document.getElementById('achievements-modal');
   if (modal) modal.hidden = true;
 }
 
@@ -1641,7 +2015,14 @@ function render() {
   renderResourceStrip(currentState);
   updateScene(currentState);
   if (document.getElementById('profile-modal')) {
-    renderProfileModal(currentState);
+    if (profileModalProfile) {
+      renderProfileModal(profileModalProfile);
+    } else if (profileModalLoading || profileModalTarget || profileModalError) {
+      renderProfileModal(null);
+    }
+  }
+  if (document.getElementById('achievements-modal')) {
+    renderAchievementsModal();
   }
 
   const auth = $('#auth-screen');
@@ -1723,7 +2104,21 @@ function initTopButtons() {
   const profileButton = $('#btn-profile');
   if (profileButton) {
     profileButton.onclick = () => {
-      openProfileModal();
+      openProfileModal(currentUserLogin || currentState?.player?.name || '');
+    };
+  }
+
+  const friendsButton = $('#btn-friends');
+  if (friendsButton) {
+    friendsButton.onclick = () => {
+      openProfileModal(currentUserLogin || currentState?.player?.name || '');
+    };
+  }
+
+  const achievementsButton = $('#btn-achievements');
+  if (achievementsButton) {
+    achievementsButton.onclick = () => {
+      openAchievementsModal();
     };
   }
 
