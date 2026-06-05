@@ -170,15 +170,24 @@ type socialFriendSummary struct {
 	LastSeenAt time.Time `json:"lastSeenAt"`
 }
 
+type socialRequestSummary struct {
+	UserID     string    `json:"userId"`
+	Login      string    `json:"login"`
+	State      GameState `json:"state"`
+	Online     bool      `json:"online"`
+	LastSeenAt time.Time `json:"lastSeenAt"`
+}
+
 type socialProfile struct {
-	UserID     string                `json:"userId"`
-	Login      string                `json:"login"`
-	State      GameState             `json:"state"`
-	Online     bool                  `json:"online"`
-	LastSeenAt time.Time             `json:"lastSeenAt"`
-	IsSelf     bool                  `json:"isSelf"`
-	IsFriend   bool                  `json:"isFriend"`
-	Friends    []socialFriendSummary `json:"friends,omitempty"`
+	UserID     string                 `json:"userId"`
+	Login      string                 `json:"login"`
+	State      GameState              `json:"state"`
+	Online     bool                   `json:"online"`
+	LastSeenAt time.Time              `json:"lastSeenAt"`
+	IsSelf     bool                   `json:"isSelf"`
+	IsFriend   bool                   `json:"isFriend"`
+	Friends    []socialFriendSummary  `json:"friends,omitempty"`
+	Requests   []socialRequestSummary `json:"requests,omitempty"`
 }
 
 type socialProfileResponse struct {
@@ -238,6 +247,8 @@ func main() {
 	mux.HandleFunc("/api/social/profile", srv.handleSocialProfile)
 	mux.HandleFunc("/api/social/friends/add", srv.handleSocialFriendAdd)
 	mux.HandleFunc("/api/social/friends/remove", srv.handleSocialFriendRemove)
+	mux.HandleFunc("/api/social/friends/requests/accept", srv.handleSocialFriendRequestAccept)
+	mux.HandleFunc("/api/social/friends/requests/decline", srv.handleSocialFriendRequestDecline)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -668,7 +679,7 @@ func (s *Server) handleSocialFriendAdd(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, socialMutationResponse{OK: false, Error: "нельзя добавить себя в друзья"})
 		return
 	}
-	if err := s.addFriendship(ctx, requesterID, target.ID); err != nil {
+	if err := s.addFriendRequest(ctx, requesterID, target.ID); err != nil {
 		writeJSON(w, socialMutationResponse{OK: false, Error: err.Error()})
 		return
 	}
@@ -706,6 +717,84 @@ func (s *Server) handleSocialFriendRemove(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := s.removeFriendship(ctx, requesterID, target.ID); err != nil {
+		writeJSON(w, socialMutationResponse{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, socialMutationResponse{OK: true})
+}
+
+func (s *Server) handleSocialFriendRequestAccept(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req socialFriendRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "bad json"})
+		return
+	}
+	login := normalizeLogin(req.Login)
+	if login == "" {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "логин не может быть пустым"})
+		return
+	}
+	requesterID, ok := s.userIDFromRequest(r)
+	if !ok {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "не авторизован"})
+		return
+	}
+	ctx := context.Background()
+	target, err := s.userByLogin(ctx, login)
+	if err != nil {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "пользователь не найден"})
+		return
+	}
+	if target.ID == requesterID {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "нельзя добавить себя в друзья"})
+		return
+	}
+	if !s.hasIncomingRequest(ctx, target.ID, requesterID) && !s.areFriends(ctx, requesterID, target.ID) {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "заявка не найдена"})
+		return
+	}
+	if err := s.addFriendship(ctx, requesterID, target.ID); err != nil {
+		writeJSON(w, socialMutationResponse{OK: false, Error: err.Error()})
+		return
+	}
+	writeJSON(w, socialMutationResponse{OK: true})
+}
+
+func (s *Server) handleSocialFriendRequestDecline(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req socialFriendRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "bad json"})
+		return
+	}
+	login := normalizeLogin(req.Login)
+	if login == "" {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "логин не может быть пустым"})
+		return
+	}
+	requesterID, ok := s.userIDFromRequest(r)
+	if !ok {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "не авторизован"})
+		return
+	}
+	ctx := context.Background()
+	target, err := s.userByLogin(ctx, login)
+	if err != nil {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "пользователь не найден"})
+		return
+	}
+	if target.ID == requesterID {
+		writeJSON(w, socialMutationResponse{OK: false, Error: "нельзя отклонить себя"})
+		return
+	}
+	if err := s.removeFriendRequest(ctx, target.ID, requesterID); err != nil {
 		writeJSON(w, socialMutationResponse{OK: false, Error: err.Error()})
 		return
 	}
@@ -876,6 +965,12 @@ func (s *Server) ensureSchema() error {
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			PRIMARY KEY (user_id, friend_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS user_friend_requests (
+			requester_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			target_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			PRIMARY KEY (requester_id, target_id)
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions(expires_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_user_friendships_friend_id ON user_friendships(friend_id)`,
@@ -1037,6 +1132,122 @@ func removeString(values []string, needle string) []string {
 	return uniqueSortedStrings(out)
 }
 
+func (s *Server) friendRequestIDs(ctx context.Context, userID string) ([]string, error) {
+	if strings.TrimSpace(s.dbURL) == "" {
+		var ids []string
+		err := s.withLocalStore(func(store *localStore) error {
+			store.ensure()
+			ids = append(ids, store.FriendRequests[userID]...)
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		return uniqueSortedStrings(ids), nil
+	}
+	out, err := s.queryPSQL(ctx, `
+		SELECT requester_id
+		FROM user_friend_requests
+		WHERE target_id = :'target_id'
+		ORDER BY created_at ASC, requester_id ASC
+	`, map[string]string{"target_id": userID})
+	if err != nil {
+		return nil, err
+	}
+	rows := strings.Split(strings.TrimSpace(out), "\n")
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		row = strings.TrimSpace(row)
+		if row != "" {
+			ids = append(ids, row)
+		}
+	}
+	return uniqueSortedStrings(ids), nil
+}
+
+func (s *Server) hasIncomingRequest(ctx context.Context, targetID, requesterID string) bool {
+	ids, err := s.friendRequestIDs(ctx, targetID)
+	if err != nil {
+		return false
+	}
+	return containsString(ids, requesterID)
+}
+
+func (s *Server) addFriendRequest(ctx context.Context, requesterID, targetID string) error {
+	if strings.TrimSpace(requesterID) == "" || strings.TrimSpace(targetID) == "" {
+		return fmt.Errorf("неверные данные")
+	}
+	if requesterID == targetID {
+		return fmt.Errorf("нельзя добавить себя в друзья")
+	}
+	if s.areFriends(ctx, requesterID, targetID) {
+		return nil
+	}
+	if s.hasIncomingRequest(ctx, requesterID, targetID) {
+		return s.addFriendship(ctx, requesterID, targetID)
+	}
+	if strings.TrimSpace(s.dbURL) == "" {
+		return s.withLocalStore(func(store *localStore) error {
+			store.ensure()
+			store.FriendRequests[targetID] = addUniqueString(store.FriendRequests[targetID], requesterID)
+			return nil
+		})
+	}
+	return s.execPSQL(ctx, `
+		INSERT INTO user_friend_requests (requester_id, target_id)
+		VALUES (:'requester_id', :'target_id')
+		ON CONFLICT DO NOTHING
+	`, map[string]string{
+		"requester_id": requesterID,
+		"target_id":    targetID,
+	})
+}
+
+func (s *Server) removeFriendRequest(ctx context.Context, requesterID, targetID string) error {
+	if strings.TrimSpace(requesterID) == "" || strings.TrimSpace(targetID) == "" {
+		return fmt.Errorf("неверные данные")
+	}
+	if requesterID == targetID {
+		return fmt.Errorf("нельзя удалить себя")
+	}
+	if strings.TrimSpace(s.dbURL) == "" {
+		return s.withLocalStore(func(store *localStore) error {
+			store.ensure()
+			store.FriendRequests[targetID] = removeString(store.FriendRequests[targetID], requesterID)
+			return nil
+		})
+	}
+	return s.execPSQL(ctx, `
+		DELETE FROM user_friend_requests
+		WHERE requester_id = :'requester_id' AND target_id = :'target_id'
+	`, map[string]string{
+		"requester_id": requesterID,
+		"target_id":    targetID,
+	})
+}
+
+func (s *Server) clearFriendRequests(ctx context.Context, userID, friendID string) error {
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(friendID) == "" {
+		return nil
+	}
+	if strings.TrimSpace(s.dbURL) == "" {
+		return s.withLocalStore(func(store *localStore) error {
+			store.ensure()
+			store.FriendRequests[friendID] = removeString(store.FriendRequests[friendID], userID)
+			store.FriendRequests[userID] = removeString(store.FriendRequests[userID], friendID)
+			return nil
+		})
+	}
+	return s.execPSQL(ctx, `
+		DELETE FROM user_friend_requests
+		WHERE (requester_id = :'user_id' AND target_id = :'friend_id')
+		   OR (requester_id = :'friend_id' AND target_id = :'user_id')
+	`, map[string]string{
+		"user_id":   userID,
+		"friend_id": friendID,
+	})
+}
+
 func (s *Server) friendIDs(ctx context.Context, userID string) ([]string, error) {
 	if strings.TrimSpace(s.dbURL) == "" {
 		var ids []string
@@ -1090,17 +1301,22 @@ func (s *Server) addFriendship(ctx context.Context, userID, friendID string) err
 			store.ensure()
 			store.Friends[userID] = addUniqueString(store.Friends[userID], friendID)
 			store.Friends[friendID] = addUniqueString(store.Friends[friendID], userID)
+			store.FriendRequests[userID] = removeString(store.FriendRequests[userID], friendID)
+			store.FriendRequests[friendID] = removeString(store.FriendRequests[friendID], userID)
 			return nil
 		})
 	}
-	return s.execPSQL(ctx, `
+	if err := s.execPSQL(ctx, `
 		INSERT INTO user_friendships (user_id, friend_id)
 		VALUES (:'user_id', :'friend_id'), (:'friend_id', :'user_id')
 		ON CONFLICT DO NOTHING
 	`, map[string]string{
 		"user_id":   userID,
 		"friend_id": friendID,
-	})
+	}); err != nil {
+		return err
+	}
+	return s.clearFriendRequests(ctx, userID, friendID)
 }
 
 func (s *Server) removeFriendship(ctx context.Context, userID, friendID string) error {
@@ -1175,6 +1391,33 @@ func (s *Server) socialProfileByLogin(ctx context.Context, login string, request
 			}
 			sort.Slice(profile.Friends, func(i, j int) bool {
 				return strings.ToLower(profile.Friends[i].Login) < strings.ToLower(profile.Friends[j].Login)
+			})
+		}
+		requesterIDs, err := s.friendRequestIDs(ctx, user.ID)
+		if err == nil {
+			profile.Requests = make([]socialRequestSummary, 0, len(requesterIDs))
+			for _, requesterID := range requesterIDs {
+				if requesterID == user.ID {
+					continue
+				}
+				requesterLogin, err := s.loginByUserID(ctx, requesterID)
+				if err != nil || strings.TrimSpace(requesterLogin) == "" {
+					continue
+				}
+				requesterState, err := s.loadState(ctx, requesterID)
+				if err != nil {
+					continue
+				}
+				profile.Requests = append(profile.Requests, socialRequestSummary{
+					UserID:     requesterID,
+					Login:      requesterLogin,
+					State:      copyState(requesterState),
+					Online:     normalizeOnlineStatus(requesterState.UpdatedAt),
+					LastSeenAt: requesterState.UpdatedAt,
+				})
+			}
+			sort.Slice(profile.Requests, func(i, j int) bool {
+				return strings.ToLower(profile.Requests[i].Login) < strings.ToLower(profile.Requests[j].Login)
 			})
 		}
 	}

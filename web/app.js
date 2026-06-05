@@ -11,6 +11,16 @@ const CURRENCY_LABELS = {
   kormik: 'Кормик',
 };
 
+const CURRENCY_ICONS = {
+  seeds: '/assets/economy/seeds.png',
+  wheat: '/assets/economy/wheat.png',
+  carrot: '/assets/economy/carrot.png',
+  cucumber: '/assets/economy/cucumber.png',
+  apple: '/assets/economy/apple.png',
+  kormik: '/assets/economy/kormik.png',
+  energy: '/assets/economy/energy.png',
+};
+
 const BATTLE_DAMAGE_ACHIEVEMENTS = (() => {
   const thresholds = [];
   let value = 100;
@@ -107,6 +117,7 @@ const APPEARANCE_OPTIONS = {
   mask: [
     { id: 'none', name: 'Без маски' },
     { id: 'mask_simple', name: 'Маска' },
+    { id: 'scarf', name: 'Шарфик' },
   ],
   body: [
     { id: 'none', name: 'Без одежды' },
@@ -408,6 +419,7 @@ async function loadState() {
         currentUserLogin = data.user || currentState.player.name || '';
         isAuthenticated = true;
         restoreViewFromState(currentState);
+        void refreshFriendsBadge(true);
         render();
         return;
       }
@@ -871,6 +883,13 @@ let profileModalTarget = '';
 let profileModalProfile = null;
 let profileModalLoading = false;
 let profileModalError = '';
+let friendsModalTab = 'requests';
+let friendsModalProfile = null;
+let friendsModalLoading = false;
+let friendsModalError = '';
+let friendsBadgeCount = 0;
+let friendsBadgeLoading = false;
+let friendsBadgeLastLoadedAt = 0;
 let achievementsModalTab = 'battle';
 
 function ensureProfileModal() {
@@ -884,17 +903,38 @@ function ensureProfileModal() {
             <div class="eyebrow">Профиль игрока</div>
             <h3 id="profile-title">Профиль хомяка</h3>
           </div>
-          <div class="social-profile__actions">
-            <button type="button" class="ghost" id="btn-profile-home">Мой профиль</button>
-            <button type="button" class="ghost" data-profile-close>Закрыть</button>
-          </div>
-        </div>
-        <div class="social-modal__toolbar">
-          <input id="friend-login-input" maxlength="32" placeholder="Логин друга" />
-          <button id="btn-friend-add" type="button" class="primary">Добавить</button>
+          <button type="button" class="ghost" data-profile-close>Закрыть</button>
         </div>
         <div id="profile-modal-error" class="auth-error" aria-live="polite"></div>
         <div id="profile-modal-body" class="profile-modal__body"></div>
+      </div>
+    </div>
+  `);
+}
+
+function ensureFriendsModal() {
+  if (document.getElementById('friends-modal')) return;
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="friends-modal" class="social-modal" hidden>
+      <div class="social-modal__backdrop" data-friends-close></div>
+      <div class="social-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="friends-title">
+        <div class="social-modal__head">
+          <div>
+            <div class="eyebrow">Друзья</div>
+            <h3 id="friends-title">Друзья</h3>
+          </div>
+          <button type="button" class="ghost" data-friends-close>Закрыть</button>
+        </div>
+        <div class="social-modal__toolbar">
+          <input id="friends-login-input" maxlength="32" placeholder="Логин друга" />
+          <button id="btn-friends-add" type="button" class="primary">Добавить</button>
+        </div>
+        <div class="social-modal__tabs">
+          <button type="button" class="social-modal__tab is-active" data-friends-tab="requests">Заявки</button>
+          <button type="button" class="social-modal__tab" data-friends-tab="list">Список друзей</button>
+        </div>
+        <div id="friends-modal-error" class="auth-error" aria-live="polite"></div>
+        <div id="friends-modal-body" class="social-modal__body"></div>
       </div>
     </div>
   `);
@@ -940,44 +980,17 @@ function formatSeenAt(value) {
   return date.toLocaleString('ru-RU');
 }
 
-function renderSocialFriendCard(friend, targetLogin) {
-  const state = friend?.state || {};
-  const p = state.player || {};
-  const level = Math.max(1, Number(p.level) || 1);
-  const status = friend?.online ? 'Онлайн' : `Был(а) ${formatSeenAt(friend?.lastSeenAt)}`;
-  return `
-    <article class="social-friend">
-      <button type="button" class="social-friend__avatar" data-social-open="${friend.login}">${hamsterPreviewMarkup(state)}</button>
-      <div class="social-friend__body">
-        <div class="social-friend__head">
-          <strong>${friend.login}</strong>
-          <span class="social-friend__status">${status}</span>
-        </div>
-        <div class="social-friend__meta">${p.name || 'Хомяк'} • ур. ${level}</div>
-        <div class="social-friend__actions">
-          <button type="button" class="ghost" data-social-open="${friend.login}">Открыть профиль</button>
-          ${targetLogin === currentUserLogin ? `<button type="button" class="ghost" data-social-remove="${friend.login}">Удалить</button>` : ''}
-        </div>
-      </div>
-    </article>
-  `;
-}
-
 function renderProfileSummary(profile) {
   const state = profile?.state || {};
   const player = state.player || {};
-  const friends = Array.isArray(profile?.friends) ? profile.friends : [];
   const onlineText = profile?.online ? 'Онлайн' : `Был(а) ${formatSeenAt(profile?.lastSeenAt)}`;
-  const friendCount = friends.length;
-  const isSelf = Boolean(profile?.isSelf);
-
   const stats = [
     { label: 'Логин', value: profile?.login || '—' },
     { label: 'Имя хомяка', value: player.name || 'Хомяк' },
     { label: 'Уровень', value: String(player.level || 1) },
     { label: 'Статус', value: onlineText },
-    { label: 'Друзья', value: String(friendCount) },
     { label: 'HP', value: `${Math.max(1, Number(player.hp) || 1)}/${Math.max(1, Number(player.maxHp) || 1)}` },
+    { label: 'Энергия', value: `${Math.max(0, Number(player.energy) || 0)}/${Math.max(1, Number(player.maxEnergy) || 1)}` },
   ];
 
   return `
@@ -995,78 +1008,69 @@ function renderProfileSummary(profile) {
           `).join('')}
         </div>
         <div class="social-note">
-          ${isSelf ? 'Это твой профиль и список друзей.' : 'Профиль друга открыт для просмотра.'}
-        </div>
-        <div class="social-profile__actions">
-          ${!isSelf && isAuthenticated ? (profile?.isFriend
-            ? `<button type="button" class="ghost" id="btn-social-remove">Удалить из друзей</button>`
-            : `<button type="button" class="primary" id="btn-social-add-target">Добавить в друзья</button>`) : ''}
-          ${!isSelf ? `<button type="button" class="ghost" id="btn-profile-home">Мой профиль</button>` : ''}
+          ${profile?.isSelf ? 'Это твой профиль.' : 'Профиль игрока открыт для просмотра.'}
         </div>
       </div>
     </div>
-    ${isSelf ? `
-      <div class="social-friends">
-        <div class="social-friends__head">
-          <h4>Друзья</h4>
-          <span>${friendCount} шт.</span>
-        </div>
-        <div class="social-friends__grid">
-          ${friends.length ? friends.map((friend) => renderSocialFriendCard(friend, profile.login)).join('') : '<div class="social-note">Пока друзей нет. Введи логин и нажми «Добавить».</div>'}
-        </div>
-      </div>
-    ` : ''}
   `;
+}
+
+function renderFriendRow(friend, mode = 'friend') {
+  const state = friend?.state || {};
+  const player = state.player || {};
+  const onlineText = friend?.online ? 'Онлайн' : `Был(а) ${formatSeenAt(friend?.lastSeenAt)}`;
+  const name = friend?.login || 'игрок';
+  const bodyActions = mode === 'request'
+    ? `
+      <div class="social-row__actions">
+        <button type="button" class="primary" data-friend-accept="${name}">Принять</button>
+        <button type="button" class="ghost" data-friend-decline="${name}">Отклонить</button>
+      </div>
+    `
+    : `
+      <div class="social-row__actions">
+        <button type="button" class="ghost" data-friend-open="${name}">Открыть профиль</button>
+        <button type="button" class="ghost" data-friend-remove="${name}">Удалить</button>
+      </div>
+    `;
+
+  return `
+    <article class="social-row">
+      <button type="button" class="social-row__avatar" data-friend-open="${name}">
+        ${hamsterPreviewMarkup(state)}
+      </button>
+      <div class="social-row__body">
+        <div class="social-row__head">
+          <button type="button" class="social-row__name" data-friend-open="${name}">${name}</button>
+          <span class="social-row__status">${onlineText}</span>
+        </div>
+        <div class="social-row__meta">${player.name || 'Хомяк'} • ур. ${Math.max(1, Number(player.level) || 1)}</div>
+        ${bodyActions}
+      </div>
+    </article>
+  `;
+}
+
+function renderFriendsRequests(profile) {
+  const requests = Array.isArray(profile?.requests) ? profile.requests : [];
+  if (!requests.length) {
+    return '<div class="social-note">Заявок в друзья пока нет.</div>';
+  }
+  return `<div class="social-list">${requests.map((friend) => renderFriendRow(friend, 'request')).join('')}</div>`;
+}
+
+function renderFriendsList(profile) {
+  const friends = Array.isArray(profile?.friends) ? profile.friends : [];
+  if (!friends.length) {
+    return '<div class="social-note">Пока друзей нет. Введи логин и отправь заявку.</div>';
+  }
+  return `<div class="social-list">${friends.map((friend) => renderFriendRow(friend, 'friend')).join('')}</div>`;
 }
 
 function bindProfileModalEvents() {
   document.querySelectorAll('[data-profile-close]').forEach((btn) => {
     btn.onclick = closeProfileModal;
   });
-  document.querySelectorAll('[data-social-open]').forEach((btn) => {
-    btn.onclick = () => {
-      const login = btn.getAttribute('data-social-open') || '';
-      if (login) openProfileModal(login);
-    };
-  });
-  document.querySelectorAll('[data-social-remove]').forEach((btn) => {
-    btn.onclick = async () => {
-      const login = btn.getAttribute('data-social-remove') || '';
-      if (login) {
-        await mutateFriendship('remove', login);
-      }
-    };
-  });
-  const homeBtn = document.getElementById('btn-profile-home');
-  if (homeBtn) {
-    homeBtn.onclick = () => openProfileModal(currentUserLogin || profileModalTarget || currentState?.player?.name || '');
-  }
-  const addBtn = document.getElementById('btn-friend-add');
-  if (addBtn) {
-    addBtn.onclick = async () => {
-      const input = document.getElementById('friend-login-input');
-      const login = input ? input.value.trim() : '';
-      if (!login) return;
-      await mutateFriendship('add', login);
-      if (input) input.value = '';
-    };
-  }
-  const addTargetBtn = document.getElementById('btn-social-add-target');
-  if (addTargetBtn) {
-    addTargetBtn.onclick = async () => {
-      if (profileModalTarget) {
-        await mutateFriendship('add', profileModalTarget);
-      }
-    };
-  }
-  const removeBtn = document.getElementById('btn-social-remove');
-  if (removeBtn) {
-    removeBtn.onclick = async () => {
-      if (profileModalTarget) {
-        await mutateFriendship('remove', profileModalTarget);
-      }
-    };
-  }
 }
 
 function renderProfileModal(profile) {
@@ -1075,20 +1079,12 @@ function renderProfileModal(profile) {
   const body = document.getElementById('profile-modal-body');
   const title = document.getElementById('profile-title');
   const error = document.getElementById('profile-modal-error');
-  const addInput = document.getElementById('friend-login-input');
-  const homeBtn = document.getElementById('btn-profile-home');
 
   if (title) {
     title.textContent = profile?.isSelf ? 'Профиль хомяка' : `Профиль: ${profile?.login || 'игрок'}`;
   }
   if (error) {
     error.textContent = profileModalError || '';
-  }
-  if (homeBtn) {
-    homeBtn.hidden = !profile || profile.isSelf;
-  }
-  if (addInput) {
-    addInput.placeholder = profile?.isSelf ? 'Логин друга' : 'Добавить по логину';
   }
   if (body) {
     if (profileModalLoading) {
@@ -1144,10 +1140,15 @@ function normalizeSocialProfile(profile) {
     ...friend,
     state: normalizeState(friend?.state || DEFAULT_STATE),
   })) : [];
+  const requests = Array.isArray(profile?.requests) ? profile.requests.map((friend) => ({
+    ...friend,
+    state: normalizeState(friend?.state || DEFAULT_STATE),
+  })) : [];
   return {
     ...profile,
     state,
     friends,
+    requests,
     isSelf: Boolean(profile?.isSelf),
     isFriend: Boolean(profile?.isFriend),
     online: Boolean(profile?.online),
@@ -1188,6 +1189,230 @@ async function mutateFriendship(mode, login) {
     return;
   }
   await loadProfileModal(profileModalTarget || currentUserLogin || targetLogin);
+}
+
+async function mutateFriendRequest(mode, login) {
+  const targetLogin = normalizeLogin(login);
+  if (!targetLogin) return;
+  const pathByMode = {
+    add: '/social/friends/add',
+    accept: '/social/friends/requests/accept',
+    decline: '/social/friends/requests/decline',
+    remove: '/social/friends/remove',
+  };
+  const path = pathByMode[mode] || pathByMode.add;
+  const response = await api(path, { login: targetLogin }, 'POST');
+  if (!response.ok || !response.data || !response.data.ok) {
+    friendsModalError = response.data && response.data.error ? response.data.error : 'Не удалось обновить друзей';
+    renderFriendsModal();
+    return;
+  }
+  friendsModalError = '';
+  await loadFriendsModal(true);
+  await refreshFriendsBadge(true);
+  if (profileModalProfile?.isSelf) {
+    await loadProfileModal(profileModalTarget || currentUserLogin || targetLogin);
+  }
+}
+
+function ensureFriendsModalBodyProfile() {
+  return friendsModalProfile && friendsModalProfile.isSelf ? friendsModalProfile : null;
+}
+
+function renderFriendsModal() {
+  const modal = document.getElementById('friends-modal');
+  if (!modal) return;
+  const body = document.getElementById('friends-modal-body');
+  const title = document.getElementById('friends-title');
+  const error = document.getElementById('friends-modal-error');
+  const selfProfile = ensureFriendsModalBodyProfile();
+  const requestsCount = Array.isArray(selfProfile?.requests) ? selfProfile.requests.length : 0;
+  const friendsCount = Array.isArray(selfProfile?.friends) ? selfProfile.friends.length : 0;
+
+  if (title) {
+    title.textContent = friendsModalTab === 'requests' ? `Заявки (${requestsCount})` : `Список друзей (${friendsCount})`;
+  }
+  if (error) {
+    error.textContent = friendsModalError || '';
+  }
+  document.querySelectorAll('[data-friends-tab]').forEach((btn) => {
+    const active = (btn.getAttribute('data-friends-tab') || '') === friendsModalTab;
+    btn.classList.toggle('is-active', active);
+  });
+  if (body) {
+    if (friendsModalLoading) {
+      body.innerHTML = '<div class="social-note">Загрузка списка друзей...</div>';
+    } else if (!selfProfile) {
+      body.innerHTML = '<div class="social-note">Сначала войди в игру, чтобы увидеть друзей и заявки.</div>';
+    } else if (friendsModalTab === 'requests') {
+      body.innerHTML = renderFriendsRequests(selfProfile);
+    } else {
+      body.innerHTML = renderFriendsList(selfProfile);
+    }
+  }
+  bindFriendsModalEvents();
+}
+
+function bindFriendsModalEvents() {
+  document.querySelectorAll('[data-friends-close]').forEach((btn) => {
+    btn.onclick = closeFriendsModal;
+  });
+  document.querySelectorAll('[data-friends-tab]').forEach((btn) => {
+    btn.onclick = () => {
+      friendsModalTab = btn.getAttribute('data-friends-tab') || 'requests';
+      renderFriendsModal();
+    };
+  });
+  document.querySelectorAll('[data-friend-open]').forEach((btn) => {
+    btn.onclick = () => {
+      const login = btn.getAttribute('data-friend-open') || '';
+      if (login) openProfileModal(login);
+    };
+  });
+  document.querySelectorAll('[data-friend-accept]').forEach((btn) => {
+    btn.onclick = async () => {
+      const login = btn.getAttribute('data-friend-accept') || '';
+      if (login) await mutateFriendRequest('accept', login);
+    };
+  });
+  document.querySelectorAll('[data-friend-decline]').forEach((btn) => {
+    btn.onclick = async () => {
+      const login = btn.getAttribute('data-friend-decline') || '';
+      if (login) await mutateFriendRequest('decline', login);
+    };
+  });
+  document.querySelectorAll('[data-friend-remove]').forEach((btn) => {
+    btn.onclick = async () => {
+      const login = btn.getAttribute('data-friend-remove') || '';
+      if (login) await mutateFriendRequest('remove', login);
+    };
+  });
+  const addBtn = document.getElementById('btn-friends-add');
+  if (addBtn) {
+    addBtn.onclick = async () => {
+      const input = document.getElementById('friends-login-input');
+      const login = input ? input.value.trim() : '';
+      if (!login) return;
+      await mutateFriendRequest('add', login);
+      if (input) input.value = '';
+    };
+  }
+}
+
+async function loadFriendsModal(force = false) {
+  ensureFriendsModal();
+  const modal = document.getElementById('friends-modal');
+  if (modal) modal.hidden = false;
+  if (!isAuthenticated) {
+    friendsModalProfile = null;
+    friendsModalLoading = false;
+    friendsModalError = 'Сначала войди в игру, чтобы пользоваться друзьями';
+    renderFriendsModal();
+    return;
+  }
+  const login = currentUserLogin || currentState?.player?.name || '';
+  if (!login) {
+    friendsModalProfile = null;
+    friendsModalLoading = false;
+    friendsModalError = 'Не удалось определить логин аккаунта';
+    renderFriendsModal();
+    return;
+  }
+  friendsModalLoading = true;
+  if (force) friendsModalError = '';
+  renderFriendsModal();
+  try {
+    const res = await fetch(apiUrl(`/social/profile?login=${encodeURIComponent(login)}`), {
+      method: 'GET',
+      headers: authHeaders(),
+    });
+    const data = await res.json().catch(() => null);
+    if (res.ok && data && data.ok && data.profile) {
+      friendsModalProfile = normalizeSocialProfile(data.profile);
+      friendsModalError = '';
+      friendsBadgeCount = Array.isArray(friendsModalProfile.requests) ? friendsModalProfile.requests.length : 0;
+      friendsBadgeLastLoadedAt = Date.now();
+      updateFriendsBadge();
+      friendsModalLoading = false;
+      renderFriendsModal();
+      return;
+    }
+    friendsModalError = data && data.error ? data.error : 'Не удалось загрузить друзей';
+    friendsModalProfile = null;
+  } catch (error) {
+    friendsModalError = 'Не удалось загрузить друзей';
+    friendsModalProfile = null;
+  }
+  friendsModalLoading = false;
+  friendsBadgeLastLoadedAt = Date.now();
+  updateFriendsBadge();
+  renderFriendsModal();
+}
+
+function updateFriendsBadge() {
+  const badge = document.getElementById('friends-badge');
+  if (!badge) return;
+  const show = isAuthenticated && friendsBadgeCount > 0;
+  badge.hidden = !show;
+  badge.textContent = '';
+  badge.title = show ? `У вас ${friendsBadgeCount} заявк(и)` : '';
+}
+
+async function refreshFriendsBadge(force = false) {
+  if (!isAuthenticated) {
+    friendsBadgeCount = 0;
+    friendsBadgeLastLoadedAt = Date.now();
+    updateFriendsBadge();
+    return;
+  }
+  const now = Date.now();
+  if (!force && friendsBadgeLoading) return;
+  if (!force && now - friendsBadgeLastLoadedAt < 10000) {
+    updateFriendsBadge();
+    return;
+  }
+  friendsBadgeLoading = true;
+  try {
+    const login = currentUserLogin || currentState?.player?.name || '';
+    if (!login) {
+      friendsBadgeCount = 0;
+      return;
+    }
+    const res = await fetch(apiUrl(`/social/profile?login=${encodeURIComponent(login)}`), {
+      method: 'GET',
+      headers: authHeaders(),
+    });
+    const data = await res.json().catch(() => null);
+    if (res.ok && data && data.ok && data.profile) {
+      const profile = normalizeSocialProfile(data.profile);
+      friendsBadgeCount = Array.isArray(profile.requests) ? profile.requests.length : 0;
+      friendsModalProfile = profile;
+    }
+  } catch (_) {
+    // keep previous badge value
+  } finally {
+    friendsBadgeLoading = false;
+    friendsBadgeLastLoadedAt = Date.now();
+    updateFriendsBadge();
+    if (document.getElementById('friends-modal') && !document.getElementById('friends-modal').hidden) {
+      renderFriendsModal();
+    }
+  }
+}
+
+async function openFriendsModal() {
+  ensureFriendsModal();
+  const modal = document.getElementById('friends-modal');
+  if (modal) modal.hidden = false;
+  if (!friendsModalTab) friendsModalTab = 'requests';
+  await loadFriendsModal(true);
+}
+
+function closeFriendsModal() {
+  const modal = document.getElementById('friends-modal');
+  if (modal) modal.hidden = true;
+  friendsModalLoading = false;
+  friendsModalError = '';
 }
 
 function ensureAchievementsModal() {
@@ -1325,18 +1550,21 @@ function renderResourceStrip(state) {
     { label: isAuthenticated ? (currentUserLogin || 'Аккаунт') : 'Гость', value: `${p.name} • ур. ${p.level}`, accent: true },
     { label: 'Опыт', value: `${p.xp || 0}/${xpNeed}` },
     { label: 'До след. уровня', value: `${xpLeft}` },
-    { label: 'Семечки', value: `${currencies.seeds || 0}` },
-    { label: 'Пшеница', value: `${currencies.wheat || 0}` },
-    { label: 'Морковь', value: `${currencies.carrot || 0}` },
-    { label: 'Огурцы', value: `${currencies.cucumber || 0}` },
-    { label: 'Яблоки', value: `${currencies.apple || 0}` },
-    { label: 'Кормик', value: `${currencies.kormik || 0}` },
-    { label: 'Энергия', value: `${p.energy || 0}/${p.maxEnergy || 40}`, sub: getEnergyCountdown(state) },
+    { label: 'Семечки', value: `${currencies.seeds || 0}`, icon: CURRENCY_ICONS.seeds },
+    { label: 'Пшеница', value: `${currencies.wheat || 0}`, icon: CURRENCY_ICONS.wheat },
+    { label: 'Морковь', value: `${currencies.carrot || 0}`, icon: CURRENCY_ICONS.carrot },
+    { label: 'Огурцы', value: `${currencies.cucumber || 0}`, icon: CURRENCY_ICONS.cucumber },
+    { label: 'Яблоки', value: `${currencies.apple || 0}`, icon: CURRENCY_ICONS.apple },
+    { label: 'Кормик', value: `${currencies.kormik || 0}`, icon: CURRENCY_ICONS.kormik },
+    { label: 'Энергия', value: `${p.energy || 0}/${p.maxEnergy || 40}`, icon: CURRENCY_ICONS.energy, sub: getEnergyCountdown(state) },
   ];
 
   $('#resource-strip').innerHTML = chips.map((chip) => `
     <div class="hud-chip ${chip.accent ? 'hud-chip--accent' : ''}">
-      <span>${chip.label}</span>
+      <div class="hud-chip__label">
+        ${chip.icon ? `<img class="hud-chip__icon" src="${chip.icon}" alt="" aria-hidden="true">` : ''}
+        <span>${chip.label}</span>
+      </div>
       <strong>${chip.value}</strong>
       ${chip.sub ? `<small class="hud-chip__sub">${chip.sub}</small>` : ''}
     </div>
@@ -2016,12 +2244,19 @@ function render() {
   document.body.classList.toggle('is-guest', !isAuthenticated);
   renderResourceStrip(currentState);
   updateScene(currentState);
+  updateFriendsBadge();
+  if (isAuthenticated) {
+    void refreshFriendsBadge();
+  }
   if (document.getElementById('profile-modal')) {
     if (profileModalProfile) {
       renderProfileModal(profileModalProfile);
     } else if (profileModalLoading || profileModalTarget || profileModalError) {
       renderProfileModal(null);
     }
+  }
+  if (document.getElementById('friends-modal') && !document.getElementById('friends-modal').hidden) {
+    renderFriendsModal();
   }
   if (document.getElementById('achievements-modal')) {
     renderAchievementsModal();
@@ -2116,7 +2351,7 @@ function initTopButtons() {
   const friendsButton = $('#btn-friends');
   if (friendsButton) {
     friendsButton.onclick = () => {
-      openProfileModal(currentUserLogin || currentState?.player?.name || '');
+      openFriendsModal();
     };
   }
 
@@ -2199,6 +2434,7 @@ async function submitAuth(mode) {
     isAuthenticated = true;
     restoreViewFromState(currentState);
     if (!currentState.activeBossId) setView('main');
+    void refreshFriendsBadge(true);
     render();
     return;
   }
@@ -2219,6 +2455,18 @@ function initAuthButtons() {
       setAuthToken('');
       isAuthenticated = false;
       currentUserLogin = '';
+      friendsBadgeCount = 0;
+      friendsBadgeLastLoadedAt = 0;
+      friendsModalProfile = null;
+      friendsModalLoading = false;
+      friendsModalError = '';
+      profileModalProfile = null;
+      profileModalLoading = false;
+      profileModalError = '';
+      const friendsModal = document.getElementById('friends-modal');
+      if (friendsModal) friendsModal.hidden = true;
+      const profileModal = document.getElementById('profile-modal');
+      if (profileModal) profileModal.hidden = true;
       currentState = normalizeState(DEFAULT_STATE);
       render();
     };

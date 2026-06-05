@@ -227,6 +227,21 @@ button.primary {
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
 }
 
+.hud-chip__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.hud-chip__icon {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 3px rgba(0,0,0,0.35));
+}
+
 .hud-chip span {
   font-size: 12px;
   letter-spacing: 0.08em;
@@ -475,6 +490,17 @@ button.primary {
   height: 11%;
   border-radius: 999px;
   background: linear-gradient(180deg, rgba(255,255,255,0.7), rgba(220,220,220,0.48));
+}
+
+.appearance-layer--mask.scarf {
+  top: 58%;
+  left: 50%;
+  width: 72%;
+  height: 30%;
+  background: url('/assets/hamster/scarf.png') center center / contain no-repeat;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .appearance-layer--body {
@@ -1444,6 +1470,167 @@ button.primary {
 .profile-note {
   font-size: 13px;
   line-height: 1.4;
+}
+
+
+.social-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 66;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.social-modal[hidden] {
+  display: none !important;
+}
+
+.social-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(22, 10, 4, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.social-modal__dialog {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 860px);
+  max-height: min(88vh, 900px);
+  overflow: auto;
+  border-radius: 28px;
+  padding: 22px;
+  background: linear-gradient(180deg, rgba(103, 60, 27, 0.96), rgba(72, 41, 16, 0.96));
+  border: 1px solid rgba(255, 233, 186, 0.16);
+  box-shadow: 0 26px 70px rgba(0,0,0,0.46);
+  display: grid;
+  gap: 18px;
+}
+
+.social-modal__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.social-modal__toolbar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.social-modal__toolbar input {
+  flex: 1;
+  min-width: 180px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 233, 186, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  padding: 12px 14px;
+}
+
+.social-modal__tabs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.social-modal__tab {
+  border: 1px solid rgba(255, 233, 186, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  padding: 10px 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.social-modal__tab.is-active {
+  background: rgba(255, 215, 138, 0.18);
+  border-color: rgba(255, 215, 138, 0.30);
+}
+
+.social-modal__body {
+  display: grid;
+  gap: 14px;
+}
+
+.social-list {
+  display: grid;
+  gap: 12px;
+}
+
+.social-row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 14px;
+  padding: 14px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 233, 186, 0.10);
+}
+
+.social-row__avatar {
+  width: 120px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.social-row__body {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.social-row__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.social-row__name {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 0;
+}
+
+.social-row__status,
+.social-row__meta {
+  color: rgba(255, 236, 208, 0.82);
+  font-size: 13px;
+}
+
+.social-row__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.friends-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: #d92d20;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  vertical-align: middle;
 }
 
 .achievements-modal {
