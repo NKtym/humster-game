@@ -743,7 +743,7 @@ func (s *Server) userByLogin(ctx context.Context, login string) (*userRecord, er
 	out, err := s.queryPSQL(ctx, `
 		SELECT id, login, password_salt, password_hash
 		FROM users
-		WHERE login = $1
+		WHERE login = 'username'
 		LIMIT 1
 	`, map[string]string{"login": login})
 	if err != nil {
