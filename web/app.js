@@ -71,8 +71,8 @@ const APPEARANCE_OPTIONS = {
   ],
   color: [
     { id: 'default', name: 'Базовый', img: '/assets/hamster/base.png' },
-    { id: 'color1', name: 'Цвет 1', img: '/assets/hamster/color1.png' },
-    { id: 'color2', name: 'Цвет 2', img: '/assets/hamster/color2.png' },
+    { id: 'color1', name: 'Зеленый', img: '/assets/hamster/color1.png' },
+    { id: 'color2', name: 'Серый', img: '/assets/hamster/color2.png' },
   ],
   heldItem: [
     { id: 'none', name: 'Без предмета' },
@@ -127,10 +127,13 @@ if (telegram) {
 }
 
 const ATTACKS = [
-  { id: 'belly_punch', label: 'Удар пузиком', damage: 5 },
-  { id: 'scratch', label: 'Царапанье', damage: 20 },
-  { id: 'rush', label: 'Удар с разбега', damage: 15 },
-  { id: 'bite', label: 'Укус', damage: 30 },
+  { id: 'belly_punch', label: 'Удар пузиком', damage: 5, costWheat: 0 },
+  { id: 'scratch', label: 'Царапанье', damage: 20, costWheat: 0 },
+  { id: 'rush', label: 'Удар с разбега', damage: 15, costWheat: 0 },
+  { id: 'bite', label: 'Укус', damage: 30, costWheat: 0 },
+  { id: 'iron_claw', label: 'Удар железным когтем', damage: 100, costWheat: 2 },
+  { id: 'poison_bite', label: 'Ядовитый укус', damage: 300, costWheat: 6 },
+  { id: 'eye_lasers', label: 'Лазеры из глаз', damage: 700, costWheat: 13 },
 ];
 
 const BOSS_KILL_LIMIT = 8;
@@ -140,6 +143,66 @@ const BOSS_BLUEPRINTS = {
   lizard: { name: 'Ящерица', hp: 150, attack: 8, xp: 20, reward: { seeds: 50, wheat: 3, carrot: 0, cucumber: 1 } },
   sand_lizard: { name: 'Песчаная ящерица', hp: 600, attack: 16, xp: 50, reward: { seeds: 200, wheat: 0, carrot: 3, cucumber: 1 } },
 };
+
+const BOSS_COSMETIC_DROPS = {
+  rat: { itemId: 'color2', label: 'серый скин хомяка', chance: 25, bonus: '+5 к удару пузиком и +5 к удару железным когтем' },
+  lizard: { itemId: 'color1', label: 'зеленый скин хомяка', chance: 25, bonus: '+20 к урону ядовитого укуса' },
+};
+
+const BOSS_COSMETIC_ITEM_BONUSES = {
+  color2: {
+    name: 'серый скин хомяка',
+    bonus: '+5 к удару пузиком и +5 к удару железным когтем',
+  },
+  color1: {
+    name: 'зеленый скин хомяка',
+    bonus: '+20 к урону ядовитого укуса',
+  },
+};
+
+function bossCosmeticDrop(bossId) {
+  return BOSS_COSMETIC_DROPS[bossId] || null;
+}
+
+function bossRewardText(boss) {
+  const base = formatReward(boss?.reward || {});
+  const drop = bossCosmeticDrop(boss?.id || '');
+  if (!drop) return base;
+  return `${base}, случайно: ${drop.label} (${drop.chance}%) — ${drop.bonus}`;
+}
+
+function cryptoRandomInt(maxExclusive) {
+  const max = Math.max(1, Number(maxExclusive) || 1);
+  if (window.crypto?.getRandomValues) {
+    const range = 0x100000000;
+    const limit = Math.floor(range / max) * max;
+    const buf = new Uint32Array(1);
+    let value = 0;
+    do {
+      window.crypto.getRandomValues(buf);
+      value = buf[0];
+    } while (value >= limit);
+    return value % max;
+  }
+  return Math.floor(Math.random() * max);
+}
+
+function maybeGrantBossCosmeticDrop(state, boss) {
+  const drop = bossCosmeticDrop(boss?.id || '');
+  if (!drop || !state?.player) return null;
+  if (cryptoRandomInt(100) >= drop.chance) return null;
+  state.player.inventory = state.player.inventory || {};
+  const alreadyOwned = (state.player.inventory[drop.itemId] || 0) > 0;
+  state.player.inventory[drop.itemId] = (state.player.inventory[drop.itemId] || 0) + 1;
+  if (Array.isArray(state.log)) {
+    state.log.push(`Случайная награда: получен ${drop.label}.`);
+    if (!alreadyOwned) {
+      state.log.push(`Бонус за скин: ${drop.bonus}.`);
+    }
+    if (state.log.length > 100) state.log = state.log.slice(-100);
+  }
+  return drop;
+}
 
 function getAmsterdamDayKey(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -214,7 +277,7 @@ const DEFAULT_STATE = {
     attack: 2,
     defense: 0,
     currency: { seeds: 10, wheat: 3, carrot: 0, cucumber: 0, apple: 0, kormik: 0 },
-    inventory: { wallpaper_day: 1 },
+    inventory: { wallpaper_day: 1, iron_claw: 0, poison_bite: 0, eye_lasers: 0 },
     equipped: { wallpaper: 'wallpaper_day' },
     wallpaper: 'wallpaper_day',
     appearance: {
@@ -476,6 +539,9 @@ function normalizeState(state) {
     body: next.player.appearance?.body || 'none',
     shoes: next.player.appearance?.shoes || 'none',
   };
+  if (next.player.appearance.color !== 'default' && (next.player.inventory[next.player.appearance.color] || 0) <= 0) {
+    next.player.appearance.color = 'default';
+  }
 
   next.activeBossId = state.activeBossId || '';
   next.bosses = Array.isArray(state.bosses)
@@ -664,11 +730,11 @@ function ensureBattleFinishModal() {
       <div class="battle-finish-modal__backdrop" data-battle-finish-close></div>
       <div class="battle-finish-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="battle-finish-title">
         <div class="eyebrow">Подтверждение</div>
-        <h3 id="battle-finish-title">Завершить битву?</h3>
-        <p id="battle-finish-text">Если хочешь завершить битву раньше времени, нужно заплатить 1 кормик.</p>
+        <h3 id="battle-finish-title">Выйти из битвы досрочно?</h3>
+        <p id="battle-finish-text">Если хочешь выйти из битвы досрочно, нужно заплатить 1 кормик.</p>
         <div class="battle-finish-modal__actions">
           <button type="button" class="ghost" data-battle-finish-close>Отмена</button>
-          <button type="button" class="primary" id="battle-finish-confirm">Заплатить 1 кормик</button>
+          <button type="button" class="primary" id="battle-finish-confirm">Выйти из битвы досрочно за 1 кормик</button>
         </div>
       </div>
     </div>
@@ -681,7 +747,7 @@ function openBattleFinishModal(boss) {
   const modal = document.getElementById('battle-finish-modal');
   const text = document.getElementById('battle-finish-text');
   if (text) {
-    text.textContent = `Если хочешь завершить битву с ${battleFinishTargetName} до окончания таймера, нужно заплатить 1 кормик.`;
+    text.textContent = `Если хочешь выйти из битвы с ${battleFinishTargetName} до окончания таймера, нужно заплатить 1 кормик.`;
   }
   if (modal) modal.hidden = false;
 }
@@ -772,14 +838,40 @@ function updateScene(state) {
   `;
 }
 
-function attackDamage(attackType) {
+function skinBonusDamage(state, attackType) {
+  const ownedColor1 = Number(state?.player?.inventory?.color1 || 0) > 0;
+  const ownedColor2 = Number(state?.player?.inventory?.color2 || 0) > 0;
+  if (attackType === 'belly_punch' || attackType === 'iron_claw') {
+    return ownedColor2 ? 5 : 0;
+  }
+  if (attackType === 'poison_bite') {
+    return ownedColor1 ? 20 : 0;
+  }
+  return 0;
+}
+
+function attackDamage(state, attackType) {
   const attack = ATTACKS.find((item) => item.id === attackType);
-  return attack ? attack.damage : 0;
+  return attack ? attack.damage + skinBonusDamage(state, attackType) : 0;
 }
 
 function attackLabel(attackType) {
   const attack = ATTACKS.find((item) => item.id === attackType);
   return attack ? attack.label : 'удар';
+}
+
+function attackCostWheat(attackType) {
+  const attack = ATTACKS.find((item) => item.id === attackType);
+  return attack ? (attack.costWheat || 0) : 0;
+}
+
+function attackOwnedCount(state, attackType) {
+  return Number(state?.player?.inventory?.[attackType] || 0);
+}
+
+function hasAttackCharge(state, attackType) {
+  const cost = attackCostWheat(attackType);
+  return cost <= 0 || attackOwnedCount(state, attackType) > 0;
 }
 
 function applyLocalAction(action, payload = {}) {
@@ -834,10 +926,26 @@ function applyLocalAction(action, payload = {}) {
       state.activeBossId = '';
       return;
     }
+    case 'buy_attack': {
+      const cost = attackCostWheat(payload.attackType);
+      const label = attackLabel(payload.attackType);
+      if (cost <= 0) return;
+      if (state.player.currency.wheat < cost) {
+        return;
+      }
+      state.player.currency.wheat -= cost;
+      state.player.inventory[payload.attackType] = attackOwnedCount(state, payload.attackType) + 1;
+      appendLog(state, `Куплена атака ${label} за ${cost} пшеницы.`);
+      return;
+    }
     case 'attack_boss': {
       if (!boss) return;
-      const dmg = attackDamage(payload.attackType);
+      const dmg = attackDamage(state, payload.attackType);
+      const cost = attackCostWheat(payload.attackType);
       const now = Date.now();
+      if (cost > 0 && attackOwnedCount(state, payload.attackType) <= 0) {
+        return;
+      }
       if (boss.defeated) {
         if (bossDailyRemaining(boss) <= 0) return;
         boss.defeated = false;
@@ -865,6 +973,9 @@ function applyLocalAction(action, payload = {}) {
       const killsToday = boss.killsDay === bossKillDayKey() ? (boss.killsToday || 0) : 0;
       if (boss.hp - dmg <= 0 && killsToday >= BOSS_KILL_LIMIT) return;
       boss.hp = Math.max(0, boss.hp - dmg);
+      if (cost > 0) {
+        state.player.inventory[payload.attackType] = Math.max(0, attackOwnedCount(state, payload.attackType) - 1);
+      }
       boss.attackCooldowns[payload.attackType] = new Date(now + (6 * 60 * 60 * 1000)).toISOString();
       if (boss.hp === 0) {
         boss.defeated = true;
@@ -877,6 +988,7 @@ function applyLocalAction(action, payload = {}) {
           state.player.currency[cur] = (state.player.currency[cur] || 0) + amt;
         }
         state.player.xp += boss.xp || 0;
+        maybeGrantBossCosmeticDrop(state, boss);
         recalcLevel(state);
         state.activeBossId = '';
       }
@@ -915,6 +1027,9 @@ function applyLocalAction(action, payload = {}) {
       const slot = payload.slot;
       const value = payload.value;
       if (!slot || !value) return;
+      if (slot === 'color' && value !== 'default' && (currentState.player.inventory?.[value] || 0) <= 0) {
+        return;
+      }
       currentState.player.appearance = {
         ...(currentState.player.appearance || {}),
         [slot]: value,
@@ -946,6 +1061,7 @@ async function syncAction(action, payload = {}) {
     applyLocalAction(action, payload);
   }
   render();
+  return response;
 }
 
 function renderBossSelection() {
@@ -957,7 +1073,7 @@ function renderBossSelection() {
     <div class="boss-grid">
       ${(currentState.bosses || []).map((boss) => {
         const cat = CATALOG.bosses.find((item) => item.id === boss.id) || boss;
-        const rewardText = formatReward(boss.reward);
+        const rewardText = bossRewardText(boss);
         const hpText = `${boss.maxHp || boss.hp} HP`;
         const battleTimer = !boss.defeated && boss.battleEndsAt ? bossBattleCountdown(boss) : '';
         const remainingKills = bossDailyRemaining(boss);
@@ -1025,14 +1141,14 @@ function renderBattleScreen() {
           <span>${activeBoss.defeated ? 'Побеждён' : `HP ${activeBoss.hp}/${activeBoss.maxHp}`}</span>
         </div>
         <div class="battle-bar"><div style="width: ${percent}%"></div></div>
-        <div class="battle-reward">Награда: ${formatReward(activeBoss.reward)}</div>
+        <div class="battle-reward">Награда: ${bossRewardText(activeBoss)}</div>
         <div class="battle-xp">Опыт: ${activeBoss.xp || 0}</div>
         <div class="battle-note">${activeBoss.defeated ? 'Босс уже побеждён. Выбирай следующего.' : `Битва закончится через ${battleRemaining}. На этом боссе сегодня осталось: ${bossDailyRemaining(activeBoss)}/${BOSS_KILL_LIMIT}.`}${isBattleExpired ? ' Время вышло, бой проигран.' : ''}</div>
         <div class="battle-controls">
           ${activeBoss.defeated && bossDailyRemaining(activeBoss) > 0 ? '<button class="primary" id="btn-boss-retry" type="button">Пройти ещё раз</button>' : ''}
           ${activeBoss.defeated || isBattleExpired
             ? '<button class="ghost" id="btn-boss-change" type="button">Выбрать другого</button>'
-            : '<button class="primary" id="btn-boss-finish" type="button">Завершить битву за 1 кормик</button>'}
+            : '<button class="primary" id="btn-boss-finish" type="button">Выйти из битвы досрочно за 1 кормик</button>'}
         </div>
       </div>
     </div>
@@ -1041,10 +1157,18 @@ function renderBattleScreen() {
       ${ATTACKS.map((attack) => {
         const cd = bossAttackCooldownRemaining(activeBoss, attack.id);
         const cooldownUntil = cleanTimestamp(activeBoss.attackCooldowns?.[attack.id]);
-        const disabled = activeBoss.defeated || (cooldownUntil && toMillis(cooldownUntil) > Date.now());
-        return `<button class="attack-btn" data-attack="${attack.id}" ${disabled ? 'disabled' : ''}>
-          <span>${attack.label}${cd ? ` • ${cd}` : ''}</span>
-          <strong>${attack.damage} урона</strong>
+        const owned = attackOwnedCount(currentState, attack.id);
+        const canBuy = (attack.costWheat || 0) > 0 && (currentState.player.currency?.wheat || 0) >= (attack.costWheat || 0);
+        const lockedByCost = (attack.costWheat || 0) > 0 && owned <= 0 && !canBuy;
+        const disabled = activeBoss.defeated || (cooldownUntil && toMillis(cooldownUntil) > Date.now()) || lockedByCost;
+        const actualDamage = attackDamage(currentState, attack.id);
+        const subtitle = attack.costWheat > 0
+          ? (owned > 0 ? `Зарядов: ${owned}${cd ? ` • ${cd}` : ''}` : `Купить за ${attack.costWheat} пшеницы${cd ? ` • ${cd}` : ''}`)
+          : `Бесплатно${cd ? ` • ${cd}` : ''}`;
+        return `<button class="attack-btn ${owned > 0 || attack.costWheat === 0 ? 'is-ready' : 'is-buyable'}" data-attack="${attack.id}" ${disabled ? 'disabled' : ''}>
+          <span>${attack.label}</span>
+          <strong>${actualDamage} урона</strong>
+          <small>${subtitle}</small>
         </button>`;
       }).join('')}
     </div>
@@ -1052,8 +1176,17 @@ function renderBattleScreen() {
 
   document.querySelectorAll('[data-attack]').forEach((btn) => {
     btn.onclick = async () => {
+      const attackType = btn.dataset.attack;
+      const attack = ATTACKS.find((item) => item.id === attackType);
+      const owned = attackOwnedCount(currentState, attackType);
+      if (attack && attack.costWheat > 0 && owned <= 0) {
+        const buyResponse = await syncAction('buy_attack', { attackType });
+        if (!(buyResponse?.ok || buyResponse?.data?.state)) {
+          return;
+        }
+      }
       btn.disabled = true;
-      await syncAction('attack_boss', { attackType: btn.dataset.attack });
+      await syncAction('attack_boss', { attackType });
       setView('battle');
       render();
     };
@@ -1236,11 +1369,13 @@ function renderAppearanceOptionButton(option, slot) {
   const thumbImage = option.img
     ? `<img class="appearance-option__img ${slot === 'color' ? 'appearance-option__img--hamster' : ''}" src="${option.img}" alt="" />`
     : `<span class="appearance-thumb-fallback">${option.name.slice(0, 2)}</span>`;
+  const locked = slot === 'color' && option.id !== 'default' && (currentState.player.inventory?.[option.id] || 0) <= 0;
   return `
-    <button type="button" class="appearance-option ${selected ? 'is-selected' : ''}" data-appearance-slot="${slot}" data-appearance-value="${option.id}">
+    <button type="button" class="appearance-option ${selected ? 'is-selected' : ''} ${locked ? 'is-locked' : ''}" data-appearance-slot="${slot}" data-appearance-value="${option.id}" ${locked ? 'disabled aria-disabled="true" title="Сначала выбей этот скин"' : ''}>
       <div class="appearance-option__thumb" ${thumbStyle}>${thumbImage}</div>
       <div class="appearance-option__text">
         <strong>${option.name}</strong>
+        ${locked ? '<span class="appearance-option__lock">Сначала выбей</span>' : ''}
       </div>
     </button>
   `;

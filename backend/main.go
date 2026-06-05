@@ -366,6 +366,8 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		err = s.retryBoss(lease.state)
 	case "attack_boss":
 		err = s.attackBoss(lease.state, req.AttackType)
+	case "buy_attack":
+		err = s.buyAttack(lease.state, req.AttackType)
 	case "buy_item":
 		err = s.buyItem(lease.state, req.ItemID)
 	case "equip_item":
@@ -1157,6 +1159,10 @@ func finalizeBossVictory(gs *GameState, idx int, now time.Time) {
 		gs.Player.Currency[cur] += amount
 	}
 	gs.Player.XP += boss.XP
+	if drop := maybeGrantBossCosmeticDrop(gs, boss); drop != "" {
+		appendLog(gs, fmt.Sprintf("Случайная награда: получен %s.", drop))
+		appendLog(gs, cosmeticDropBonusText(boss.ID))
+	}
 	appendLog(gs, fmt.Sprintf("%s побеждён! Награда получена.", boss.Name))
 	recalcLevel(gs)
 	if boss.KillsToday < 8 {
@@ -1187,9 +1193,13 @@ func (s *Server) attackBoss(gs *GameState, attackType string) error {
 		boss = &gs.Bosses[idx]
 	}
 
-	damage, label, ok := attackConfig(attackType)
+	baseDamage, label, cost, ok := attackConfig(attackType)
+	damage := baseDamage + attackBonusDamage(gs, attackType)
 	if !ok {
 		return fmt.Errorf("неизвестный удар")
+	}
+	if cost > 0 && gs.Player.Inventory[attackType] <= 0 {
+		return fmt.Errorf("сначала купи эту атаку")
 	}
 
 	now := time.Now()
@@ -1220,6 +1230,12 @@ func (s *Server) attackBoss(gs *GameState, attackType string) error {
 	}
 
 	gs.Bosses[idx].HP = max(0, boss.HP-damage)
+	if cost > 0 {
+		if gs.Player.Inventory == nil {
+			gs.Player.Inventory = map[string]int{}
+		}
+		gs.Player.Inventory[attackType] = max(0, gs.Player.Inventory[attackType]-1)
+	}
 	gs.Bosses[idx].AttackCooldowns[attackType] = now.Add(bossAttackCooldown)
 	appendLog(gs, fmt.Sprintf("Хомяк использовал %s и нанёс %d урона %s.", label, damage, boss.Name))
 
@@ -1326,6 +1342,28 @@ func (s *Server) buyItem(gs *GameState, itemID string) error {
 	return nil
 }
 
+func (s *Server) buyAttack(gs *GameState, attackType string) error {
+	baseDamage, label, cost, ok := attackConfig(attackType)
+	damage := baseDamage + attackBonusDamage(gs, attackType)
+	_ = damage
+	if !ok {
+		return fmt.Errorf("атака не найдена")
+	}
+	if cost <= 0 {
+		return fmt.Errorf("эту атаку покупать не нужно")
+	}
+	if gs.Player.Currency[Wheat] < cost {
+		return fmt.Errorf("не хватает пшеницы")
+	}
+	if gs.Player.Inventory == nil {
+		gs.Player.Inventory = map[string]int{}
+	}
+	gs.Player.Currency[Wheat] -= cost
+	gs.Player.Inventory[attackType] = gs.Player.Inventory[attackType] + 1
+	appendLog(gs, fmt.Sprintf("Куплена атака %s за %d пшеницы.", label, cost))
+	return nil
+}
+
 func (s *Server) equipItem(gs *GameState, itemID string) error {
 	item, ok := s.items[itemID]
 	if !ok {
@@ -1358,6 +1396,9 @@ func (s *Server) setAppearance(gs *GameState, slot, value string) error {
 		gs.Player.Appearance.Background = value
 		gs.Player.Wallpaper = value
 	case "color":
+		if value != "default" && gs.Player.Inventory[value] <= 0 {
+			return fmt.Errorf("сначала выбей этот скин")
+		}
 		gs.Player.Appearance.Color = value
 	case "heldItem":
 		gs.Player.Appearance.HeldItem = value
@@ -1392,19 +1433,86 @@ func rest(gs *GameState) error {
 	return nil
 }
 
-func attackConfig(attackType string) (int, string, bool) {
+func attackConfig(attackType string) (int, string, int, bool) {
 	switch attackType {
 	case "belly_punch":
-		return 5, "удар пузиком", true
+		return 5, "удар пузиком", 0, true
 	case "scratch":
-		return 20, "царапанье", true
+		return 20, "царапанье", 0, true
 	case "rush":
-		return 15, "удар с разбега", true
+		return 15, "удар с разбега", 0, true
 	case "bite":
-		return 30, "укус", true
+		return 30, "укус", 0, true
+	case "iron_claw":
+		return 100, "удар железным когтем", 2, true
+	case "poison_bite":
+		return 300, "ядовитый укус", 6, true
+	case "eye_lasers":
+		return 700, "лазеры из глаз", 13, true
 	default:
-		return 0, "", false
+		return 0, "", 0, false
 	}
+}
+
+type bossCosmeticDrop struct {
+	ItemID string
+	Label  string
+	Chance int
+}
+
+func bossCosmeticDropFor(bossID string) (bossCosmeticDrop, bool) {
+	switch bossID {
+	case "rat":
+		return bossCosmeticDrop{ItemID: "color2", Label: "серый скин хомяка", Chance: 25}, true
+	case "lizard":
+		return bossCosmeticDrop{ItemID: "color1", Label: "зеленый скин хомяка", Chance: 25}, true
+	default:
+		return bossCosmeticDrop{}, false
+	}
+}
+
+func cosmeticDropBonusText(bossID string) string {
+	switch bossID {
+	case "rat":
+		return "Бонус за скин: +5 к удару пузиком и +5 к удару железным когтем."
+	case "lizard":
+		return "Бонус за скин: +20 к урону ядовитого укуса."
+	default:
+		return ""
+	}
+}
+
+func attackBonusDamage(gs *GameState, attackType string) int {
+	if gs == nil {
+		return 0
+	}
+	switch attackType {
+	case "belly_punch", "iron_claw":
+		if gs.Player.Inventory["color2"] > 0 {
+			return 5
+		}
+	case "poison_bite":
+		if gs.Player.Inventory["color1"] > 0 {
+			return 20
+		}
+	}
+	return 0
+}
+
+func maybeGrantBossCosmeticDrop(gs *GameState, boss *Boss) string {
+	drop, ok := bossCosmeticDropFor(boss.ID)
+	if !ok || gs == nil {
+		return ""
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(100))
+	if err != nil || n.Int64() >= int64(drop.Chance) {
+		return ""
+	}
+	if gs.Player.Inventory == nil {
+		gs.Player.Inventory = map[string]int{}
+	}
+	gs.Player.Inventory[drop.ItemID] = gs.Player.Inventory[drop.ItemID] + 1
+	return drop.Label
 }
 
 func applyItemStats(gs *GameState, item Item) {

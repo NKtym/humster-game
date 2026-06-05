@@ -694,6 +694,10 @@ button.primary {
   padding: 18px;
 }
 
+.battle-finish-modal[hidden] {
+  display: none !important;
+}
+
 .battle-finish-modal__backdrop {
   position: absolute;
   inset: 0;
@@ -742,6 +746,13 @@ button.primary {
 
 .attack-btn strong {
   font-size: 18px;
+}
+
+.attack-btn small {
+  font-size: 12px;
+  line-height: 1.2;
+  color: rgba(77, 39, 16, 0.72);
+  font-weight: 700;
 }
 
 .adventure-layout {
@@ -1080,6 +1091,16 @@ button.primary {
 
 .appearance-option.is-selected {
   box-shadow: 0 0 0 2px rgba(255, 238, 190, 0.55) inset, 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.appearance-option.is-locked {
+  opacity: 0.62;
+}
+
+.appearance-option__lock {
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255, 236, 208, 0.76);
 }
 
 .appearance-option__thumb {
