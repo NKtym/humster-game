@@ -70,10 +70,9 @@ const APPEARANCE_OPTIONS = {
     { id: 'wallpaper_day', name: 'Летний сад', img: '/assets/wallpapers/field_day.png' },
   ],
   color: [
-    { id: 'default', name: 'Натуральный', color: '#f1d5a9' },
-    { id: 'cream', name: 'Кремовый', color: '#f8e7c7' },
-    { id: 'caramel', name: 'Карамельный', color: '#c88a4b' },
-    { id: 'gray', name: 'Серый', color: '#b9b9bf' },
+    { id: 'default', name: 'Базовый', img: '/assets/hamster/base.png' },
+    { id: 'color1', name: 'Цвет 1', img: '/assets/hamster/color1.png' },
+    { id: 'color2', name: 'Цвет 2', img: '/assets/hamster/color2.png' },
   ],
   heldItem: [
     { id: 'none', name: 'Без предмета' },
@@ -650,6 +649,55 @@ function getAppearanceOption(slot, value) {
   return list.find((item) => item.id === value) || list[0] || null;
 }
 
+function getHamsterSpriteAsset(colorValue) {
+  const option = getAppearanceOption('color', colorValue || 'default');
+  if (option && option.img) return option.img;
+  return '/assets/hamster/base.png';
+}
+
+let battleFinishTargetName = '';
+
+function ensureBattleFinishModal() {
+  if (document.getElementById('battle-finish-modal')) return;
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="battle-finish-modal" class="battle-finish-modal" hidden>
+      <div class="battle-finish-modal__backdrop" data-battle-finish-close></div>
+      <div class="battle-finish-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="battle-finish-title">
+        <div class="eyebrow">Подтверждение</div>
+        <h3 id="battle-finish-title">Завершить битву?</h3>
+        <p id="battle-finish-text">Если хочешь завершить битву раньше времени, нужно заплатить 1 кормик.</p>
+        <div class="battle-finish-modal__actions">
+          <button type="button" class="ghost" data-battle-finish-close>Отмена</button>
+          <button type="button" class="primary" id="battle-finish-confirm">Заплатить 1 кормик</button>
+        </div>
+      </div>
+    </div>
+  `);
+}
+
+function openBattleFinishModal(boss) {
+  ensureBattleFinishModal();
+  battleFinishTargetName = boss?.name || 'этого босса';
+  const modal = document.getElementById('battle-finish-modal');
+  const text = document.getElementById('battle-finish-text');
+  if (text) {
+    text.textContent = `Если хочешь завершить битву с ${battleFinishTargetName} до окончания таймера, нужно заплатить 1 кормик.`;
+  }
+  if (modal) modal.hidden = false;
+}
+
+function closeBattleFinishModal() {
+  const modal = document.getElementById('battle-finish-modal');
+  if (modal) modal.hidden = true;
+}
+
+async function confirmBattleFinish() {
+  closeBattleFinishModal();
+  await syncAction('finish_battle', {});
+  setView('battle');
+  render();
+}
+
 function renderAccessoryMarkup(slot, value) {
   if (!value || value === 'none') return '';
   const item = getAppearanceOption(slot, value);
@@ -693,20 +741,18 @@ function updateScene(state) {
   $('#scene-wallpaper').style.backgroundImage = `url("${wallpaper.img}")`;
   $('#scene-meta').textContent = wallpaper.name;
 
-  const colorOption = getAppearanceOption('color', appearance.color || 'default');
+  const hamsterSprite = getHamsterSpriteAsset(appearance.color || 'default');
+  const spriteLayer = $('#hamster-sprite');
+  if (spriteLayer) {
+    spriteLayer.src = hamsterSprite;
+  }
   const colorLayer = $('#hamster-color-layer');
   if (colorLayer) {
-    if (colorOption && colorOption.color && colorOption.id !== 'default') {
-      colorLayer.hidden = false;
-      colorLayer.style.backgroundColor = colorOption.color;
-      colorLayer.style.webkitMaskImage = 'url(/assets/hamster/base.png)';
-      colorLayer.style.maskImage = 'url(/assets/hamster/base.png)';
-    } else {
-      colorLayer.hidden = true;
-      colorLayer.style.backgroundColor = 'transparent';
-      colorLayer.style.webkitMaskImage = 'none';
-      colorLayer.style.maskImage = 'none';
-    }
+    colorLayer.hidden = true;
+    colorLayer.style.backgroundImage = 'none';
+    colorLayer.style.backgroundColor = 'transparent';
+    colorLayer.style.webkitMaskImage = 'none';
+    colorLayer.style.maskImage = 'none';
   }
 
   const body = appearance.body || 'none';
@@ -744,6 +790,12 @@ function applyLocalAction(action, payload = {}) {
   switch (action) {
     case 'select_boss': {
       const bossId = payload.bossId || '';
+      if (state.activeBossId && state.activeBossId !== bossId) {
+        const activeBoss = bossById(state, state.activeBossId);
+        if (activeBoss && !activeBoss.defeated && (!activeBoss.battleEndsAt || toMillis(activeBoss.battleEndsAt) > Date.now())) {
+          return;
+        }
+      }
       state.activeBossId = bossId;
       const active = bossById(state, bossId);
       if (active) {
@@ -762,6 +814,24 @@ function applyLocalAction(action, payload = {}) {
           active.battleEndsAt = new Date(now + (8 * 60 * 60 * 1000)).toISOString();
         }
       }
+      return;
+    }
+    case 'finish_battle': {
+      const activeBoss = bossById(state, state.activeBossId);
+      if (!activeBoss) return;
+      const now = Date.now();
+      if (activeBoss.defeated || (activeBoss.battleEndsAt && toMillis(activeBoss.battleEndsAt) <= now)) {
+        state.activeBossId = '';
+        return;
+      }
+      if ((state.player.currency?.kormik || 0) < 1) return;
+      state.player.currency.kormik -= 1;
+      activeBoss.hp = activeBoss.maxHp;
+      activeBoss.defeated = false;
+      activeBoss.battleStartedAt = '';
+      activeBoss.battleEndsAt = '';
+      activeBoss.attackCooldowns = {};
+      state.activeBossId = '';
       return;
     }
     case 'attack_boss': {
@@ -903,8 +973,11 @@ function renderBossSelection() {
               <div class="boss-card__xp">Опыт: ${boss.xp || 0}</div>
               <div class="boss-card__limit">Осталось сегодня: ${remainingKills}/${BOSS_KILL_LIMIT}</div>
               ${battleTimer ? `<div class="boss-card__timer">До конца битвы: ${battleTimer}</div>` : ''}
-              <button class="primary boss-select" data-boss="${boss.id}" type="button">
-                ${boss.defeated ? (remainingKills > 0 ? 'Пройти ещё раз' : 'Лимит исчерпан') : 'Выбрать и начать бой'}
+              ${currentState.activeBossId && currentState.activeBossId !== boss.id ? `<div class="boss-card__lock">Сначала заверши текущую битву с ${bossById(currentState, currentState.activeBossId)?.name || 'другим боссом'}.</div>` : ''}
+              <button class="primary boss-select" data-boss="${boss.id}" type="button" ${currentState.activeBossId && currentState.activeBossId !== boss.id ? 'disabled' : ''}>
+                ${currentState.activeBossId && currentState.activeBossId !== boss.id
+      ? 'Бой уже выбран'
+      : (boss.defeated ? (remainingKills > 0 ? 'Пройти ещё раз' : 'Лимит исчерпан') : 'Выбрать и начать бой')}
               </button>
             </div>
           </article>
@@ -934,7 +1007,7 @@ function renderBattleScreen() {
   const battleRemaining = activeBoss.defeated ? '' : bossBattleCountdown(activeBoss);
   $('#battle-screen-subtitle').textContent = activeBoss.defeated
     ? activeBoss.killsToday >= BOSS_KILL_LIMIT ? 'Дневной лимит этого босса исчерпан.' : `Босс уже побеждён. Можно пройти ещё раз. Осталось ${bossDailyRemaining(activeBoss)}/${BOSS_KILL_LIMIT} попыток на сегодня. Опыт за победу: ${activeBoss.xp || 0}.`
-    : `Удары идут снизу панели. После каждого удара босс отвечает, если ещё жив. Битва закончится через ${battleRemaining}. На этом боссе сегодня осталось: ${bossDailyRemaining(activeBoss)}/${BOSS_KILL_LIMIT}. Опыт за победу: ${activeBoss.xp || 0}.`;
+    : `Удары идут снизу панели. После каждого удара босс отвечает, если ещё жив. Битва закончится через ${battleRemaining}. На этом боссе сегодня осталось: ${bossDailyRemaining(activeBoss)}/${BOSS_KILL_LIMIT}. Опыт за победу: ${activeBoss.xp || 0}. Раньше завершить бой можно только за 1 кормик.`;
 
   const body = $('#battle-screen-body');
   const percent = activeBoss.maxHp ? Math.max(0, Math.min(100, (activeBoss.hp / activeBoss.maxHp) * 100)) : 0;
@@ -957,7 +1030,9 @@ function renderBattleScreen() {
         <div class="battle-note">${activeBoss.defeated ? 'Босс уже побеждён. Выбирай следующего.' : `Битва закончится через ${battleRemaining}. На этом боссе сегодня осталось: ${bossDailyRemaining(activeBoss)}/${BOSS_KILL_LIMIT}.`}${isBattleExpired ? ' Время вышло, бой проигран.' : ''}</div>
         <div class="battle-controls">
           ${activeBoss.defeated && bossDailyRemaining(activeBoss) > 0 ? '<button class="primary" id="btn-boss-retry" type="button">Пройти ещё раз</button>' : ''}
-          <button class="ghost" id="btn-boss-change" type="button">Выбрать другого</button>
+          ${activeBoss.defeated || isBattleExpired
+            ? '<button class="ghost" id="btn-boss-change" type="button">Выбрать другого</button>'
+            : '<button class="primary" id="btn-boss-finish" type="button">Завершить битву за 1 кормик</button>'}
         </div>
       </div>
     </div>
@@ -987,16 +1062,21 @@ function renderBattleScreen() {
   const retry = $('#btn-boss-retry');
   if (retry) {
     retry.onclick = async () => {
-      await syncAction('select_boss', { bossId: activeBoss.id });
+      await syncAction('retry_boss', {});
       setView('battle');
       render();
     };
   }
 
+  const finish = $('#btn-boss-finish');
+  if (finish) {
+    finish.onclick = () => openBattleFinishModal(activeBoss);
+  }
+
   const change = $('#btn-boss-change');
   if (change) {
     change.onclick = async () => {
-      await syncAction('select_boss', { bossId: '' });
+      await syncAction('clear_boss', {});
       setView('battle');
       render();
     };
@@ -1153,7 +1233,9 @@ function renderAdventureScreen() {
 function renderAppearanceOptionButton(option, slot) {
   const selected = (currentState.player.appearance?.[slot] || (slot === 'background' ? currentState.player.wallpaper : 'none')) === option.id;
   const thumbStyle = option.color ? `style="--chip-color: ${option.color};"` : '';
-  const thumbImage = option.img ? `<img src="${option.img}" alt="" />` : `<span class="appearance-thumb-fallback">${option.name.slice(0, 2)}</span>`;
+  const thumbImage = option.img
+    ? `<img class="appearance-option__img ${slot === 'color' ? 'appearance-option__img--hamster' : ''}" src="${option.img}" alt="" />`
+    : `<span class="appearance-thumb-fallback">${option.name.slice(0, 2)}</span>`;
   return `
     <button type="button" class="appearance-option ${selected ? 'is-selected' : ''}" data-appearance-slot="${slot}" data-appearance-value="${option.id}">
       <div class="appearance-option__thumb" ${thumbStyle}>${thumbImage}</div>
@@ -1187,11 +1269,8 @@ function renderEditScreen() {
           <div class="edit-preview__ground"></div>
           <div class="edit-preview__hamster">
             <div class="ground-shadow"></div>
-            <div class="edit-preview__color-layer" ${(() => {
-              const color = getAppearanceOption('color', currentState.player.appearance?.color || 'default');
-              return color && color.color && color.id !== 'default' ? `style="background-color:${color.color};-webkit-mask-image:url(/assets/hamster/base.png);mask-image:url(/assets/hamster/base.png);"` : 'hidden';
-            })()}></div>
-            <img class="edit-preview__base" src="/assets/hamster/base.png" alt="Хомяк" />
+            <div class="edit-preview__color-layer" hidden></div>
+            <img class="edit-preview__base" src="${getHamsterSpriteAsset(currentState.player.appearance?.color || 'default')}" alt="Хомяк" />
             ${currentState.player.appearance?.headwear && currentState.player.appearance.headwear !== 'none' ? `<div class="appearance-layer appearance-layer--headwear appearance-layer--${currentState.player.appearance.headwear}"></div>` : ''}
             ${currentState.player.appearance?.glasses && currentState.player.appearance.glasses !== 'none' ? `<div class="appearance-layer appearance-layer--glasses appearance-layer--${currentState.player.appearance.glasses}"></div>` : ''}
             ${currentState.player.appearance?.mask && currentState.player.appearance.mask !== 'none' ? `<div class="appearance-layer appearance-layer--mask appearance-layer--${currentState.player.appearance.mask}"></div>` : ''}
@@ -1349,6 +1428,15 @@ function initBattleButtons() {
     setView('main');
     render();
   };
+
+  ensureBattleFinishModal();
+  document.querySelectorAll('[data-battle-finish-close]').forEach((btn) => {
+    btn.onclick = closeBattleFinishModal;
+  });
+  const finishConfirm = document.getElementById('battle-finish-confirm');
+  if (finishConfirm) {
+    finishConfirm.onclick = confirmBattleFinish;
+  }
 }
 
 function initAdventureButtons() {

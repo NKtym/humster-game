@@ -360,6 +360,8 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		err = s.selectBoss(lease.state, req.BossID)
 	case "clear_boss":
 		err = s.clearBoss(lease.state)
+	case "finish_battle":
+		err = s.finishBossBattle(lease.state)
 	case "retry_boss":
 		err = s.retryBoss(lease.state)
 	case "attack_boss":
@@ -1041,9 +1043,14 @@ func (s *Server) exploreField(gs *GameState) error {
 
 func (s *Server) selectBoss(gs *GameState, bossID string) error {
 	if bossID == "" {
-		gs.ActiveBossID = ""
-		appendLog(gs, "Выбор босса закрыт.")
-		return nil
+		return s.clearBoss(gs)
+	}
+
+	if gs.ActiveBossID != "" && gs.ActiveBossID != bossID {
+		if active, _, ok := currentBoss(gs, gs.ActiveBossID); ok && active != nil && !active.Defeated && (active.BattleEndsAt.IsZero() || time.Now().Before(active.BattleEndsAt)) {
+			return fmt.Errorf("сначала заверши текущую битву с %s", active.Name)
+		}
+		return fmt.Errorf("сначала заверши текущую битву")
 	}
 
 	boss, _, ok := currentBoss(gs, bossID)
@@ -1068,8 +1075,45 @@ func (s *Server) selectBoss(gs *GameState, bossID string) error {
 }
 
 func (s *Server) clearBoss(gs *GameState) error {
+	if gs == nil {
+		return fmt.Errorf("игровое состояние недоступно")
+	}
+
+	boss, _, ok := currentBoss(gs, gs.ActiveBossID)
+	if ok && boss != nil && !boss.Defeated && (boss.BattleEndsAt.IsZero() || time.Now().Before(boss.BattleEndsAt)) {
+		return fmt.Errorf("сначала заверши текущую битву")
+	}
+
 	gs.ActiveBossID = ""
 	appendLog(gs, "Выбор босса закрыт.")
+	return nil
+}
+
+func (s *Server) finishBossBattle(gs *GameState) error {
+	if gs == nil {
+		return fmt.Errorf("игровое состояние недоступно")
+	}
+
+	boss, idx, ok := currentBoss(gs, gs.ActiveBossID)
+	if !ok {
+		return fmt.Errorf("сначала выбери босса")
+	}
+
+	now := time.Now()
+	refreshBossKillLimit(boss)
+	if boss.Defeated || (!boss.BattleEndsAt.IsZero() && !now.Before(boss.BattleEndsAt)) {
+		return s.clearBoss(gs)
+	}
+
+	if gs.Player.Currency[Kormik] < 1 {
+		return fmt.Errorf("если хочешь завершить битву раньше, нужно заплатить 1 кормик")
+	}
+
+	gs.Player.Currency[Kormik]--
+	gs.Bosses[idx].HP = gs.Bosses[idx].MaxHP
+	resetBossBattle(&gs.Bosses[idx])
+	gs.ActiveBossID = ""
+	appendLog(gs, fmt.Sprintf("Битва с %s завершена за 1 кормик.", boss.Name))
 	return nil
 }
 

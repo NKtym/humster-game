@@ -581,6 +581,16 @@ button.primary {
   background: rgba(33, 19, 9, 0.22);
 }
 
+.boss-card__lock {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 214, 146, 0.12);
+  color: rgba(255, 240, 216, 0.94);
+  font-size: 12px;
+  line-height: 1.35;
+  border: 1px solid rgba(255, 230, 180, 0.10);
+}
+
 .boss-card__body {
   display: grid;
   gap: 10px;
@@ -673,6 +683,47 @@ button.primary {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.battle-finish-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.battle-finish-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(22, 10, 4, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.battle-finish-modal__dialog {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 480px);
+  border-radius: 28px;
+  padding: 22px;
+  background: linear-gradient(180deg, rgba(103, 60, 27, 0.96), rgba(72, 41, 16, 0.96));
+  border: 1px solid rgba(255, 233, 186, 0.16);
+  box-shadow: 0 26px 70px rgba(0,0,0,0.46);
+  display: grid;
+  gap: 12px;
+}
+
+.battle-finish-modal__dialog p {
+  color: rgba(255, 236, 208, 0.86);
+  line-height: 1.5;
+}
+
+.battle-finish-modal__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .attack-panel {
@@ -1046,6 +1097,11 @@ button.primary {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.appearance-option__img--hamster {
+  object-fit: contain;
+  padding: 6px;
 }
 
 .appearance-option__thumb[style] {
