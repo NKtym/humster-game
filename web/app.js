@@ -890,6 +890,7 @@ let friendsModalError = '';
 let friendsBadgeCount = 0;
 let friendsBadgeLoading = false;
 let friendsBadgeLastLoadedAt = 0;
+let friendsBadgeInterval = null;
 let achievementsModalTab = 'battle';
 
 function ensureProfileModal() {
@@ -984,14 +985,41 @@ function renderProfileSummary(profile) {
   const state = profile?.state || {};
   const player = state.player || {};
   const onlineText = profile?.online ? 'Онлайн' : `Был(а) ${formatSeenAt(profile?.lastSeenAt)}`;
+  const xpNeed = xpForNextLevel(player.level || 1);
   const stats = [
     { label: 'Логин', value: profile?.login || '—' },
     { label: 'Имя хомяка', value: player.name || 'Хомяк' },
-    { label: 'Уровень', value: String(player.level || 1) },
+    { label: 'Уровень хомяка', value: String(player.level || 1) },
     { label: 'Статус', value: onlineText },
     { label: 'HP', value: `${Math.max(1, Number(player.hp) || 1)}/${Math.max(1, Number(player.maxHp) || 1)}` },
     { label: 'Энергия', value: `${Math.max(0, Number(player.energy) || 0)}/${Math.max(1, Number(player.maxEnergy) || 1)}` },
+    { label: 'Опыт', value: `${Math.max(0, Number(player.xp) || 0)}/${xpNeed}` },
+    { label: 'Урон за день', value: formatAchievementNumber(Math.max(0, Number(state.bossDamageDay) || 0)) },
+    { label: 'Урон за неделю', value: formatAchievementNumber(Math.max(0, Number(state.bossDamageWeek) || 0)) },
+    { label: 'Урон за месяц', value: formatAchievementNumber(Math.max(0, Number(state.bossDamageMonth) || 0)) },
+    { label: 'Урон за всё время', value: formatAchievementNumber(Math.max(0, Number(state.bossDamageAllTime) || 0)) },
   ];
+
+  const bosses = Array.isArray(state.bosses) ? state.bosses : [];
+  const adventure = Array.isArray(state.adventure) ? state.adventure : [];
+
+  const bossRows = bosses.length
+    ? bosses.map((boss, index) => `
+        <div class="profile-row">
+          <strong>${boss?.name || `Босс ${index + 1}`}</strong>
+          <span>${formatAchievementNumber(Math.max(0, Number(boss?.killsTotal) || 0))} раз</span>
+        </div>
+      `).join('')
+    : '<div class="profile-note">Список боссов пока пуст.</div>';
+
+  const adventureRows = adventure.length
+    ? adventure.map((node, index) => `
+        <div class="profile-row">
+          <strong>Поле ${index + 1}</strong>
+          <span>${formatAchievementNumber(Math.max(0, Number(node?.progress) || 0))} раз</span>
+        </div>
+      `).join('')
+    : '<div class="profile-note">Прогресс по карте пока отсутствует.</div>';
 
   return `
     <div class="social-profile">
@@ -1001,11 +1029,29 @@ function renderProfileSummary(profile) {
       <div class="social-profile__meta">
         <div class="social-profile__cards">
           ${stats.map((card) => `
-            <div class="social-profile__card">
+            <div class="social-profile__card profile-card">
               <span>${card.label}</span>
               <strong>${card.value}</strong>
             </div>
           `).join('')}
+        </div>
+        <div class="profile-section">
+          <div class="profile-section__head">
+            <strong>Победы над боссами</strong>
+            <span>${formatAchievementNumber(bosses.reduce((sum, boss) => sum + Math.max(0, Number(boss?.killsTotal) || 0), 0))} всего</span>
+          </div>
+          <div class="profile-list">
+            ${bossRows}
+          </div>
+        </div>
+        <div class="profile-section">
+          <div class="profile-section__head">
+            <strong>Карта: поле 1-5</strong>
+            <span>${formatAchievementNumber(adventure.reduce((sum, node) => sum + Math.max(0, Number(node?.progress) || 0), 0))} проходов</span>
+          </div>
+          <div class="profile-list">
+            ${adventureRows}
+          </div>
         </div>
         <div class="social-note">
           ${profile?.isSelf ? 'Это твой профиль.' : 'Профиль игрока открыт для просмотра.'}
@@ -1398,6 +1444,22 @@ async function refreshFriendsBadge(force = false) {
       renderFriendsModal();
     }
   }
+}
+
+function setupSocialPolling() {
+  if (friendsBadgeInterval) return;
+  const tick = () => {
+    if (isAuthenticated) {
+      void refreshFriendsBadge(true);
+    }
+  };
+  friendsBadgeInterval = window.setInterval(tick, 15000);
+  window.addEventListener('focus', tick);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      tick();
+    }
+  });
 }
 
 async function openFriendsModal() {
@@ -2481,6 +2543,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   initBattleButtons();
   initAdventureButtons();
   initEditButtons();
+  setupSocialPolling();
   render();
   await loadState();
 

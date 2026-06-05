@@ -1472,6 +1472,33 @@ button.primary {
   line-height: 1.4;
 }
 
+.social-profile {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  align-items: start;
+}
+
+.social-profile__avatar {
+  width: 100%;
+}
+
+.social-profile__meta {
+  display: grid;
+  gap: 14px;
+}
+
+.social-profile__cards {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+@media (max-width: 760px) {
+  .social-profile {
+    grid-template-columns: 1fr;
+  }
+}
 
 .social-modal {
   position: fixed;
