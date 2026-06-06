@@ -1375,7 +1375,7 @@ button.primary {
 .profile-modal {
   position: fixed;
   inset: 0;
-  z-index: 65;
+  z-index: 84;
   display: grid;
   place-items: center;
   padding: 18px;
@@ -1532,7 +1532,7 @@ button.primary {
 .social-modal {
   position: fixed;
   inset: 0;
-  z-index: 66;
+  z-index: 81;
   display: grid;
   place-items: center;
   padding: 18px;
@@ -1668,6 +1668,86 @@ button.primary {
   flex-wrap: wrap;
 }
 
+.hamster-preview-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 83;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.hamster-preview-modal[hidden] {
+  display: none !important;
+}
+
+.hamster-preview-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(22, 10, 4, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.hamster-preview-modal__dialog {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 760px);
+  max-height: min(88vh, 900px);
+  overflow: auto;
+  border-radius: 28px;
+  padding: 22px;
+  background: linear-gradient(180deg, rgba(103, 60, 27, 0.96), rgba(72, 41, 16, 0.96));
+  border: 1px solid rgba(255, 233, 186, 0.16);
+  box-shadow: 0 26px 70px rgba(0,0,0,0.46);
+  display: grid;
+  gap: 18px;
+}
+
+.hamster-preview-modal__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.hamster-preview-modal__body {
+  display: grid;
+  gap: 16px;
+}
+
+.hamster-preview {
+  display: grid;
+  gap: 12px;
+}
+
+.hamster-preview__scene {
+  position: relative;
+  min-height: 420px;
+  border-radius: 24px;
+  overflow: hidden;
+  background-size: cover;
+  background-position: center;
+  border: 1px solid rgba(255, 233, 186, 0.12);
+}
+
+.hamster-preview__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: rgba(255, 236, 208, 0.84);
+  flex-wrap: wrap;
+}
+
+.hamster-stage--preview {
+  width: min(100%, 420px);
+  height: 390px;
+}
+
+.hamster-preview__outfit {
+  position: absolute;
+  inset: 0;
+}
+
 .friends-badge {
   display: inline-flex;
   align-items: center;
@@ -1688,7 +1768,7 @@ button.primary {
 .achievements-modal {
   position: fixed;
   inset: 0;
-  z-index: 66;
+  z-index: 82;
   display: grid;
   place-items: center;
   padding: 18px;
@@ -1928,4 +2008,27 @@ button.primary {
 
 .leaderboard-row__damage {
   font-size: 15px;
+}
+
+.leaderboard-home-card {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.leaderboard-home-card__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.leaderboard-home-card__head p {
+  margin: 4px 0 0;
+  color: rgba(255, 236, 208, 0.8);
+}
+
+.leaderboard-home {
+  display: grid;
+  gap: 14px;
 }

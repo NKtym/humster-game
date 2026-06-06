@@ -358,6 +358,7 @@ const DEFAULT_STATE = {
   bossDamageAllTime: 0,
   bossBattleDamageCurrent: 0,
   bossBattleDamageBest: 0,
+  economyTotals: { seeds: 0, wheat: 0, carrot: 0, cucumber: 0, apple: 0, kormik: 0 },
   adventure: ADVENTURE_DEFS.map((node) => ({
     id: node.id,
     name: node.label,
@@ -630,6 +631,7 @@ function normalizeState(state) {
   next.bossDamageAllTime = Math.max(0, Number(state.bossDamageAllTime ?? next.bossDamageAllTime) || 0);
   next.bossBattleDamageCurrent = Math.max(0, Number(state.bossBattleDamageCurrent ?? next.bossBattleDamageCurrent) || 0);
   next.bossBattleDamageBest = Math.max(0, Number(state.bossBattleDamageBest ?? next.bossBattleDamageBest) || 0);
+  next.economyTotals = { ...DEFAULT_STATE.economyTotals, ...((state && state.economyTotals) || {}) };
   if (next.bossBattleDamageBest < next.bossBattleDamageCurrent) {
     next.bossBattleDamageBest = next.bossBattleDamageCurrent;
   }
@@ -1038,6 +1040,7 @@ function renderProfileSummary(profile) {
     ? ''
     : `
       <div class="profile-actions">
+        <button type="button" class="ghost" data-profile-view-hamster="${profile?.login || ''}">Посмотреть хомяка</button>
         ${profile?.isFriend
           ? `<button type="button" class="ghost" data-profile-remove-friend="${profile?.login || ''}">Удалить из друзей</button>`
           : `<button type="button" class="primary" data-profile-add-friend="${profile?.login || ''}" onclick='void window.humsterAddFriend(${jsStringLiteral(profile?.login || '')})'>Добавить в друзья</button>`}
@@ -1127,6 +1130,99 @@ function renderProfileSummary(profile) {
   `;
 }
 
+
+function renderHamsterPreview(profile) {
+  const state = profile?.state || {};
+  const player = state.player || {};
+  const appearance = player.appearance || {};
+  const wallpaper = getWallpaperAsset(appearance.background || player.wallpaper || 'wallpaper_day');
+  const hamsterSprite = getHamsterSpriteAsset(appearance.color || 'default');
+  const outfit = `
+    ${appearance.headwear && appearance.headwear !== 'none' ? `<div class="appearance-layer appearance-layer--headwear appearance-layer--${appearance.headwear}"></div>` : ''}
+    ${appearance.glasses && appearance.glasses !== 'none' ? `<div class="appearance-layer appearance-layer--glasses appearance-layer--${appearance.glasses}"></div>` : ''}
+    ${appearance.mask && appearance.mask !== 'none' ? `<div class="appearance-layer appearance-layer--mask appearance-layer--${appearance.mask}"></div>` : ''}
+    ${appearance.body && appearance.body !== 'none' ? `<div class="appearance-layer appearance-layer--body appearance-layer--${appearance.body}"></div>` : ''}
+    ${appearance.shoes && appearance.shoes !== 'none' ? `<div class="appearance-layer appearance-layer--shoes appearance-layer--${appearance.shoes}"></div>` : ''}
+    ${appearance.heldItem && appearance.heldItem !== 'none' ? `<div class="appearance-layer appearance-layer--heldItem appearance-layer--${appearance.heldItem}"></div>` : ''}
+  `;
+  return `
+    <div class="hamster-preview">
+      <div class="hamster-preview__scene" style="background-image: url('${wallpaper.img}')">
+        <div class="scene-fog"></div>
+        <div class="scene-ground"></div>
+        <div class="hamster-stage hamster-stage--preview">
+          <div class="ground-shadow"></div>
+          <img src="${hamsterSprite}" alt="Хомяк" />
+          <div class="hamster-preview__outfit">${outfit}</div>
+        </div>
+      </div>
+      <div class="hamster-preview__meta">
+        <strong>${profile?.login || 'Хомяк'}</strong>
+        <span>${wallpaper.name}</span>
+      </div>
+    </div>
+  `;
+}
+
+function ensureHamsterPreviewModal() {
+  if (document.getElementById('hamster-preview-modal')) return;
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="hamster-preview-modal" class="hamster-preview-modal" hidden>
+      <div class="hamster-preview-modal__backdrop" data-hamster-preview-close></div>
+      <div class="hamster-preview-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="hamster-preview-title">
+        <div class="hamster-preview-modal__head">
+          <div>
+            <div class="eyebrow">Просмотр хомяка</div>
+            <h3 id="hamster-preview-title">Хомяк друга</h3>
+          </div>
+          <button type="button" class="ghost" data-hamster-preview-close>Закрыть</button>
+        </div>
+        <div id="hamster-preview-modal-body" class="hamster-preview-modal__body"></div>
+      </div>
+    </div>
+  `);
+}
+
+function renderHamsterPreviewModal(profile) {
+  const modal = document.getElementById('hamster-preview-modal');
+  if (!modal) return;
+  const body = document.getElementById('hamster-preview-modal-body');
+  if (body) {
+    body.innerHTML = profile ? renderHamsterPreview(profile) : '<div class="social-note">Хомяк не найден.</div>';
+  }
+  document.querySelectorAll('[data-hamster-preview-close]').forEach((btn) => {
+    btn.onclick = closeHamsterPreviewModal;
+  });
+}
+
+async function openHamsterPreviewModal(login = '') {
+  ensureHamsterPreviewModal();
+  const modal = document.getElementById('hamster-preview-modal');
+  if (modal) modal.hidden = false;
+  const target = normalizeLogin(login);
+  if (!target) {
+    renderHamsterPreviewModal(null);
+    return;
+  }
+  try {
+    const res = await fetch(apiUrl(`/social/profile?login=${encodeURIComponent(target)}`), {
+      method: 'GET',
+      headers: authHeaders(),
+    });
+    const data = await res.json().catch(() => null);
+    if (res.ok && data && data.ok && data.profile) {
+      renderHamsterPreviewModal(normalizeSocialProfile(data.profile));
+      return;
+    }
+  } catch (err) {}
+  renderHamsterPreviewModal(null);
+}
+
+function closeHamsterPreviewModal() {
+  const modal = document.getElementById('hamster-preview-modal');
+  if (modal) modal.hidden = true;
+}
+
 function renderFriendRow(friend, mode = 'friend') {
   const state = friend?.state || {};
   const player = state.player || {};
@@ -1142,6 +1238,7 @@ function renderFriendRow(friend, mode = 'friend') {
     : `
       <div class="social-row__actions">
         <button type="button" class="ghost" data-friend-open="${name}">Открыть профиль</button>
+        <button type="button" class="ghost" data-friend-preview="${name}">Посмотреть хомяка</button>
         <button type="button" class="ghost" data-friend-remove="${name}">Удалить</button>
       </div>
     `;
@@ -1188,6 +1285,12 @@ function bindProfileModalEvents() {
       if (login) {
         await mutateFriendRequest('remove', login);
       }
+    };
+  });
+  document.querySelectorAll('[data-profile-view-hamster]').forEach((btn) => {
+    btn.onclick = () => {
+      const login = btn.getAttribute('data-profile-view-hamster') || '';
+      if (login) openHamsterPreviewModal(login);
     };
   });
 }
@@ -1403,6 +1506,12 @@ function bindFriendsModalEvents() {
       if (login) openProfileModal(login);
     };
   });
+  document.querySelectorAll('[data-friend-preview]').forEach((btn) => {
+    btn.onclick = () => {
+      const login = btn.getAttribute('data-friend-preview') || '';
+      if (login) openHamsterPreviewModal(login);
+    };
+  });
   document.querySelectorAll('[data-friend-accept]').forEach((btn) => {
     btn.onclick = async () => {
       const login = btn.getAttribute('data-friend-accept') || '';
@@ -1585,7 +1694,6 @@ function ensureAchievementsModal() {
         <div class="achievements-modal__tabs">
           <button type="button" class="achievements-modal__tab is-active" data-achievements-tab="battle">Битвы</button>
           <button type="button" class="achievements-modal__tab" data-achievements-tab="economy">Экономика</button>
-          <button type="button" class="achievements-modal__tab" data-achievements-tab="leaders">Лидеры</button>
         </div>
         <div id="achievements-modal-body" class="achievements-modal__body"></div>
       </div>
@@ -1656,6 +1764,18 @@ function renderLeaderboards() {
   return `
     <div class="leaderboard-grid">
       ${LEADERBOARD_PERIODS.map((period) => renderLeaderboardSection(period, data[period.key] || [])).join('')}
+    </div>
+  `;
+}
+
+function renderHomeLeaderboards() {
+  return `
+    <div class="leaderboard-home">
+      <div class="profile-section__head">
+        <strong>Таблица лидеров</strong>
+        <span>По урону по боссам за день, неделю и месяц</span>
+      </div>
+      ${renderLeaderboards()}
     </div>
   `;
 }
@@ -1812,7 +1932,7 @@ function renderAchievementsModal() {
   if (body) {
     captureAchievementsAccordionState();
   }
-  const titles = { battle: 'Битвы', economy: 'Экономика', leaders: 'Лидеры' };
+  const titles = { battle: 'Битвы', economy: 'Экономика' };
   if (title) {
     title.textContent = titles[achievementsModalTab] || 'Достижения';
   }
@@ -1826,11 +1946,6 @@ function renderAchievementsModal() {
       body.innerHTML = renderBattleAchievements();
     } else if (achievementsModalTab === 'economy') {
       body.innerHTML = renderEconomyAchievements();
-    } else if (achievementsModalTab === 'leaders') {
-      body.innerHTML = renderLeaderboards();
-      if (!leaderboardsData || Date.now() - leaderboardsLoadedAt > 30000) {
-        void loadLeaderboards();
-      }
     } else {
       body.innerHTML = '<div class="social-note">Раздел в разработке.</div>';
     }
@@ -2584,6 +2699,19 @@ function render() {
   }
   if (document.getElementById('achievements-modal')) {
     renderAchievementsModal();
+  }
+  const leaderboardsHome = document.getElementById('leaderboard-home-body');
+  if (leaderboardsHome) {
+    leaderboardsHome.innerHTML = renderHomeLeaderboards();
+    document.querySelectorAll('[data-leaderboard-profile]').forEach((btn) => {
+      btn.onclick = () => {
+        const login = normalizeLogin(btn.getAttribute('data-leaderboard-profile') || '');
+        if (login) openProfileModal(login);
+      };
+    });
+    if (!leaderboardsData || Date.now() - leaderboardsLoadedAt > 30000) {
+      void loadLeaderboards();
+    }
   }
 
   const auth = $('#auth-screen');
