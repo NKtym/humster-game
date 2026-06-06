@@ -395,6 +395,10 @@ function normalizeLogin(login) {
   return String(login ?? '').trim().toLowerCase();
 }
 
+function jsStringLiteral(value) {
+  return JSON.stringify(String(value ?? ''));
+}
+
 async function api(path, payload, method = 'POST') {
   try {
     const res = await fetch(apiUrl(path), {
@@ -932,7 +936,7 @@ function ensureFriendsModal() {
         </div>
         <div class="social-modal__toolbar">
           <input id="friends-login-input" maxlength="32" placeholder="Логин друга" />
-          <button id="btn-friends-add" type="button" class="primary">Добавить</button>
+          <button id="btn-friends-add" type="button" class="primary" onclick="void window.humsterAddFriendFromInput()">Добавить</button>
         </div>
         <div class="social-modal__tabs">
           <button type="button" class="social-modal__tab is-active" data-friends-tab="requests">Заявки</button>
@@ -1005,7 +1009,7 @@ function renderProfileSummary(profile) {
       <div class="profile-actions">
         ${profile?.isFriend
           ? `<button type="button" class="ghost" data-profile-remove-friend="${profile?.login || ''}">Удалить из друзей</button>`
-          : `<button type="button" class="primary" data-profile-add-friend="${profile?.login || ''}">Добавить в друзья</button>`}
+          : `<button type="button" class="primary" data-profile-add-friend="${profile?.login || ''}" onclick='void window.humsterAddFriend(${jsStringLiteral(profile?.login || '')})'>Добавить в друзья</button>`}
       </div>
     `;
 
@@ -1133,12 +1137,17 @@ function renderFriendRow(friend, mode = 'friend') {
         <button type="button" class="ghost" data-friend-remove="${name}">Удалить</button>
       </div>
     `;
-
-  return `
-    <article class="social-row">
+  const avatar = mode === 'request'
+    ? ''
+    : `
       <button type="button" class="social-row__avatar" data-friend-open="${name}">
         ${hamsterPreviewMarkup(state)}
       </button>
+    `;
+
+  return `
+    <article class="social-row${mode === 'request' ? ' social-row--request' : ''}">
+      ${avatar}
       <div class="social-row__body">
         <div class="social-row__head">
           <button type="button" class="social-row__name" data-friend-open="${name}">${name}</button>
@@ -1170,14 +1179,6 @@ function renderFriendsList(profile) {
 function bindProfileModalEvents() {
   document.querySelectorAll('[data-profile-close]').forEach((btn) => {
     btn.onclick = closeProfileModal;
-  });
-  document.querySelectorAll('[data-profile-add-friend]').forEach((btn) => {
-    btn.onclick = async () => {
-      const login = btn.getAttribute('data-profile-add-friend') || '';
-      if (login) {
-        await mutateFriendRequest('add', login);
-      }
-    };
   });
   document.querySelectorAll('[data-profile-remove-friend]').forEach((btn) => {
     btn.onclick = async () => {
@@ -1418,17 +1419,21 @@ function bindFriendsModalEvents() {
       if (login) await mutateFriendRequest('remove', login);
     };
   });
-  const addBtn = document.getElementById('btn-friends-add');
-  if (addBtn) {
-    addBtn.onclick = async () => {
-      const input = document.getElementById('friends-login-input');
-      const login = input ? input.value.trim() : '';
-      if (!login) return;
-      await mutateFriendRequest('add', login);
-      if (input) input.value = '';
-    };
-  }
 }
+
+window.humsterAddFriend = async (login) => {
+  const normalized = normalizeLogin(login);
+  if (!normalized) return;
+  await mutateFriendRequest('add', normalized);
+};
+
+window.humsterAddFriendFromInput = async () => {
+  const input = document.getElementById('friends-login-input');
+  const login = input ? input.value.trim() : '';
+  if (!login) return;
+  await mutateFriendRequest('add', login);
+  if (input) input.value = '';
+};
 
 async function loadFriendsModal(force = false) {
   ensureFriendsModal();

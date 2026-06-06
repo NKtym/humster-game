@@ -1843,3 +1843,12 @@ button.primary {
   border-radius: inherit;
   background: linear-gradient(90deg, rgba(255, 213, 107, 0.85), rgba(255, 150, 94, 0.9));
 }
+
+
+.social-row--request {
+  grid-template-columns: 1fr;
+}
+
+.social-row--request .social-row__body {
+  margin-left: 0;
+}

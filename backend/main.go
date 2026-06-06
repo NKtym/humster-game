@@ -397,6 +397,7 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req ActionRequest
+	userID, _ := s.userIDFromRequest(r)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, ActionResponse{OK: false, Error: "bad json"})
 		return
@@ -425,7 +426,7 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	case "retry_boss":
 		err = s.retryBoss(lease.state)
 	case "attack_boss":
-		err = s.attackBoss(lease.state, req.AttackType)
+		err = s.attackBoss(lease.state, req.AttackType, userID)
 	case "buy_attack":
 		err = s.buyAttack(lease.state, req.AttackType)
 	case "buy_item":
@@ -753,7 +754,7 @@ func (s *Server) handleSocialFriendRequestAccept(w http.ResponseWriter, r *http.
 		writeJSON(w, socialMutationResponse{OK: false, Error: "нельзя добавить себя в друзья"})
 		return
 	}
-	if !s.hasIncomingRequest(ctx, target.ID, requesterID) && !s.areFriends(ctx, requesterID, target.ID) {
+	if !s.hasIncomingRequest(ctx, requesterID, target.ID) && !s.areFriends(ctx, requesterID, target.ID) {
 		writeJSON(w, socialMutationResponse{OK: false, Error: "заявка не найдена"})
 		return
 	}
@@ -1792,10 +1793,11 @@ func finalizeBossVictory(gs *GameState, idx int, now time.Time) {
 	}
 }
 
-func (s *Server) attackBoss(gs *GameState, attackType string) error {
+func (s *Server) attackBoss(gs *GameState, attackType string, userID string) error {
 	advanceBossTimers(gs)
 
-	boss, idx, ok := currentBoss(gs, gs.ActiveBossID)
+	bossID := gs.ActiveBossID
+	boss, idx, ok := currentBoss(gs, bossID)
 	if !ok {
 		return fmt.Errorf("сначала выбери босса")
 	}
@@ -1858,6 +1860,13 @@ func (s *Server) attackBoss(gs *GameState, attackType string) error {
 
 	if gs.Bosses[idx].HP == 0 {
 		finalizeBossVictory(gs, idx, now)
+	}
+
+	if strings.TrimSpace(userID) != "" {
+		s.mirrorBossDamageToFriends(context.Background(), userID, bossID, damage, now)
+	}
+
+	if gs.Bosses[idx].HP == 0 {
 		return nil
 	}
 
@@ -1872,7 +1881,53 @@ func (s *Server) attackBoss(gs *GameState, attackType string) error {
 	return nil
 }
 
+func (s *Server) mirrorBossDamageToFriends(ctx context.Context, attackerID, bossID string, damage int, now time.Time) {
+	attackerID = strings.TrimSpace(attackerID)
+	bossID = strings.TrimSpace(bossID)
+	if attackerID == "" || bossID == "" || damage <= 0 {
+		return
+	}
+	friendIDs, err := s.friendIDs(ctx, attackerID)
+	if err != nil {
+		return
+	}
+	for _, friendID := range friendIDs {
+		friendID = strings.TrimSpace(friendID)
+		if friendID == "" || friendID == attackerID {
+			continue
+		}
+		friendState, err := s.loadState(ctx, friendID)
+		if err != nil {
+			continue
+		}
+		advanceBossTimers(&friendState)
+		friendState.UpdatedAt = now
+		if friendState.ActiveBossID != bossID {
+			continue
+		}
+		friendBoss, friendIdx, ok := currentBoss(&friendState, bossID)
+		if !ok || friendBoss == nil || friendBoss.Defeated {
+			continue
+		}
+		if !friendBoss.BattleEndsAt.IsZero() && now.After(friendBoss.BattleEndsAt) {
+			continue
+		}
+		actualDamage := min(damage, friendBoss.HP)
+		if actualDamage <= 0 {
+			continue
+		}
+		recordBossDamage(&friendState, actualDamage, now)
+		recordBossBattleDamage(&friendState, actualDamage)
+		friendState.Bosses[friendIdx].HP = max(0, friendBoss.HP-damage)
+		if friendState.Bosses[friendIdx].HP == 0 {
+			finalizeBossVictory(&friendState, friendIdx, now)
+		}
+		_ = s.saveState(ctx, friendID, friendState)
+	}
+}
+
 func (s *Server) selectAdventure(gs *GameState, nodeID string) error {
+
 	if nodeID == "" {
 		return fmt.Errorf("точка не найдена")
 	}
