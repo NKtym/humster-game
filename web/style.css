@@ -1382,16 +1382,16 @@ button.primary {
 .profile-modal__dialog {
   position: relative;
   z-index: 1;
-  width: min(100%, 760px);
-  max-height: min(88vh, 900px);
+  width: min(100%, 700px);
+  max-height: min(82vh, 860px);
   overflow: auto;
   border-radius: 28px;
-  padding: 22px;
+  padding: 16px;
   background: linear-gradient(180deg, rgba(103, 60, 27, 0.96), rgba(72, 41, 16, 0.96));
   border: 1px solid rgba(255, 233, 186, 0.16);
   box-shadow: 0 26px 70px rgba(0,0,0,0.46);
   display: grid;
-  gap: 18px;
+  gap: 12px;
 }
 
 .profile-modal__head {
@@ -1403,22 +1403,22 @@ button.primary {
 
 .profile-modal__body {
   display: grid;
-  gap: 18px;
+  gap: 14px;
 }
 
 .profile-grid {
   display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
 .profile-card {
-  border-radius: 20px;
-  padding: 14px 16px;
+  border-radius: 18px;
+  padding: 12px 14px;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 233, 186, 0.10);
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .profile-card--wide {
@@ -1433,7 +1433,7 @@ button.primary {
 }
 
 .profile-card strong {
-  font-size: 22px;
+  font-size: 18px;
 }
 
 .profile-section {
@@ -1456,15 +1456,15 @@ button.primary {
 .profile-row {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
-  padding: 12px 14px;
-  border-radius: 16px;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 233, 186, 0.10);
 }
 
 .profile-row strong {
-  font-size: 18px;
+  font-size: 15px;
 }
 
 .profile-note {
@@ -1474,13 +1474,11 @@ button.primary {
 
 .social-profile {
   display: grid;
-  gap: 18px;
-  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
-  align-items: start;
+  gap: 14px;
 }
 
 .social-profile__avatar {
-  width: 100%;
+  display: none;
 }
 
 .social-profile__meta {
@@ -1490,8 +1488,18 @@ button.primary {
 
 .social-profile__cards {
   display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.social-profile__summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.social-profile__cards--compact {
+  gap: 10px;
 }
 
 .profile-actions {
@@ -1503,8 +1511,9 @@ button.primary {
 
 @media (max-width: 760px) {
   .social-profile {
-    grid-template-columns: 1fr;
-  }
+  display: grid;
+  gap: 14px;
+}
 }
 
 .social-modal {

@@ -391,6 +391,10 @@ function authHeaders(extra = {}) {
   return headers;
 }
 
+function normalizeLogin(login) {
+  return String(login ?? '').trim().toLowerCase();
+}
+
 async function api(path, payload, method = 'POST') {
   try {
     const res = await fetch(apiUrl(path), {
@@ -994,6 +998,7 @@ function renderProfileSummary(profile) {
   const adventure = Array.isArray(state.adventure) ? state.adventure : [];
   const bossTotal = bosses.reduce((sum, boss) => sum + Math.max(0, Number(boss?.killsTotal) || 0), 0);
   const adventureTotal = adventure.reduce((sum, node) => sum + Math.max(0, Number(node?.progress) || 0), 0);
+
   const actionButtons = profile?.isSelf
     ? ''
     : `
@@ -1003,6 +1008,7 @@ function renderProfileSummary(profile) {
           : `<button type="button" class="primary" data-profile-add-friend="${profile?.login || ''}">Добавить в друзья</button>`}
       </div>
     `;
+
   const stats = [
     { label: 'Логин', value: profile?.login || '—' },
     { label: 'Имя хомяка', value: player.name || 'Хомяк' },
@@ -1036,47 +1042,74 @@ function renderProfileSummary(profile) {
     : '<div class="profile-note">Прогресс по карте пока отсутствует.</div>';
 
   return `
-    <div class="social-profile">
-      <div class="social-profile__avatar">
-        ${hamsterPreviewMarkup(state)}
-      </div>
-      <div class="social-profile__meta">
+    <div class="social-profile social-profile--compact">
+      <div class="profile-section social-profile__header">
+        <div class="profile-section__head">
+          <strong>${profile?.isSelf ? 'Твой профиль' : `Профиль: ${profile?.login || 'игрок'}`}</strong>
+          <span>${onlineText}</span>
+        </div>
+        <div class="social-profile__summary">
+          <div class="profile-card profile-card--wide">
+            <span>Имя хомяка</span>
+            <strong>${player.name || 'Хомяк'}</strong>
+          </div>
+          <div class="profile-card">
+            <span>Уровень</span>
+            <strong>${String(player.level || 1)}</strong>
+          </div>
+          <div class="profile-card">
+            <span>HP</span>
+            <strong>${Math.max(1, Number(player.hp) || 1)}/${Math.max(1, Number(player.maxHp) || 1)}</strong>
+          </div>
+          <div class="profile-card">
+            <span>Энергия</span>
+            <strong>${Math.max(0, Number(player.energy) || 0)}/${Math.max(1, Number(player.maxEnergy) || 1)}</strong>
+          </div>
+          <div class="profile-card">
+            <span>Опыт</span>
+            <strong>${Math.max(0, Number(player.xp) || 0)}/${xpNeed}</strong>
+          </div>
+        </div>
         ${actionButtons}
-        <div class="profile-section">
-          <div class="profile-section__head">
-            <strong>Статистика</strong>
-            <span>Показатели хомяка</span>
-          </div>
-          <div class="social-profile__cards">
-            ${stats.map((card) => `
-              <div class="social-profile__card profile-card">
-                <span>${card.label}</span>
-                <strong>${card.value}</strong>
-              </div>
-            `).join('')}
-          </div>
+      </div>
+
+      <div class="profile-section">
+        <div class="profile-section__head">
+          <strong>Статистика</strong>
+          <span>Показатели хомяка</span>
         </div>
-        <div class="profile-section">
-          <div class="profile-section__head">
-            <strong>Победы над боссами</strong>
-            <span>${formatAchievementNumber(bossTotal)} всего</span>
-          </div>
-          <div class="profile-list">
-            ${bossRows}
-          </div>
+        <div class="social-profile__cards social-profile__cards--compact">
+          ${stats.map((card) => `
+            <div class="profile-card">
+              <span>${card.label}</span>
+              <strong>${card.value}</strong>
+            </div>
+          `).join('')}
         </div>
-        <div class="profile-section">
-          <div class="profile-section__head">
-            <strong>Карта: поле 1-5</strong>
-            <span>${formatAchievementNumber(adventureTotal)} проходов</span>
-          </div>
-          <div class="profile-list">
-            ${adventureRows}
-          </div>
+      </div>
+
+      <div class="profile-section">
+        <div class="profile-section__head">
+          <strong>Победы над боссами</strong>
+          <span>${formatAchievementNumber(bossTotal)} всего</span>
         </div>
-        <div class="social-note">
-          ${profile?.isSelf ? 'Это твой профиль.' : 'Профиль игрока открыт для просмотра.'}
+        <div class="profile-list">
+          ${bossRows}
         </div>
+      </div>
+
+      <div class="profile-section">
+        <div class="profile-section__head">
+          <strong>Карта: поле 1-5</strong>
+          <span>${formatAchievementNumber(adventureTotal)} проходов</span>
+        </div>
+        <div class="profile-list">
+          ${adventureRows}
+        </div>
+      </div>
+
+      <div class="social-note">
+        ${profile?.isSelf ? 'Это твой профиль.' : 'Профиль игрока открыт для просмотра.'}
       </div>
     </div>
   `;
