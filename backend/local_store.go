@@ -15,11 +15,13 @@ type localSessionRecord struct {
 }
 
 type localStore struct {
-	Users          map[string]userRecord         `json:"users"`
-	States         map[string]GameState          `json:"states"`
-	Sessions       map[string]localSessionRecord `json:"sessions"`
-	Friends        map[string][]string           `json:"friends"`
-	FriendRequests map[string][]string           `json:"friendRequests"`
+	Users              map[string]userRecord                `json:"users"`
+	States             map[string]GameState                 `json:"states"`
+	Sessions           map[string]localSessionRecord        `json:"sessions"`
+	Friends            map[string][]string                  `json:"friends"`
+	FriendRequests     map[string][]string                  `json:"friendRequests"`
+	LeaderboardDamage  map[string]map[string]map[string]int `json:"leaderboardDamage"`
+	LeaderboardRewards map[string]string                    `json:"leaderboardRewards"`
 }
 
 func (s *Server) localStorePath() string {
@@ -44,6 +46,12 @@ func (store *localStore) ensure() {
 	}
 	if store.FriendRequests == nil {
 		store.FriendRequests = map[string][]string{}
+	}
+	if store.LeaderboardDamage == nil {
+		store.LeaderboardDamage = map[string]map[string]map[string]int{}
+	}
+	if store.LeaderboardRewards == nil {
+		store.LeaderboardRewards = map[string]string{}
 	}
 }
 

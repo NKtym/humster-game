@@ -820,9 +820,22 @@ button.primary {
 
 .attack-btn {
   display: grid;
-  gap: 4px;
+  gap: 6px;
   text-align: left;
-  min-height: 84px;
+  min-height: 88px;
+}
+
+.attack-btn__top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.attack-btn__icon {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  flex: 0 0 28px;
 }
 
 .attack-btn strong {
@@ -1607,7 +1620,7 @@ button.primary {
 
 .social-row {
   display: grid;
-  grid-template-columns: 120px 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   padding: 14px;
   border-radius: 22px;
@@ -1616,11 +1629,7 @@ button.primary {
 }
 
 .social-row__avatar {
-  width: 120px;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  cursor: pointer;
+  display: none;
 }
 
 .social-row__body {
@@ -1851,4 +1860,72 @@ button.primary {
 
 .social-row--request .social-row__body {
   margin-left: 0;
+}
+
+.leaderboard-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.leaderboard-card {
+  border-radius: 24px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 233, 186, 0.10);
+  display: grid;
+  gap: 12px;
+}
+
+.leaderboard-table {
+  display: grid;
+  gap: 8px;
+}
+
+.leaderboard-table__head,
+.leaderboard-row {
+  display: grid;
+  grid-template-columns: 42px 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.leaderboard-table__head {
+  color: rgba(255, 236, 208, 0.72);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0 4px;
+}
+
+.leaderboard-row {
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 233, 186, 0.08);
+}
+
+.leaderboard-row.is-first {
+  border-color: rgba(255, 215, 138, 0.30);
+  background: rgba(255, 215, 138, 0.12);
+}
+
+.leaderboard-row__place {
+  font-weight: 800;
+  color: rgba(255, 244, 226, 0.9);
+}
+
+.leaderboard-row__name {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+
+.leaderboard-row__damage {
+  font-size: 15px;
 }

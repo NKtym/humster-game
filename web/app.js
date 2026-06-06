@@ -35,6 +35,31 @@ const BATTLE_DAMAGE_ACHIEVEMENTS = (() => {
   return thresholds;
 })();
 
+const ECONOMY_ACHIEVEMENTS = [
+  { key: 'seeds', label: 'Семечки', form: 'семечек', icon: CURRENCY_ICONS.seeds },
+  { key: 'wheat', label: 'Пшеница', form: 'пшеницы', icon: CURRENCY_ICONS.wheat },
+  { key: 'carrot', label: 'Морковь', form: 'моркови', icon: CURRENCY_ICONS.carrot },
+  { key: 'cucumber', label: 'Огурцы', form: 'огурцов', icon: CURRENCY_ICONS.cucumber },
+  { key: 'apple', label: 'Яблоки', form: 'яблок', icon: CURRENCY_ICONS.apple },
+  { key: 'kormik', label: 'Кормик', form: 'кормика', icon: CURRENCY_ICONS.kormik },
+];
+
+const ECONOMY_ACHIEVEMENT_THRESHOLDS = (() => {
+  const thresholds = [];
+  let value = 10;
+  while (value <= 10000000) {
+    thresholds.push(value);
+    value *= 10;
+  }
+  return thresholds;
+})();
+
+const LEADERBOARD_PERIODS = [
+  { key: 'day', label: 'За день' },
+  { key: 'week', label: 'За неделю' },
+  { key: 'month', label: 'За месяц' },
+];
+
 const API_BASE = (window.APP_CONFIG && window.APP_CONFIG.apiBaseUrl) ? window.APP_CONFIG.apiBaseUrl : '/api';
 const SESSION_KEY = 'humster_session_id';
 const AUTH_TOKEN_KEY = 'humster_auth_token';
@@ -66,7 +91,7 @@ const ADVENTURE_DEFS = [
 
 const CATALOG = {
   wallpapers: [
-    { id: 'wallpaper_day', name: 'Летний сад', slot: 'wallpaper', img: '/assets/wallpapers/field_day.png' },
+    { id: 'wallpaper_day', name: 'Дневное поле', slot: 'wallpaper', img: '/assets/wallpapers/field_day.png' },
     { id: 'wallpaper_sunset', name: 'Закатное поле', slot: 'wallpaper', img: '/assets/wallpapers/field_sunset.png' },
     { id: 'wallpaper_night', name: 'Ночное поле', slot: 'wallpaper', img: '/assets/wallpapers/field_night.png' },
   ],
@@ -91,7 +116,7 @@ const APPEARANCE_CATEGORIES = [
 
 const APPEARANCE_OPTIONS = {
   background: [
-    { id: 'wallpaper_day', name: 'Летний сад', img: '/assets/wallpapers/field_day.png' },
+    { id: 'wallpaper_day', name: 'Дневное поле', img: '/assets/wallpapers/field_day.png' },
   ],
   color: [
     { id: 'default', name: 'Базовый', img: '/assets/hamster/base.png' },
@@ -152,11 +177,11 @@ if (telegram) {
 }
 
 const ATTACKS = [
-  { id: 'belly_punch', label: 'Удар пузиком', damage: 5, costWheat: 0 },
-  { id: 'scratch', label: 'Царапанье', damage: 20, costWheat: 0 },
-  { id: 'rush', label: 'Удар с разбега', damage: 15, costWheat: 0 },
-  { id: 'bite', label: 'Укус', damage: 30, costWheat: 0 },
-  { id: 'iron_claw', label: 'Удар железным когтем', damage: 100, costWheat: 2 },
+  { id: 'belly_punch', label: 'Удар пузиком', damage: 5, costWheat: 0, icon: '/assets/attacks/belly_punch.png' },
+  { id: 'scratch', label: 'Царапанье', damage: 20, costWheat: 0, icon: '/assets/attacks/scratch.png' },
+  { id: 'rush', label: 'Удар с разбега', damage: 15, costWheat: 0, icon: '/assets/attacks/rush.png' },
+  { id: 'bite', label: 'Укус', damage: 30, costWheat: 0, icon: '/assets/attacks/bite.png' },
+  { id: 'iron_claw', label: 'Удар железным когтем', damage: 100, costWheat: 2, icon: '/assets/attacks/iron_claw.png' },
   { id: 'poison_bite', label: 'Ядовитый укус', damage: 300, costWheat: 6 },
   { id: 'eye_lasers', label: 'Лазеры из глаз', damage: 700, costWheat: 13 },
 ];
@@ -900,6 +925,14 @@ let friendsBadgeLoading = false;
 let friendsBadgeLastLoadedAt = 0;
 let friendsBadgeInterval = null;
 let achievementsModalTab = 'battle';
+let achievementsAccordionState = {
+  battle: true,
+  economy: {},
+};
+let leaderboardsData = null;
+let leaderboardsLoading = false;
+let leaderboardsError = '';
+let leaderboardsLoadedAt = 0;
 
 function ensureProfileModal() {
   if (document.getElementById('profile-modal')) return;
@@ -993,15 +1026,13 @@ function renderProfileSummary(profile) {
   const state = profile?.state || {};
   const player = state.player || {};
   const onlineText = profile?.online ? 'Онлайн' : `Был(а) ${formatSeenAt(profile?.lastSeenAt)}`;
-  const xpNeed = xpForNextLevel(player.level || 1);
   const bossDamageDay = Math.max(0, Number(state.bossDamageDay) || 0);
   const bossDamageWeek = Math.max(0, Number(state.bossDamageWeek) || 0);
   const bossDamageMonth = Math.max(0, Number(state.bossDamageMonth) || 0);
   const bossDamageAllTime = Math.max(0, Number(state.bossDamageAllTime) || 0);
   const bosses = Array.isArray(state.bosses) ? state.bosses : [];
-  const adventure = Array.isArray(state.adventure) ? state.adventure : [];
   const bossTotal = bosses.reduce((sum, boss) => sum + Math.max(0, Number(boss?.killsTotal) || 0), 0);
-  const adventureTotal = adventure.reduce((sum, node) => sum + Math.max(0, Number(node?.progress) || 0), 0);
+  const adventureLoops = Math.max(0, Number(state.locationPasses) || 0);
 
   const actionButtons = profile?.isSelf
     ? ''
@@ -1014,13 +1045,8 @@ function renderProfileSummary(profile) {
     `;
 
   const stats = [
-    { label: 'Логин', value: profile?.login || '—' },
-    { label: 'Имя хомяка', value: player.name || 'Хомяк' },
     { label: 'Уровень хомяка', value: String(player.level || 1) },
     { label: 'Статус', value: onlineText },
-    { label: 'HP', value: `${Math.max(1, Number(player.hp) || 1)}/${Math.max(1, Number(player.maxHp) || 1)}` },
-    { label: 'Энергия', value: `${Math.max(0, Number(player.energy) || 0)}/${Math.max(1, Number(player.maxEnergy) || 1)}` },
-    { label: 'Опыт', value: `${Math.max(0, Number(player.xp) || 0)}/${xpNeed}` },
     { label: 'Урон за день', value: formatAchievementNumber(bossDamageDay) },
     { label: 'Урон за неделю', value: formatAchievementNumber(bossDamageWeek) },
     { label: 'Урон за месяц', value: formatAchievementNumber(bossDamageMonth) },
@@ -1036,42 +1062,21 @@ function renderProfileSummary(profile) {
       `).join('')
     : '<div class="profile-note">Список боссов пока пуст.</div>';
 
-  const adventureRows = adventure.length
-    ? adventure.map((node, index) => `
-        <div class="profile-row">
-          <strong>Поле ${index + 1}</strong>
-          <span>${formatAchievementNumber(Math.max(0, Number(node?.progress) || 0))} раз</span>
-        </div>
-      `).join('')
-    : '<div class="profile-note">Прогресс по карте пока отсутствует.</div>';
-
   return `
     <div class="social-profile social-profile--compact">
       <div class="profile-section social-profile__header">
         <div class="profile-section__head">
-          <strong>${profile?.isSelf ? 'Твой профиль' : `Профиль: ${profile?.login || 'игрок'}`}</strong>
+          <strong>${profile?.isSelf ? 'Твой профиль' : 'Профиль игрока'}</strong>
           <span>${onlineText}</span>
         </div>
         <div class="social-profile__summary">
-          <div class="profile-card profile-card--wide">
-            <span>Имя хомяка</span>
-            <strong>${player.name || 'Хомяк'}</strong>
-          </div>
           <div class="profile-card">
             <span>Уровень</span>
             <strong>${String(player.level || 1)}</strong>
           </div>
           <div class="profile-card">
-            <span>HP</span>
-            <strong>${Math.max(1, Number(player.hp) || 1)}/${Math.max(1, Number(player.maxHp) || 1)}</strong>
-          </div>
-          <div class="profile-card">
-            <span>Энергия</span>
-            <strong>${Math.max(0, Number(player.energy) || 0)}/${Math.max(1, Number(player.maxEnergy) || 1)}</strong>
-          </div>
-          <div class="profile-card">
-            <span>Опыт</span>
-            <strong>${Math.max(0, Number(player.xp) || 0)}/${xpNeed}</strong>
+            <span>Статус</span>
+            <strong>${onlineText}</strong>
           </div>
         </div>
         ${actionButtons}
@@ -1104,11 +1109,14 @@ function renderProfileSummary(profile) {
 
       <div class="profile-section">
         <div class="profile-section__head">
-          <strong>Карта: поле 1-5</strong>
-          <span>${formatAchievementNumber(adventureTotal)} проходов</span>
+          <strong>Круги карты</strong>
+          <span>${formatAchievementNumber(adventureLoops)} всего</span>
         </div>
         <div class="profile-list">
-          ${adventureRows}
+          <div class="profile-row">
+            <strong>Полные проходы от 1 до 5</strong>
+            <span>${formatAchievementNumber(adventureLoops)} раз</span>
+          </div>
         </div>
       </div>
 
@@ -1137,13 +1145,7 @@ function renderFriendRow(friend, mode = 'friend') {
         <button type="button" class="ghost" data-friend-remove="${name}">Удалить</button>
       </div>
     `;
-  const avatar = mode === 'request'
-    ? ''
-    : `
-      <button type="button" class="social-row__avatar" data-friend-open="${name}">
-        ${hamsterPreviewMarkup(state)}
-      </button>
-    `;
+  const avatar = '';
 
   return `
     <article class="social-row${mode === 'request' ? ' social-row--request' : ''}">
@@ -1198,7 +1200,7 @@ function renderProfileModal(profile) {
   const error = document.getElementById('profile-modal-error');
 
   if (title) {
-    title.textContent = profile?.isSelf ? 'Профиль хомяка' : `Профиль: ${profile?.login || 'игрок'}`;
+    title.textContent = profile?.isSelf ? 'Профиль хомяка' : 'Профиль игрока';
   }
   if (error) {
     error.textContent = profileModalError || '';
@@ -1582,6 +1584,8 @@ function ensureAchievementsModal() {
         </div>
         <div class="achievements-modal__tabs">
           <button type="button" class="achievements-modal__tab is-active" data-achievements-tab="battle">Битвы</button>
+          <button type="button" class="achievements-modal__tab" data-achievements-tab="economy">Экономика</button>
+          <button type="button" class="achievements-modal__tab" data-achievements-tab="leaders">Лидеры</button>
         </div>
         <div id="achievements-modal-body" class="achievements-modal__body"></div>
       </div>
@@ -1591,6 +1595,93 @@ function ensureAchievementsModal() {
 
 function formatAchievementNumber(value) {
   return Number(value).toLocaleString('ru-RU');
+}
+
+function captureAchievementsAccordionState() {
+  const body = document.getElementById('achievements-modal-body');
+  if (!body) return;
+  const next = {
+    battle: achievementsAccordionState.battle !== false,
+    economy: { ...(achievementsAccordionState.economy || {}) },
+  };
+  body.querySelectorAll('details[data-achievement-key]').forEach((details) => {
+    const key = details.getAttribute('data-achievement-key') || '';
+    if (!key) return;
+    const scope = achievementsModalTab === 'battle' ? 'battle' : achievementsModalTab === 'economy' ? 'economy' : null;
+    if (scope === 'battle' && key === 'battle') {
+      next.battle = details.open;
+    } else if (scope === 'economy') {
+      next.economy[key] = details.open;
+    }
+  });
+  achievementsAccordionState = next;
+}
+
+function renderLeaderboardSection(period, entries) {
+  const rows = Array.isArray(entries) && entries.length
+    ? entries.map((entry, index) => `
+      <div class="leaderboard-row ${index === 0 ? 'is-first' : ''}">
+        <span class="leaderboard-row__place">${entry.place || index + 1}</span>
+        <button type="button" class="leaderboard-row__name" data-leaderboard-profile="${jsStringLiteral(entry.login || '')}">${entry.login || 'игрок'}</button>
+        <strong class="leaderboard-row__damage">${formatAchievementNumber(entry.damage || 0)}</strong>
+      </div>
+    `).join('')
+    : '<div class="social-note">Пока никто не попал в этот топ.</div>';
+  return `
+    <section class="leaderboard-card">
+      <div class="profile-section__head">
+        <strong>${period.label}</strong>
+        <span>Топ игроков по урону</span>
+      </div>
+      <div class="leaderboard-table">
+        <div class="leaderboard-table__head">
+          <span>#</span><span>Игрок</span><span>Урон</span>
+        </div>
+        <div class="leaderboard-table__body">
+          ${rows}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderLeaderboards() {
+  if (leaderboardsLoading && !leaderboardsData) {
+    return '<div class="social-note">Загрузка таблицы лидеров...</div>';
+  }
+  if (leaderboardsError) {
+    return `<div class="social-note">${leaderboardsError}</div>`;
+  }
+  const data = leaderboardsData || {};
+  return `
+    <div class="leaderboard-grid">
+      ${LEADERBOARD_PERIODS.map((period) => renderLeaderboardSection(period, data[period.key] || [])).join('')}
+    </div>
+  `;
+}
+
+async function loadLeaderboards(force = false) {
+  if (leaderboardsLoading) return;
+  if (!force && leaderboardsData && Date.now() - leaderboardsLoadedAt < 30000) return;
+  leaderboardsLoading = true;
+  leaderboardsError = '';
+  try {
+    const response = await api('/leaderboards', {}, 'GET');
+    if (response.ok && response.data && response.data.ok && response.data.leaderboards) {
+      leaderboardsData = response.data.leaderboards;
+      leaderboardsLoadedAt = Date.now();
+    } else {
+      leaderboardsError = response.data && response.data.error ? response.data.error : 'Не удалось загрузить таблицу лидеров';
+    }
+  } catch (_) {
+    leaderboardsError = 'Не удалось загрузить таблицу лидеров';
+  } finally {
+    leaderboardsLoading = false;
+    const modal = document.getElementById('achievements-modal');
+    if (modal && !modal.hidden && achievementsModalTab === 'leaders') {
+      renderAchievementsModal();
+    }
+  }
 }
 
 function renderBattleAchievements() {
@@ -1623,7 +1714,7 @@ function renderBattleAchievements() {
         <strong>${formatAchievementNumber(current)}</strong>
       </div>
     </div>
-    <details class="achievement-accordion" open>
+    <details class="achievement-accordion" data-achievement-key="battle" ${achievementsAccordionState.battle === false ? "" : "open"}>
       <summary>
         <div>
           <strong>Битвы</strong>
@@ -1638,6 +1729,58 @@ function renderBattleAchievements() {
   `;
 }
 
+function renderEconomyAchievements() {
+  const totals = currentState?.economyTotals || {};
+  const resourceCards = ECONOMY_ACHIEVEMENTS.map((resource) => {
+    const total = Math.max(0, Number(totals?.[resource.key]) || 0);
+    return `
+      <div class="profile-card">
+        <span>${resource.label}</span>
+        <strong>${formatAchievementNumber(total)}</strong>
+      </div>
+    `;
+  }).join('');
+
+  const sections = ECONOMY_ACHIEVEMENTS.map((resource) => {
+    const total = Math.max(0, Number(totals?.[resource.key]) || 0);
+    const rows = ECONOMY_ACHIEVEMENT_THRESHOLDS.map((threshold) => {
+      const unlocked = total >= threshold;
+      const percent = Math.max(0, Math.min(100, (Math.min(threshold, total) / threshold) * 100));
+      return `
+        <div class="achievement-step ${unlocked ? 'is-done' : ''}">
+          <div class="achievement-step__head">
+            <strong>Накопите ${formatAchievementNumber(threshold)} ${resource.form}</strong>
+            <span>${unlocked ? 'Выполнено' : `${formatAchievementNumber(Math.max(0, threshold - total))} осталось`}</span>
+          </div>
+          <div class="achievement-step__bar"><div style="width: ${percent}%"></div></div>
+          <div class="achievement-step__state">${unlocked ? `Всего накоплено: ${formatAchievementNumber(total)}` : `Сейчас накоплено: ${formatAchievementNumber(total)}`}</div>
+        </div>
+      `;
+    }).join('');
+    return `
+      <details class="achievement-accordion" data-achievement-key="${resource.key}" ${((achievementsAccordionState.economy && Object.prototype.hasOwnProperty.call(achievementsAccordionState.economy, resource.key)) ? achievementsAccordionState.economy[resource.key] : (resource.key === 'seeds')) ? 'open' : ''}>
+        <summary>
+          <div>
+            <strong>${resource.label}</strong>
+            <span>${formatAchievementNumber(total)} накоплено</span>
+          </div>
+          <span class="achievement-accordion__hint">${ECONOMY_ACHIEVEMENT_THRESHOLDS.length} целей</span>
+        </summary>
+        <div class="achievement-accordion__content">
+          ${rows}
+        </div>
+      </details>
+    `;
+  }).join('');
+
+  return `
+    <div class="achievement-summary">
+      ${resourceCards}
+    </div>
+    ${sections}
+  `;
+}
+
 function bindAchievementsModalEvents() {
   document.querySelectorAll('[data-achievements-close]').forEach((btn) => {
     btn.onclick = closeAchievementsModal;
@@ -1648,6 +1791,17 @@ function bindAchievementsModalEvents() {
       renderAchievementsModal();
     };
   });
+  document.querySelectorAll('[data-leaderboard-profile]').forEach((btn) => {
+    btn.onclick = () => {
+      const login = normalizeLogin(btn.getAttribute('data-leaderboard-profile') || '');
+      if (login) openProfileModal(login);
+    };
+  });
+  document.querySelectorAll('details[data-achievement-key]').forEach((details) => {
+    details.ontoggle = () => {
+      captureAchievementsAccordionState();
+    };
+  });
 }
 
 function renderAchievementsModal() {
@@ -1655,8 +1809,12 @@ function renderAchievementsModal() {
   if (!modal) return;
   const body = document.getElementById('achievements-modal-body');
   const title = document.getElementById('achievements-title');
+  if (body) {
+    captureAchievementsAccordionState();
+  }
+  const titles = { battle: 'Битвы', economy: 'Экономика', leaders: 'Лидеры' };
   if (title) {
-    title.textContent = achievementsModalTab === 'battle' ? 'Битвы' : 'Достижения';
+    title.textContent = titles[achievementsModalTab] || 'Достижения';
   }
   const tabs = document.querySelectorAll('[data-achievements-tab]');
   tabs.forEach((tab) => {
@@ -1666,6 +1824,13 @@ function renderAchievementsModal() {
   if (body) {
     if (achievementsModalTab === 'battle') {
       body.innerHTML = renderBattleAchievements();
+    } else if (achievementsModalTab === 'economy') {
+      body.innerHTML = renderEconomyAchievements();
+    } else if (achievementsModalTab === 'leaders') {
+      body.innerHTML = renderLeaderboards();
+      if (!leaderboardsData || Date.now() - leaderboardsLoadedAt > 30000) {
+        void loadLeaderboards();
+      }
     } else {
       body.innerHTML = '<div class="social-note">Раздел в разработке.</div>';
     }
@@ -1990,7 +2155,7 @@ async function syncAction(action, payload = {}) {
 
 function renderBossSelection() {
   $('#battle-screen-title').textContent = 'Выбор босса';
-  $('#battle-screen-subtitle').textContent = 'Нажми на босса, чтобы начать бой или пройти его ещё раз, если дневной лимит ещё не исчерпан.';
+  $('#battle-screen-subtitle').textContent = 'Нажми на босса для боя.';
   const body = $('#battle-screen-body');
   body.innerHTML = `
     <div class="modal-note">Выбери босса, чтобы открыть бой. У каждого босса свой дневной лимит: ${BOSS_KILL_LIMIT} побед в день.</div>
@@ -2046,8 +2211,8 @@ function renderBattleScreen() {
   $('#battle-screen-title').textContent = `Бой: ${activeBoss.name}`;
   const battleRemaining = activeBoss.defeated ? '' : bossBattleCountdown(activeBoss);
   $('#battle-screen-subtitle').textContent = activeBoss.defeated
-    ? activeBoss.killsToday >= BOSS_KILL_LIMIT ? 'Дневной лимит этого босса исчерпан.' : `Босс уже побеждён. Можно пройти ещё раз. Осталось ${bossDailyRemaining(activeBoss)}/${BOSS_KILL_LIMIT} попыток на сегодня. Опыт за победу: ${activeBoss.xp || 0}.`
-    : `Удары идут снизу панели. После каждого удара босс отвечает, если ещё жив. Битва закончится через ${battleRemaining}. На этом боссе сегодня осталось: ${bossDailyRemaining(activeBoss)}/${BOSS_KILL_LIMIT}. Опыт за победу: ${activeBoss.xp || 0}. Раньше завершить бой можно только за 1 кормик.`;
+    ? activeBoss.killsToday >= BOSS_KILL_LIMIT ? 'Дневной лимит этого босса исчерпан.' : `Босс уже побеждён. Можно пройти ещё раз. Осталось ${bossDailyRemaining(activeBoss)}/${BOSS_KILL_LIMIT} попыток на сегодня.`
+    : `Битва закончится через ${battleRemaining}. На этом боссе сегодня осталось: ${bossDailyRemaining(activeBoss)}/${BOSS_KILL_LIMIT}.`;
 
   const body = $('#battle-screen-body');
   const percent = activeBoss.maxHp ? Math.max(0, Math.min(100, (activeBoss.hp / activeBoss.maxHp) * 100)) : 0;
@@ -2090,7 +2255,10 @@ function renderBattleScreen() {
           ? (owned > 0 ? `Зарядов: ${owned}${cd ? ` • ${cd}` : ''}` : `Купить за ${attack.costWheat} пшеницы${cd ? ` • ${cd}` : ''}`)
           : `Бесплатно${cd ? ` • ${cd}` : ''}`;
         return `<button class="attack-btn ${owned > 0 || attack.costWheat === 0 ? 'is-ready' : 'is-buyable'}" data-attack="${attack.id}" ${disabled ? 'disabled' : ''}>
-          <span>${attack.label}</span>
+          <div class="attack-btn__top">
+            ${attack.icon ? `<img class="attack-btn__icon" src="${attack.icon}" alt="" aria-hidden="true" />` : ''}
+            <span>${attack.label}</span>
+          </div>
           <strong>${actualDamage} урона</strong>
           <small>${subtitle}</small>
         </button>`;
@@ -2195,7 +2363,7 @@ function renderAdventureScreen() {
         <div class="adventure-panel__head">
           <div class="eyebrow">Карта приключений</div>
           <h3>${selected?.name || '—'}</h3>
-          <p>${isSelectedLocked ? 'Следующая точка пока недоступна.' : 'Выбери точку и трать энергию на прохождение.'}</p>
+          <p>${isSelectedLocked ? 'Следующая точка пока недоступна.' : 'Выбери точку маршрута.'}</p>
         </div>
 
         <div class="adventure-stats">
@@ -2206,6 +2374,10 @@ function renderAdventureScreen() {
           <div class="stat-box">
             <span>Пройдено</span>
             <strong>${progress}</strong>
+          </div>
+          <div class="stat-box">
+            <span>Полные проходы карты</span>
+            <strong>${formatAchievementNumber(Math.max(0, Number(currentState.locationPasses) || 0))}</strong>
           </div>
           <div class="stat-box">
             <span>Награда за действие</span>
@@ -2233,7 +2405,7 @@ function renderAdventureScreen() {
             class="primary"
             ${!selected || selected.completed || isSelectedLocked || energy < (selected?.energyCost || 0) ? 'disabled' : ''}
           >
-            ${selected && !selected.completed ? `Пройти за ${selected.energyCost} энергии • +${ADVENTURE_REWARDS[currentState.adventure.findIndex((n) => n.id === selected.id)]?.xp || 0} опыта` : 'Точка пройдена'}
+            ${selected && !selected.completed ? `Пройти за ${selected.energyCost} энергии` : 'Точка пройдена'}
           </button>
           <button type="button" id="btn-adventure-back" class="ghost">Вернуться к сцене</button>
         </div>
@@ -2241,7 +2413,7 @@ function renderAdventureScreen() {
         <div class="adventure-note">
           ${selected?.completed
             ? 'Эта точка уже пройдена. Можно посмотреть другие участки карты.'
-            : `Нужно ${selected?.requiredPasses || 0} проходов по ${selected?.energyCost || 0} энергии. За каждый успешный проход: ${adventureRewardLabel(currentState.adventure.findIndex((n) => n.id === selected.id))}.`}
+            : 'Переходи по маршруту.'}
         </div>
       </aside>
     </div>

@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -96,27 +97,28 @@ type Player struct {
 }
 
 type GameState struct {
-	Player                  Player          `json:"player"`
-	Location                string          `json:"location"`
-	Bosses                  []Boss          `json:"bosses"`
-	ActiveBossID            string          `json:"activeBossId"`
-	Adventure               []AdventureNode `json:"adventure"`
-	ActiveAdventureID       string          `json:"activeAdventureId"`
-	BossKillsToday          int             `json:"bossKillsToday"`
-	BossKillsDay            string          `json:"bossKillsDay"`
-	LocationPasses          int             `json:"locationPasses"`
-	BossDamageDay           int             `json:"bossDamageDay"`
-	BossDamageDayKey        string          `json:"bossDamageDayKey"`
-	BossDamageWeek          int             `json:"bossDamageWeek"`
-	BossDamageWeekKey       string          `json:"bossDamageWeekKey"`
-	BossDamageMonth         int             `json:"bossDamageMonth"`
-	BossDamageMonthKey      string          `json:"bossDamageMonthKey"`
-	BossDamageAllTime       int             `json:"bossDamageAllTime"`
-	BossBattleDamageCurrent int             `json:"bossBattleDamageCurrent"`
-	BossBattleDamageBest    int             `json:"bossBattleDamageBest"`
-	Log                     []string        `json:"log"`
-	UpdatedAt               time.Time       `json:"updatedAt"`
-	LastEnergyRegenAt       time.Time       `json:"lastEnergyRegenAt"`
+	Player                  Player           `json:"player"`
+	Location                string           `json:"location"`
+	Bosses                  []Boss           `json:"bosses"`
+	ActiveBossID            string           `json:"activeBossId"`
+	Adventure               []AdventureNode  `json:"adventure"`
+	ActiveAdventureID       string           `json:"activeAdventureId"`
+	BossKillsToday          int              `json:"bossKillsToday"`
+	BossKillsDay            string           `json:"bossKillsDay"`
+	LocationPasses          int              `json:"locationPasses"`
+	BossDamageDay           int              `json:"bossDamageDay"`
+	BossDamageDayKey        string           `json:"bossDamageDayKey"`
+	BossDamageWeek          int              `json:"bossDamageWeek"`
+	BossDamageWeekKey       string           `json:"bossDamageWeekKey"`
+	BossDamageMonth         int              `json:"bossDamageMonth"`
+	BossDamageMonthKey      string           `json:"bossDamageMonthKey"`
+	BossDamageAllTime       int              `json:"bossDamageAllTime"`
+	BossBattleDamageCurrent int              `json:"bossBattleDamageCurrent"`
+	BossBattleDamageBest    int              `json:"bossBattleDamageBest"`
+	EconomyTotals           map[Currency]int `json:"economyTotals"`
+	Log                     []string         `json:"log"`
+	UpdatedAt               time.Time        `json:"updatedAt"`
+	LastEnergyRegenAt       time.Time        `json:"lastEnergyRegenAt"`
 }
 
 type Session struct {
@@ -201,6 +203,26 @@ type socialMutationResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
+type leaderboardEntry struct {
+	UserID string `json:"userId"`
+	Login  string `json:"login"`
+	Damage int    `json:"damage"`
+	Place  int    `json:"place"`
+}
+
+type leaderboardResponse struct {
+	OK           bool                          `json:"ok"`
+	Leaderboards map[string][]leaderboardEntry `json:"leaderboards"`
+	Error        string                        `json:"error,omitempty"`
+}
+
+type leaderboardRewardGrant struct {
+	PeriodType  string `json:"periodType"`
+	PeriodKey   string `json:"periodKey"`
+	WinnerID    string `json:"winnerId"`
+	WinnerLogin string `json:"winnerLogin"`
+}
+
 type socialFriendRequest struct {
 	Login string `json:"login"`
 }
@@ -249,6 +271,7 @@ func main() {
 	mux.HandleFunc("/api/social/friends/remove", srv.handleSocialFriendRemove)
 	mux.HandleFunc("/api/social/friends/requests/accept", srv.handleSocialFriendRequestAccept)
 	mux.HandleFunc("/api/social/friends/requests/decline", srv.handleSocialFriendRequestDecline)
+	mux.HandleFunc("/api/leaderboards", srv.handleLeaderboards)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -346,6 +369,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, ActionResponse{OK: false, Error: err.Error()})
 		return
 	}
+	_ = s.processLeaderboardRewards(context.Background())
 	writeJSON(w, ActionResponse{OK: true, State: copyState(*lease.state)})
 }
 
@@ -387,6 +411,7 @@ func (s *Server) handleName(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, ActionResponse{OK: false, Error: err.Error()})
 		return
 	}
+	_ = s.processLeaderboardRewards(context.Background())
 	writeJSON(w, ActionResponse{OK: true, State: copyState(*lease.state)})
 }
 
@@ -802,6 +827,28 @@ func (s *Server) handleSocialFriendRequestDecline(w http.ResponseWriter, r *http
 	writeJSON(w, socialMutationResponse{OK: true})
 }
 
+func (s *Server) handleLeaderboards(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	ctx := context.Background()
+	if err := s.processLeaderboardRewards(ctx); err != nil {
+		log.Printf("leaderboard rewards processing failed: %v", err)
+	}
+	leaderboards := map[string][]leaderboardEntry{}
+	periods := []string{"day", "week", "month"}
+	for _, period := range periods {
+		entries, err := s.leaderboardEntries(ctx, period, currentLeaderboardPeriodKey(period, time.Now()), 10)
+		if err != nil {
+			writeJSON(w, leaderboardResponse{OK: false, Error: err.Error()})
+			return
+		}
+		leaderboards[period] = entries
+	}
+	writeJSON(w, leaderboardResponse{OK: true, Leaderboards: leaderboards})
+}
+
 func (s *Server) leaseState(w http.ResponseWriter, r *http.Request) (*stateLease, error) {
 	if userID, ok := s.userIDFromRequest(r); ok {
 		ctx := context.Background()
@@ -975,6 +1022,23 @@ func (s *Server) ensureSchema() error {
 		`CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions(expires_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_user_friendships_friend_id ON user_friendships(friend_id)`,
+		`CREATE TABLE IF NOT EXISTS leaderboard_damage_stats (
+			period_type TEXT NOT NULL,
+			period_key TEXT NOT NULL,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			damage_total BIGINT NOT NULL DEFAULT 0,
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			PRIMARY KEY (period_type, period_key, user_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS leaderboard_reward_grants (
+			period_type TEXT NOT NULL,
+			period_key TEXT NOT NULL,
+			winner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			winner_login TEXT NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			PRIMARY KEY (period_type, period_key)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_leaderboard_damage_stats_period ON leaderboard_damage_stats(period_type, period_key, damage_total DESC)`,
 	}
 	for _, stmt := range stmts {
 		if err := s.execPSQL(context.Background(), stmt, nil); err != nil {
@@ -1465,6 +1529,14 @@ func normalizeGameState(state *GameState) {
 			state.Player.Currency[cur] = amount
 		}
 	}
+	if state.EconomyTotals == nil {
+		state.EconomyTotals = map[Currency]int{}
+	}
+	for cur := range defaults.Player.Currency {
+		if _, ok := state.EconomyTotals[cur]; !ok {
+			state.EconomyTotals[cur] = 0
+		}
+	}
 	if state.Player.Inventory == nil {
 		state.Player.Inventory = map[string]int{}
 	}
@@ -1638,13 +1710,13 @@ func (s *Server) exploreField(gs *GameState) error {
 		gain := 1 + randInt(4)
 		currencies := []Currency{Seeds, Wheat, Carrot, Cucumber, Apple, Kormik}
 		cur := currencies[randInt(len(currencies))]
-		gs.Player.Currency[cur] += gain
+		addCurrencyGain(gs, cur, gain)
 		appendLog(gs, fmt.Sprintf("На поле найдено +%d %s.", gain, currencyLabel(cur)))
 	case roll < 65:
 		appendLog(gs, "На поле шевелится трава — там может быть враг.")
 	case roll < 85:
-		gs.Player.Currency[Seeds] += 2
-		gs.Player.Currency[Wheat] += 1
+		addCurrencyGain(gs, Seeds, 2)
+		addCurrencyGain(gs, Wheat, 1)
 		appendLog(gs, "Хомяк собрал небольшой урожай.")
 	default:
 		appendLog(gs, "Поле оказалось пустым, но хомяк не расстроился.")
@@ -1771,7 +1843,7 @@ func finalizeBossVictory(gs *GameState, idx int, now time.Time) {
 	boss.BattleEndsAt = time.Time{}
 	boss.AttackCooldowns = map[string]time.Time{}
 	for cur, amount := range boss.Reward {
-		gs.Player.Currency[cur] += amount
+		addCurrencyGain(gs, cur, amount)
 	}
 	gs.Player.XP += boss.XP
 	if drop := maybeGrantBossCosmeticDrop(gs, boss); drop != "" {
@@ -1848,6 +1920,7 @@ func (s *Server) attackBoss(gs *GameState, attackType string, userID string) err
 	actualDamage := min(damage, boss.HP)
 	recordBossDamage(gs, actualDamage, now)
 	recordBossBattleDamage(gs, actualDamage)
+	s.recordLeaderboardDamage(context.Background(), userID, actualDamage, now)
 	gs.Bosses[idx].HP = max(0, boss.HP-damage)
 	if cost > 0 {
 		if gs.Player.Inventory == nil {
@@ -1918,6 +1991,7 @@ func (s *Server) mirrorBossDamageToFriends(ctx context.Context, attackerID, boss
 		}
 		recordBossDamage(&friendState, actualDamage, now)
 		recordBossBattleDamage(&friendState, actualDamage)
+		s.recordLeaderboardDamage(ctx, friendID, actualDamage, now)
 		friendState.Bosses[friendIdx].HP = max(0, friendBoss.HP-damage)
 		if friendState.Bosses[friendIdx].HP == 0 {
 			finalizeBossVictory(&friendState, friendIdx, now)
@@ -1975,7 +2049,7 @@ func (s *Server) adventureStep(gs *GameState, nodeID string) error {
 	xpGain, seedGain := adventureRewardForIndex(idx)
 	if xpGain > 0 || seedGain > 0 {
 		gs.Player.XP += xpGain
-		gs.Player.Currency[Seeds] += seedGain
+		addCurrencyGain(gs, Seeds, seedGain)
 		appendLog(gs, fmt.Sprintf("Награда за действие: +%d опыта и +%d семечек.", xpGain, seedGain))
 		recalcLevel(gs)
 	}
@@ -2377,6 +2451,37 @@ func adventureRewardForIndex(idx int) (int, int) {
 	}
 }
 
+func currentLeaderboardPeriodKey(period string, now time.Time) string {
+	local := now.In(gameLocation())
+	switch period {
+	case "day":
+		return local.Format("2006-01-02")
+	case "week":
+		year, week := local.ISOWeek()
+		return fmt.Sprintf("%04d-W%02d", year, week)
+	case "month":
+		return local.Format("2006-01")
+	default:
+		return ""
+	}
+}
+
+func previousLeaderboardPeriodKey(period string, now time.Time) string {
+	local := now.In(gameLocation())
+	switch period {
+	case "day":
+		return local.AddDate(0, 0, -1).Format("2006-01-02")
+	case "week":
+		prev := local.AddDate(0, 0, -7)
+		year, week := prev.ISOWeek()
+		return fmt.Sprintf("%04d-W%02d", year, week)
+	case "month":
+		return local.AddDate(0, -1, 0).Format("2006-01")
+	default:
+		return ""
+	}
+}
+
 func damageDayKey(now time.Time) string {
 	return now.In(gameLocation()).Format("2006-01-02")
 }
@@ -2759,6 +2864,7 @@ func (s *Session) snapshot() GameState {
 func copyState(gs GameState) GameState {
 	cp := gs
 	cp.Player.Currency = copyCurrency(gs.Player.Currency)
+	cp.EconomyTotals = copyCurrency(gs.EconomyTotals)
 	cp.Player.Inventory = copyInventory(gs.Player.Inventory)
 	cp.Player.Equipped = copyEquipped(gs.Player.Equipped)
 	cp.Bosses = copyBosses(gs.Bosses)
@@ -2812,6 +2918,229 @@ func copyEquipped(in map[string]string) map[string]string {
 	return out
 }
 
+type leaderboardRewardSpec struct {
+	period string
+	reward map[Currency]int
+}
+
+var leaderboardRewardSpecs = []leaderboardRewardSpec{
+	{period: "day", reward: map[Currency]int{Seeds: 50, Wheat: 5, Carrot: 1}},
+	{period: "week", reward: map[Currency]int{Seeds: 200, Wheat: 15, Carrot: 6, Cucumber: 2}},
+	{period: "month", reward: map[Currency]int{Seeds: 2000, Wheat: 50, Carrot: 20, Cucumber: 10, Apple: 2, Kormik: 1}},
+}
+
+func leaderboardRewardKey(period, periodKey string) string {
+	return period + ":" + periodKey
+}
+
+func (s *Server) recordLeaderboardDamage(ctx context.Context, userID string, amount int, now time.Time) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" || amount <= 0 {
+		return
+	}
+	periods := []string{"day", "week", "month"}
+	if strings.TrimSpace(s.dbURL) == "" {
+		_ = s.withLocalStore(func(store *localStore) error {
+			store.ensure()
+			if store.LeaderboardDamage == nil {
+				store.LeaderboardDamage = map[string]map[string]map[string]int{}
+			}
+			for _, period := range periods {
+				key := currentLeaderboardPeriodKey(period, now)
+				if key == "" {
+					continue
+				}
+				if store.LeaderboardDamage[period] == nil {
+					store.LeaderboardDamage[period] = map[string]map[string]int{}
+				}
+				if store.LeaderboardDamage[period][key] == nil {
+					store.LeaderboardDamage[period][key] = map[string]int{}
+				}
+				store.LeaderboardDamage[period][key][userID] += amount
+			}
+			return nil
+		})
+		return
+	}
+	for _, period := range periods {
+		key := currentLeaderboardPeriodKey(period, now)
+		if key == "" {
+			continue
+		}
+		_ = s.execPSQL(ctx, `
+			INSERT INTO leaderboard_damage_stats (period_type, period_key, user_id, damage_total, updated_at)
+			VALUES (:'period_type', :'period_key', :'user_id', :amount::bigint, NOW())
+			ON CONFLICT (period_type, period_key, user_id)
+			DO UPDATE SET damage_total = leaderboard_damage_stats.damage_total + EXCLUDED.damage_total, updated_at = NOW()
+		`, map[string]string{
+			"period_type": period,
+			"period_key":  key,
+			"user_id":     userID,
+			"amount":      fmt.Sprintf("%d", amount),
+		})
+	}
+}
+
+func (s *Server) leaderboardEntries(ctx context.Context, period, periodKey string, limit int) ([]leaderboardEntry, error) {
+	period = strings.TrimSpace(period)
+	periodKey = strings.TrimSpace(periodKey)
+	if period == "" || periodKey == "" {
+		return []leaderboardEntry{}, nil
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+	if strings.TrimSpace(s.dbURL) == "" {
+		var entries []leaderboardEntry
+		if err := s.withLocalStore(func(store *localStore) error {
+			store.ensure()
+			periodMap := store.LeaderboardDamage[period]
+			if periodMap == nil {
+				return nil
+			}
+			raw := periodMap[periodKey]
+			if raw == nil {
+				return nil
+			}
+			entries = make([]leaderboardEntry, 0, len(raw))
+			for userID, damage := range raw {
+				login := ""
+				for _, u := range store.Users {
+					if u.ID == userID {
+						login = u.Login
+						break
+					}
+				}
+				if strings.TrimSpace(login) == "" {
+					continue
+				}
+				entries = append(entries, leaderboardEntry{UserID: userID, Login: login, Damage: damage})
+			}
+			return nil
+		}); err != nil {
+			return nil, err
+		}
+		sort.Slice(entries, func(i, j int) bool {
+			if entries[i].Damage == entries[j].Damage {
+				return strings.ToLower(entries[i].Login) < strings.ToLower(entries[j].Login)
+			}
+			return entries[i].Damage > entries[j].Damage
+		})
+		if len(entries) > limit {
+			entries = entries[:limit]
+		}
+		for i := range entries {
+			entries[i].Place = i + 1
+		}
+		return entries, nil
+	}
+	out, err := s.queryPSQL(ctx, `
+		SELECT u.id, u.login, s.damage_total
+		FROM leaderboard_damage_stats s
+		JOIN users u ON u.id = s.user_id
+		WHERE s.period_type = :'period_type' AND s.period_key = :'period_key'
+		ORDER BY s.damage_total DESC, lower(u.login) ASC
+		LIMIT (:'limit')::int
+	`, map[string]string{
+		"period_type": period,
+		"period_key":  periodKey,
+		"limit":       fmt.Sprintf("%d", limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return []leaderboardEntry{}, nil
+	}
+	lines := strings.Split(out, "\n")
+	entries := make([]leaderboardEntry, 0, len(lines))
+	for i, line := range lines {
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		damage, _ := strconv.Atoi(strings.TrimSpace(parts[2]))
+		entries = append(entries, leaderboardEntry{Place: i + 1, UserID: parts[0], Login: parts[1], Damage: damage})
+	}
+	return entries, nil
+}
+
+func (s *Server) processLeaderboardRewards(ctx context.Context) error {
+	now := time.Now()
+	for _, spec := range leaderboardRewardSpecs {
+		periodKey := previousLeaderboardPeriodKey(spec.period, now)
+		if periodKey == "" {
+			continue
+		}
+		if s.leaderboardRewardAlreadyGranted(ctx, spec.period, periodKey) {
+			continue
+		}
+		entries, err := s.leaderboardEntries(ctx, spec.period, periodKey, 1)
+		if err != nil || len(entries) == 0 {
+			continue
+		}
+		winner := entries[0]
+		if err := s.grantLeaderboardReward(ctx, spec.period, periodKey, winner, spec.reward); err != nil {
+			log.Printf("leaderboard reward failed for %s %s: %v", spec.period, periodKey, err)
+		}
+	}
+	return nil
+}
+
+func (s *Server) leaderboardRewardAlreadyGranted(ctx context.Context, period, periodKey string) bool {
+	if strings.TrimSpace(s.dbURL) == "" {
+		var exists bool
+		_ = s.withLocalStore(func(store *localStore) error {
+			store.ensure()
+			_, exists = store.LeaderboardRewards[leaderboardRewardKey(period, periodKey)]
+			return nil
+		})
+		return exists
+	}
+	out, err := s.queryPSQL(ctx, `
+		SELECT winner_user_id
+		FROM leaderboard_reward_grants
+		WHERE period_type = :'period_type' AND period_key = :'period_key'
+		LIMIT 1
+	`, map[string]string{"period_type": period, "period_key": periodKey})
+	return err == nil && strings.TrimSpace(out) != ""
+}
+
+func (s *Server) grantLeaderboardReward(ctx context.Context, period, periodKey string, winner leaderboardEntry, reward map[Currency]int) error {
+	if strings.TrimSpace(winner.UserID) == "" || len(reward) == 0 {
+		return nil
+	}
+	state, err := s.loadState(ctx, winner.UserID)
+	if err != nil {
+		return err
+	}
+	for cur, amount := range reward {
+		addCurrencyGain(&state, cur, amount)
+	}
+	appendLog(&state, fmt.Sprintf("Награда за лидера %s %s: %s получил награду.", period, periodKey, winner.Login))
+	if err := s.saveState(ctx, winner.UserID, state); err != nil {
+		return err
+	}
+	if strings.TrimSpace(s.dbURL) == "" {
+		return s.withLocalStore(func(store *localStore) error {
+			store.ensure()
+			store.LeaderboardRewards[leaderboardRewardKey(period, periodKey)] = winner.UserID
+			return nil
+		})
+	}
+	return s.execPSQL(ctx, `
+		INSERT INTO leaderboard_reward_grants (period_type, period_key, winner_user_id, winner_login, created_at)
+		VALUES (:'period_type', :'period_key', :'winner_user_id', :'winner_login', NOW())
+		ON CONFLICT (period_type, period_key) DO NOTHING
+	`, map[string]string{
+		"period_type":    period,
+		"period_key":     periodKey,
+		"winner_user_id": winner.UserID,
+		"winner_login":   winner.Login,
+	})
+}
+
 func appendLog(gs *GameState, line string) {
 	gs.Log = append([]string{line}, gs.Log...)
 	if len(gs.Log) > 20 {
@@ -2832,6 +3161,20 @@ func pay(balance map[Currency]int, cost map[Currency]int) {
 	for cur, amt := range cost {
 		balance[cur] -= amt
 	}
+}
+
+func addCurrencyGain(gs *GameState, cur Currency, amount int) {
+	if gs == nil || amount <= 0 {
+		return
+	}
+	if gs.Player.Currency == nil {
+		gs.Player.Currency = map[Currency]int{}
+	}
+	gs.Player.Currency[cur] += amount
+	if gs.EconomyTotals == nil {
+		gs.EconomyTotals = map[Currency]int{}
+	}
+	gs.EconomyTotals[cur] += amount
 }
 
 func currencyLabel(cur Currency) string {
