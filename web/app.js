@@ -60,6 +60,9 @@ const LEADERBOARD_PERIODS = [
   { key: 'month', label: 'За месяц' },
 ];
 
+const LEADERBOARD_REFRESH_MS = 180000;
+const SOCIAL_SNAPSHOT_REFRESH_MS = 180000;
+
 const API_BASE = (window.APP_CONFIG && window.APP_CONFIG.apiBaseUrl) ? window.APP_CONFIG.apiBaseUrl : '/api';
 const SESSION_KEY = 'humster_session_id';
 const AUTH_TOKEN_KEY = 'humster_auth_token';
@@ -454,6 +457,8 @@ async function loadState() {
         isAuthenticated = true;
         restoreViewFromState(currentState);
         void refreshFriendsBadge(true);
+        void loadSocialSnapshot(true);
+        void loadLeaderboards(true);
         render();
         return;
       }
@@ -935,6 +940,11 @@ let leaderboardsData = null;
 let leaderboardsLoading = false;
 let leaderboardsError = '';
 let leaderboardsLoadedAt = 0;
+let socialSnapshotProfile = null;
+let socialSnapshotLoading = false;
+let socialSnapshotError = '';
+let socialSnapshotLoadedAt = 0;
+let pollingIntervalsInitialized = false;
 
 function ensureProfileModal() {
   if (document.getElementById('profile-modal')) return;
@@ -1049,7 +1059,6 @@ function renderProfileSummary(profile) {
 
   const stats = [
     { label: 'Уровень хомяка', value: String(player.level || 1) },
-    { label: 'Статус', value: onlineText },
     { label: 'Урон за день', value: formatAchievementNumber(bossDamageDay) },
     { label: 'Урон за неделю', value: formatAchievementNumber(bossDamageWeek) },
     { label: 'Урон за месяц', value: formatAchievementNumber(bossDamageMonth) },
@@ -1076,10 +1085,6 @@ function renderProfileSummary(profile) {
           <div class="profile-card">
             <span>Уровень</span>
             <strong>${String(player.level || 1)}</strong>
-          </div>
-          <div class="profile-card">
-            <span>Статус</span>
-            <strong>${onlineText}</strong>
           </div>
         </div>
         ${actionButtons}
@@ -1718,8 +1723,6 @@ function captureAchievementsAccordionState() {
     const scope = achievementsModalTab === 'battle' ? 'battle' : achievementsModalTab === 'economy' ? 'economy' : null;
     if (scope === 'battle' && key === 'battle') {
       next.battle = details.open;
-    } else if (scope === 'economy') {
-      next.economy[key] = details.open;
     }
   });
   achievementsAccordionState = next;
@@ -1773,7 +1776,7 @@ function renderHomeLeaderboards() {
     <div class="leaderboard-home">
       <div class="profile-section__head">
         <strong>Таблица лидеров</strong>
-        <span>По урону по боссам за день, неделю и месяц</span>
+        <span>По урону по боссам за день, неделю и месяц • обновляется каждые 3 минуты</span>
       </div>
       ${renderLeaderboards()}
     </div>
@@ -1782,7 +1785,7 @@ function renderHomeLeaderboards() {
 
 async function loadLeaderboards(force = false) {
   if (leaderboardsLoading) return;
-  if (!force && leaderboardsData && Date.now() - leaderboardsLoadedAt < 30000) return;
+  if (!force && leaderboardsData && Date.now() - leaderboardsLoadedAt < LEADERBOARD_REFRESH_MS) return;
   leaderboardsLoading = true;
   leaderboardsError = '';
   try {
@@ -1801,7 +1804,84 @@ async function loadLeaderboards(force = false) {
     if (modal && !modal.hidden && achievementsModalTab === 'leaders') {
       renderAchievementsModal();
     }
+    const home = document.getElementById('leaderboard-home-body');
+    if (home) {
+      home.innerHTML = renderHomeLeaderboards();
+      bindLeaderboardEvents();
+    }
   }
+}
+
+async function loadSocialSnapshot(force = false) {
+  if (!isAuthenticated) {
+    socialSnapshotProfile = null;
+    socialSnapshotError = '';
+    socialSnapshotLoadedAt = 0;
+    return;
+  }
+  const login = normalizeLogin(currentUserLogin || currentState?.player?.name || '');
+  if (!login) return;
+  if (!force && socialSnapshotProfile && Date.now() - socialSnapshotLoadedAt < SOCIAL_SNAPSHOT_REFRESH_MS) return;
+  if (socialSnapshotLoading) return;
+  socialSnapshotLoading = true;
+  socialSnapshotError = '';
+  try {
+    const res = await fetch(apiUrl(`/social/profile?login=${encodeURIComponent(login)}`), {
+      method: 'GET',
+      headers: authHeaders(),
+    });
+    const data = await res.json().catch(() => null);
+    if (res.ok && data && data.ok && data.profile) {
+      socialSnapshotProfile = normalizeSocialProfile(data.profile);
+      if (socialSnapshotProfile && socialSnapshotProfile.isSelf) {
+        friendsModalProfile = socialSnapshotProfile;
+        friendsBadgeCount = Array.isArray(socialSnapshotProfile.requests) ? socialSnapshotProfile.requests.length : friendsBadgeCount;
+        updateFriendsBadge();
+      }
+      socialSnapshotLoadedAt = Date.now();
+    } else {
+      socialSnapshotError = data && data.error ? data.error : 'Не удалось загрузить профиль';
+    }
+  } catch (_) {
+    socialSnapshotError = 'Не удалось загрузить профиль';
+  } finally {
+    socialSnapshotLoading = false;
+  }
+}
+
+function setupHomePolling() {
+  if (pollingIntervalsInitialized) return;
+  pollingIntervalsInitialized = true;
+  window.setInterval(() => {
+    void loadLeaderboards(true);
+    if (isAuthenticated) {
+      void loadSocialSnapshot(true);
+    }
+  }, LEADERBOARD_REFRESH_MS);
+  window.addEventListener('focus', () => {
+    void loadLeaderboards(true);
+    if (isAuthenticated) {
+      void loadSocialSnapshot(true);
+    }
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      void loadLeaderboards(true);
+      if (isAuthenticated) {
+        void loadSocialSnapshot(true);
+      }
+    }
+  });
+}
+
+
+function bindLeaderboardEvents() {
+  document.querySelectorAll('[data-leaderboard-profile]').forEach((btn) => {
+    btn.onclick = () => {
+      const login = normalizeLogin(btn.getAttribute('data-leaderboard-profile') || '');
+      if (login) openProfileModal(login);
+    };
+  });
 }
 
 function renderBattleAchievements() {
@@ -1863,6 +1943,9 @@ function renderEconomyAchievements() {
 
   const sections = ECONOMY_ACHIEVEMENTS.map((resource) => {
     const total = Math.max(0, Number(totals?.[resource.key]) || 0);
+    const isOpen = Object.prototype.hasOwnProperty.call(achievementsAccordionState.economy || {}, resource.key)
+      ? Boolean(achievementsAccordionState.economy[resource.key])
+      : resource.key === 'seeds';
     const rows = ECONOMY_ACHIEVEMENT_THRESHOLDS.map((threshold) => {
       const unlocked = total >= threshold;
       const percent = Math.max(0, Math.min(100, (Math.min(threshold, total) / threshold) * 100));
@@ -1878,18 +1961,18 @@ function renderEconomyAchievements() {
       `;
     }).join('');
     return `
-      <details class="achievement-accordion" data-achievement-key="${resource.key}" ${((achievementsAccordionState.economy && Object.prototype.hasOwnProperty.call(achievementsAccordionState.economy, resource.key)) ? achievementsAccordionState.economy[resource.key] : (resource.key === 'seeds')) ? 'open' : ''}>
-        <summary>
+      <section class="achievement-panel ${isOpen ? 'is-open' : ''}" data-achievement-key="${resource.key}">
+        <button type="button" class="achievement-panel__summary" data-economy-toggle="${resource.key}" aria-expanded="${isOpen}">
           <div>
             <strong>${resource.label}</strong>
             <span>${formatAchievementNumber(total)} накоплено</span>
           </div>
           <span class="achievement-accordion__hint">${ECONOMY_ACHIEVEMENT_THRESHOLDS.length} целей</span>
-        </summary>
-        <div class="achievement-accordion__content">
+        </button>
+        <div class="achievement-panel__content" ${isOpen ? '' : 'hidden'}>
           ${rows}
         </div>
-      </details>
+      </section>
     `;
   }).join('');
 
@@ -1920,6 +2003,20 @@ function bindAchievementsModalEvents() {
   document.querySelectorAll('details[data-achievement-key]').forEach((details) => {
     details.ontoggle = () => {
       captureAchievementsAccordionState();
+    };
+  });
+  document.querySelectorAll('[data-economy-toggle]').forEach((btn) => {
+    btn.onclick = () => {
+      const key = btn.getAttribute('data-economy-toggle') || '';
+      if (!key) return;
+      const next = { ...(achievementsAccordionState.economy || {}) };
+      const current = Object.prototype.hasOwnProperty.call(next, key) ? Boolean(next[key]) : key === 'seeds';
+      next[key] = !current;
+      achievementsAccordionState = {
+        ...achievementsAccordionState,
+        economy: next,
+      };
+      renderAchievementsModal();
     };
   });
 }
@@ -2316,8 +2413,71 @@ function renderBossSelection() {
   });
 }
 
+
+function renderBattleParticipants(activeBoss) {
+  if (!activeBoss) return '';
+  const selfLogin = normalizeLogin(currentUserLogin || currentState?.player?.name || '');
+  const selfDamage = Math.max(0, Number(currentState?.bossBattleDamageCurrent) || 0);
+  const entries = [];
+  entries.push({
+    login: currentState?.player?.name || currentUserLogin || 'Ты',
+    damage: selfDamage,
+    self: true,
+  });
+
+  const snapshot = socialSnapshotProfile;
+  const friends = Array.isArray(snapshot?.friends) ? snapshot.friends : [];
+  friends.forEach((friend) => {
+    const friendLogin = normalizeLogin(friend?.login || '');
+    if (!friendLogin || friendLogin === selfLogin) return;
+    const friendState = normalizeState(friend?.state || DEFAULT_STATE);
+    if ((friendState.activeBossId || '') !== activeBoss.id) return;
+    const damage = Math.max(0, Number(friendState.bossBattleDamageCurrent) || 0);
+    if (damage <= 0) return;
+    entries.push({
+      login: friend.login || 'друг',
+      damage,
+      self: false,
+      profileLogin: friend.login || '',
+    });
+  });
+
+  if (entries.length <= 1) {
+    return `
+      <div class="battle-participants">
+        <div class="profile-section__head">
+          <strong>Участники этой битвы</strong>
+          <span>Кто уже наносил урон по этому боссу</span>
+        </div>
+        <div class="social-note">Пока по этому боссу никто из друзей не бьёт.</div>
+      </div>
+    `;
+  }
+
+  entries.sort((a, b) => b.damage - a.damage);
+  return `
+    <div class="battle-participants">
+      <div class="profile-section__head">
+        <strong>Участники этой битвы</strong>
+        <span>Кто уже наносил урон по этому боссу</span>
+      </div>
+      <div class="battle-participants__list">
+        ${entries.map((entry) => `
+          <div class="battle-participant ${entry.self ? 'is-self' : ''}">
+            <button type="button" class="battle-participant__name" ${entry.profileLogin ? `data-battle-participant-profile="${jsStringLiteral(entry.profileLogin)}"` : ''}>${entry.login}</button>
+            <strong>${formatAchievementNumber(entry.damage)}</strong>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
 function renderBattleScreen() {
   const activeBoss = bossById(currentState, currentState.activeBossId);
+  if (isAuthenticated && (!socialSnapshotProfile || Date.now() - socialSnapshotLoadedAt > SOCIAL_SNAPSHOT_REFRESH_MS)) {
+    void loadSocialSnapshot();
+  }
   if (!activeBoss) {
     renderBossSelection();
     return;
@@ -2354,6 +2514,7 @@ function renderBattleScreen() {
             ? '<button class="ghost" id="btn-boss-change" type="button">Выбрать другого</button>'
             : '<button class="primary" id="btn-boss-finish" type="button">Выйти из битвы досрочно за 1 кормик</button>'}
         </div>
+        ${renderBattleParticipants(activeBoss)}
       </div>
     </div>
 
@@ -2703,15 +2864,13 @@ function render() {
   const leaderboardsHome = document.getElementById('leaderboard-home-body');
   if (leaderboardsHome) {
     leaderboardsHome.innerHTML = renderHomeLeaderboards();
-    document.querySelectorAll('[data-leaderboard-profile]').forEach((btn) => {
-      btn.onclick = () => {
-        const login = normalizeLogin(btn.getAttribute('data-leaderboard-profile') || '');
-        if (login) openProfileModal(login);
-      };
-    });
-    if (!leaderboardsData || Date.now() - leaderboardsLoadedAt > 30000) {
+    bindLeaderboardEvents();
+    if (!leaderboardsData || Date.now() - leaderboardsLoadedAt > LEADERBOARD_REFRESH_MS) {
       void loadLeaderboards();
     }
+  }
+  if (isAuthenticated && (!socialSnapshotProfile || Date.now() - socialSnapshotLoadedAt > SOCIAL_SNAPSHOT_REFRESH_MS)) {
+    void loadSocialSnapshot();
   }
 
   const auth = $('#auth-screen');

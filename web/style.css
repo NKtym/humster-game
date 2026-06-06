@@ -955,7 +955,7 @@ button.primary {
   opacity: 0.52;
 }
 
-.adventure-node.is-active .adventure-node__ring {
+.adventure-node.is-active:not(.is-locked) .adventure-node__ring {
   animation: node-pulse 1.8s ease-in-out infinite;
 }
 
@@ -2031,4 +2031,275 @@ button.primary {
 .leaderboard-home {
   display: grid;
   gap: 14px;
+}
+
+
+.leaderboard-home-card {
+  margin-top: 16px;
+}
+
+.leaderboard-home {
+  display: grid;
+  gap: 14px;
+}
+
+.battle-participants {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.battle-participants__list {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.battle-participant {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 233, 186, 0.10);
+}
+
+.battle-participant.is-self {
+  background: rgba(255, 215, 138, 0.10);
+  border-color: rgba(255, 215, 138, 0.18);
+}
+
+.battle-participant__name {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.achievement-panel {
+  border-radius: 24px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 233, 186, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.achievement-panel__summary {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 16px 18px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  box-shadow: none;
+}
+
+.achievement-panel__summary strong {
+  display: block;
+  font-size: 18px;
+}
+
+.achievement-panel__summary span {
+  display: block;
+  margin-top: 4px;
+  color: rgba(255, 236, 208, 0.78);
+  font-size: 13px;
+}
+
+.achievement-panel__content {
+  display: grid;
+  gap: 10px;
+  padding: 0 18px 18px;
+}
+
+@media (max-width: 1024px) {
+  .scene-card .scene-stage {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar {
+    align-items: flex-start;
+  }
+
+  .top-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .name-input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .adventure-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .adventure-map {
+    aspect-ratio: 4 / 3;
+    min-height: 460px;
+  }
+}
+
+@media (max-width: 760px) {
+  .app {
+    width: min(100vw - 16px, 100%);
+    margin: 8px auto 18px;
+  }
+
+  .topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .top-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .hud-grid,
+  .social-profile__cards,
+  .social-profile__summary,
+  .battle-participants__list,
+  .leaderboard-grid,
+  .achievement-summary,
+  .battle-info,
+  .attack-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .scene-stage,
+  .battle-top,
+  .adventure-layout,
+  .social-modal__dialog,
+  .achievements-modal__dialog,
+  .profile-modal__dialog,
+  .hamster-preview__stage {
+    grid-template-columns: 1fr !important;
+  }
+
+  .scene-card,
+  .battle-screen,
+  .adventure-screen,
+  .card {
+    padding: 14px;
+    border-radius: 22px;
+  }
+
+  .scene-head,
+  .battle-screen__head,
+  .social-modal__head,
+  .achievements-modal__head,
+  .profile-modal__head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .scene-stage {
+    gap: 12px;
+  }
+
+  .scene {
+    min-height: 420px;
+  }
+
+  .hamster-stage {
+    width: min(92vw, 340px);
+    height: min(92vw, 340px);
+  }
+
+  .side-panel {
+    width: 100%;
+  }
+
+  .leaderboard-home-card,
+  .battle-screen,
+  .adventure-screen {
+    margin-top: 14px;
+  }
+
+  .battle-participant {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .battle-participant strong {
+    font-size: 18px;
+  }
+
+  .attack-btn {
+    min-height: 82px;
+  }
+
+  .adventure-map {
+    aspect-ratio: 1 / 1;
+    min-height: 360px;
+  }
+
+  .adventure-node {
+    width: clamp(58px, 18vw, 86px);
+    height: clamp(58px, 18vw, 86px);
+  }
+
+  .social-modal,
+  .achievements-modal,
+  .profile-modal,
+  .hamster-preview-modal {
+    padding: 10px;
+  }
+
+  .social-modal__dialog,
+  .achievements-modal__dialog,
+  .profile-modal__dialog,
+  .hamster-preview__dialog {
+    width: 100%;
+    max-height: 92vh;
+    padding: 16px;
+    border-radius: 22px;
+  }
+
+  .achievement-panel__summary,
+  .profile-section__head,
+  .leaderboard-home .profile-section__head {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .profile-actions {
+    width: 100%;
+  }
+
+  .profile-actions button,
+  .social-modal__toolbar button,
+  .social-modal__tab,
+  .achievements-modal__tab {
+    width: 100%;
+  }
+
+  .social-modal__toolbar input {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+.adventure-node.is-locked .adventure-node__ring {
+  border-color: rgba(180, 180, 180, 0.72);
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.06);
+  animation: none !important;
+}
+
+.adventure-node.is-locked img {
+  filter: grayscale(1) brightness(0.85);
+}
+
+.adventure-node.is-active.is-locked .adventure-node__ring {
+  animation: none !important;
 }

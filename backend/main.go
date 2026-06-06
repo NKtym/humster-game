@@ -3051,6 +3051,29 @@ func (s *Server) leaderboardEntries(ctx context.Context, period, periodKey strin
 	}
 	out = strings.TrimSpace(out)
 	if out == "" {
+		out, err = s.queryPSQL(ctx, `
+			SELECT u.id, u.login,
+				CASE :'period_type'
+					WHEN 'day' THEN COALESCE((gs.state_json->>'bossDamageDay')::bigint, 0)
+					WHEN 'week' THEN COALESCE((gs.state_json->>'bossDamageWeek')::bigint, 0)
+					WHEN 'month' THEN COALESCE((gs.state_json->>'bossDamageMonth')::bigint, 0)
+					ELSE COALESCE((gs.state_json->>'bossDamageAllTime')::bigint, 0)
+				END AS damage_total
+			FROM game_states gs
+			JOIN users u ON u.id = gs.user_id
+			ORDER BY damage_total DESC, lower(u.login) ASC
+			LIMIT (:'limit')::int
+		`, map[string]string{
+			"period_type": period,
+			"period_key":  periodKey,
+			"limit":       fmt.Sprintf("%d", limit),
+		})
+		if err != nil {
+			return nil, err
+		}
+		out = strings.TrimSpace(out)
+	}
+	if out == "" {
 		return []leaderboardEntry{}, nil
 	}
 	lines := strings.Split(out, "\n")
