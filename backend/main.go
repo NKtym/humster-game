@@ -22,239 +22,6 @@ import (
 	"time"
 )
 
-type Currency string
-
-const (
-	Seeds    Currency = "seeds"
-	Wheat    Currency = "wheat"
-	Carrot   Currency = "carrot"
-	Cucumber Currency = "cucumber"
-	Apple    Currency = "apple"
-	Kormik   Currency = "kormik"
-)
-
-type Item struct {
-	ID          string           `json:"id"`
-	Name        string           `json:"name"`
-	Slot        string           `json:"slot"`
-	Cost        map[Currency]int `json:"cost"`
-	Stats       map[string]int   `json:"stats"`
-	Description string           `json:"description"`
-}
-
-type Boss struct {
-	ID              string               `json:"id"`
-	Name            string               `json:"name"`
-	HP              int                  `json:"hp"`
-	MaxHP           int                  `json:"maxHp"`
-	Attack          int                  `json:"attack"`
-	Reward          map[Currency]int     `json:"reward"`
-	XP              int                  `json:"xp"`
-	Defeated        bool                 `json:"defeated"`
-	BattleStartedAt time.Time            `json:"battleStartedAt"`
-	BattleEndsAt    time.Time            `json:"battleEndsAt"`
-	AttackCooldowns map[string]time.Time `json:"attackCooldowns"`
-	KillsToday      int                  `json:"killsToday"`
-	KillsDay        string               `json:"killsDay"`
-	KillsTotal      int                  `json:"killsTotal"`
-}
-
-type AdventureNode struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	EnergyCost     int    `json:"energyCost"`
-	RequiredPasses int    `json:"requiredPasses"`
-	Progress       int    `json:"progress"`
-	Completed      bool   `json:"completed"`
-}
-
-type Appearance struct {
-	Background string `json:"background"`
-	Color      string `json:"color"`
-	HeldItem   string `json:"heldItem"`
-	Headwear   string `json:"headwear"`
-	Glasses    string `json:"glasses"`
-	Mask       string `json:"mask"`
-	Body       string `json:"body"`
-	Shoes      string `json:"shoes"`
-}
-
-type Player struct {
-	Name       string            `json:"name"`
-	Level      int               `json:"level"`
-	XP         int               `json:"xp"`
-	HP         int               `json:"hp"`
-	MaxHP      int               `json:"maxHp"`
-	Energy     int               `json:"energy"`
-	MaxEnergy  int               `json:"maxEnergy"`
-	Attack     int               `json:"attack"`
-	Defense    int               `json:"defense"`
-	Currency   map[Currency]int  `json:"currency"`
-	Inventory  map[string]int    `json:"inventory"`
-	Equipped   map[string]string `json:"equipped"`
-	Wallpaper  string            `json:"wallpaper"`
-	Appearance Appearance        `json:"appearance"`
-}
-
-type GameState struct {
-	Player                  Player           `json:"player"`
-	Location                string           `json:"location"`
-	Bosses                  []Boss           `json:"bosses"`
-	ActiveBossID            string           `json:"activeBossId"`
-	Adventure               []AdventureNode  `json:"adventure"`
-	ActiveAdventureID       string           `json:"activeAdventureId"`
-	BossKillsToday          int              `json:"bossKillsToday"`
-	BossKillsDay            string           `json:"bossKillsDay"`
-	LocationPasses          int              `json:"locationPasses"`
-	BossDamageDay           int              `json:"bossDamageDay"`
-	BossDamageDayKey        string           `json:"bossDamageDayKey"`
-	BossDamageWeek          int              `json:"bossDamageWeek"`
-	BossDamageWeekKey       string           `json:"bossDamageWeekKey"`
-	BossDamageMonth         int              `json:"bossDamageMonth"`
-	BossDamageMonthKey      string           `json:"bossDamageMonthKey"`
-	BossDamageAllTime       int              `json:"bossDamageAllTime"`
-	BossBattleDamageCurrent int              `json:"bossBattleDamageCurrent"`
-	BossBattleDamageBest    int              `json:"bossBattleDamageBest"`
-	EconomyTotals           map[Currency]int `json:"economyTotals"`
-	Log                     []string         `json:"log"`
-	UpdatedAt               time.Time        `json:"updatedAt"`
-	LastEnergyRegenAt       time.Time        `json:"lastEnergyRegenAt"`
-}
-
-type Session struct {
-	mu    sync.Mutex
-	state GameState
-}
-
-type Server struct {
-	mu        sync.Mutex
-	sessions  map[string]*Session
-	items     map[string]Item
-	dbURL     string
-	localPath string
-}
-
-type ActionRequest struct {
-	Action     string `json:"action"`
-	ItemID     string `json:"itemId,omitempty"`
-	Name       string `json:"name,omitempty"`
-	BossID     string `json:"bossId,omitempty"`
-	NodeID     string `json:"nodeId,omitempty"`
-	AttackType string `json:"attackType,omitempty"`
-	Slot       string `json:"slot,omitempty"`
-	Value      string `json:"value,omitempty"`
-}
-
-type ActionResponse struct {
-	OK    bool      `json:"ok"`
-	State GameState `json:"state"`
-	Error string    `json:"error,omitempty"`
-}
-
-type AuthRequest struct {
-	Login    string `json:"login"`
-	Password string `json:"password"`
-}
-
-type AuthResponse struct {
-	OK    bool      `json:"ok"`
-	Token string    `json:"token,omitempty"`
-	User  string    `json:"user,omitempty"`
-	State GameState `json:"state"`
-	Error string    `json:"error,omitempty"`
-}
-
-type socialFriendSummary struct {
-	UserID     string    `json:"userId"`
-	Login      string    `json:"login"`
-	State      GameState `json:"state"`
-	Online     bool      `json:"online"`
-	LastSeenAt time.Time `json:"lastSeenAt"`
-}
-
-type socialRequestSummary struct {
-	UserID     string    `json:"userId"`
-	Login      string    `json:"login"`
-	State      GameState `json:"state"`
-	Online     bool      `json:"online"`
-	LastSeenAt time.Time `json:"lastSeenAt"`
-}
-
-type socialProfile struct {
-	UserID     string                 `json:"userId"`
-	Login      string                 `json:"login"`
-	State      GameState              `json:"state"`
-	Online     bool                   `json:"online"`
-	LastSeenAt time.Time              `json:"lastSeenAt"`
-	IsSelf     bool                   `json:"isSelf"`
-	IsFriend   bool                   `json:"isFriend"`
-	Friends    []socialFriendSummary  `json:"friends,omitempty"`
-	Requests   []socialRequestSummary `json:"requests,omitempty"`
-}
-
-type socialProfileResponse struct {
-	OK      bool          `json:"ok"`
-	Profile socialProfile `json:"profile"`
-	Error   string        `json:"error,omitempty"`
-}
-
-type socialMutationResponse struct {
-	OK    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
-}
-
-type leaderboardEntry struct {
-	UserID string `json:"userId"`
-	Login  string `json:"login"`
-	Damage int    `json:"damage"`
-	Place  int    `json:"place"`
-}
-
-type leaderboardResponse struct {
-	OK           bool                          `json:"ok"`
-	Leaderboards map[string][]leaderboardEntry `json:"leaderboards"`
-	Error        string                        `json:"error,omitempty"`
-}
-
-type leaderboardRewardGrant struct {
-	PeriodType  string `json:"periodType"`
-	PeriodKey   string `json:"periodKey"`
-	WinnerID    string `json:"winnerId"`
-	WinnerLogin string `json:"winnerLogin"`
-}
-
-type socialFriendRequest struct {
-	Login string `json:"login"`
-}
-
-type userRecord struct {
-	ID    string
-	Login string
-	Salt  string
-	Hash  string
-}
-
-type stateLease struct {
-	state   *GameState
-	release func()
-	commit  func() error
-}
-
-var errNoRows = errors.New("no rows")
-
-const (
-	bossAttackCooldown = 6 * time.Hour
-	bossBattleDuration = 8 * time.Hour
-)
-
-var adventureBlueprints = []AdventureNode{
-	{ID: "stage5", Name: "Бежать по полю", EnergyCost: 1, RequiredPasses: 4},
-	{ID: "stage4", Name: "Собирать пшеницу", EnergyCost: 2, RequiredPasses: 4},
-	{ID: "stage3", Name: "Собирать орешки для белочки", EnergyCost: 3, RequiredPasses: 5},
-	{ID: "stage2", Name: "Делать домик", EnergyCost: 3, RequiredPasses: 6},
-	{ID: "stage1", Name: "Строить мост через ручей", EnergyCost: 4, RequiredPasses: 6},
-}
-
 func main() {
 	srv := newServer()
 	mux := http.NewServeMux()
@@ -348,8 +115,20 @@ func newServer() *Server {
 	}
 
 	srv.dbURL = dbURL
-	if err := srv.ensureSchema(); err != nil {
-		log.Printf("postgres init failed: %v", err)
+	const maxInitAttempts = 30
+	var lastErr error
+	for attempt := 1; attempt <= maxInitAttempts; attempt++ {
+		if err := srv.ensureSchema(); err != nil {
+			lastErr = err
+			log.Printf("postgres init attempt %d/%d failed: %v", attempt, maxInitAttempts, err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		lastErr = nil
+		break
+	}
+	if lastErr != nil {
+		log.Printf("postgres init failed after retries; switching to local storage: %v", lastErr)
 		srv.dbURL = ""
 	}
 	return srv
@@ -363,8 +142,8 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	}
 	defer lease.release()
 
-	advanceEnergy(lease.state)
 	advanceBossTimers(lease.state)
+	advanceEnergy(lease.state)
 	if err := lease.commit(); err != nil {
 		writeJSON(w, ActionResponse{OK: false, Error: err.Error()})
 		return
@@ -402,8 +181,8 @@ func (s *Server) handleName(w http.ResponseWriter, r *http.Request) {
 	}
 	defer lease.release()
 
-	advanceEnergy(lease.state)
 	advanceBossTimers(lease.state)
+	advanceEnergy(lease.state)
 	lease.state.Player.Name = name
 	appendLog(lease.state, fmt.Sprintf("Теперь тебя зовут %s.", name))
 
@@ -435,8 +214,10 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	}
 	defer lease.release()
 
-	advanceEnergy(lease.state)
 	advanceBossTimers(lease.state)
+	if req.Action != "attack_boss" {
+		advanceEnergy(lease.state)
+	}
 	lease.state.UpdatedAt = time.Now()
 
 	switch req.Action {
@@ -469,6 +250,10 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		appendLog(lease.state, "Новая игра началась.")
 	case "set_appearance":
 		err = s.setAppearance(lease.state, req.Slot, req.Value)
+	case "select_talent_class":
+		err = s.selectTalentClass(lease.state, req.Value)
+	case "buy_talent":
+		err = s.buyTalentRank(lease.state, req.Slot)
 	default:
 		err = fmt.Errorf("неизвестное действие")
 	}
@@ -1556,6 +1341,21 @@ func normalizeGameState(state *GameState) {
 	if state.Player.Appearance == (Appearance{}) {
 		state.Player.Appearance = defaults.Player.Appearance
 	}
+	if state.Player.Talents == nil {
+		state.Player.Talents = map[string]int{}
+	}
+	if state.Player.TalentClass != "" && !talentClassExists(state.Player.TalentClass) {
+		state.Player.TalentClass = ""
+	}
+	if state.Player.TalentPoints < 0 {
+		state.Player.TalentPoints = 0
+	}
+	if state.Player.TalentDamageProgress < 0 {
+		state.Player.TalentDamageProgress = 0
+	}
+	if state.Player.TalentNextThreshold < 70 {
+		state.Player.TalentNextThreshold = 70
+	}
 	if state.Location == "" {
 		state.Location = defaults.Location
 	}
@@ -1796,6 +1596,7 @@ func (s *Server) finishBossBattle(gs *GameState) error {
 	}
 
 	gs.Player.Currency[Kormik]--
+	freezeEnergyRegenForBattle(gs, boss.BattleStartedAt, now)
 	gs.Bosses[idx].HP = gs.Bosses[idx].MaxHP
 	resetBossBattle(&gs.Bosses[idx])
 	resetBossBattleDamage(gs)
@@ -1834,6 +1635,13 @@ func finalizeBossVictory(gs *GameState, idx int, now time.Time) {
 		return
 	}
 	boss := &gs.Bosses[idx]
+	if !boss.BattleStartedAt.IsZero() {
+		freezeEnergyRegenForBattle(gs, boss.BattleStartedAt, now)
+		clearSeconds := int(now.Sub(boss.BattleStartedAt).Seconds())
+		if clearSeconds > 0 && (boss.BestClearSeconds <= 0 || clearSeconds < boss.BestClearSeconds) {
+			boss.BestClearSeconds = clearSeconds
+		}
+	}
 	boss.Defeated = true
 	boss.HP = 0
 	boss.KillsToday++
@@ -1920,6 +1728,7 @@ func (s *Server) attackBoss(gs *GameState, attackType string, userID string) err
 	actualDamage := min(damage, boss.HP)
 	recordBossDamage(gs, actualDamage, now)
 	recordBossBattleDamage(gs, actualDamage)
+	talentDamageProgress(gs, actualDamage)
 	s.recordLeaderboardDamage(context.Background(), userID, actualDamage, now)
 	gs.Bosses[idx].HP = max(0, boss.HP-damage)
 	if cost > 0 {
@@ -1948,7 +1757,6 @@ func (s *Server) attackBoss(gs *GameState, attackType string, userID string) err
 	appendLog(gs, fmt.Sprintf("%s отвечает и наносит %d урона.", boss.Name, counter))
 	if gs.Player.HP == 0 {
 		gs.Player.HP = gs.Player.MaxHP
-		gs.Player.Energy = gs.Player.MaxEnergy
 		appendLog(gs, "Хомяк отступил и пришёл в себя.")
 	}
 	return nil
@@ -1991,6 +1799,7 @@ func (s *Server) mirrorBossDamageToFriends(ctx context.Context, attackerID, boss
 		}
 		recordBossDamage(&friendState, actualDamage, now)
 		recordBossBattleDamage(&friendState, actualDamage)
+		talentDamageProgress(&friendState, actualDamage)
 		s.recordLeaderboardDamage(ctx, friendID, actualDamage, now)
 		friendState.Bosses[friendIdx].HP = max(0, friendBoss.HP-damage)
 		if friendState.Bosses[friendIdx].HP == 0 {
@@ -2183,6 +1992,244 @@ func rest(gs *GameState) error {
 	return nil
 }
 
+func talentClassExists(classID string) bool {
+	switch strings.TrimSpace(classID) {
+	case "martial_arts", "authority", "berserk":
+		return true
+	default:
+		return false
+	}
+}
+
+func talentSkillClass(skillID string) string {
+	switch strings.TrimSpace(skillID) {
+	case "martial_energy", "martial_bite":
+		return "martial_arts"
+	case "authority_scratch", "authority_wip_tier2", "authority_wip_tier3":
+		return "authority"
+	case "berserk_poison", "berserk_lasers":
+		return "berserk"
+	default:
+		return ""
+	}
+}
+
+func talentSkillWIP(skillID string) bool {
+	switch strings.TrimSpace(skillID) {
+	case "authority_wip_tier2", "authority_wip_tier3":
+		return true
+	default:
+		return false
+	}
+}
+
+func talentSkillMaxRank(skillID string) int {
+	switch strings.TrimSpace(skillID) {
+	case "martial_energy", "martial_bite", "authority_scratch", "authority_wip_tier2", "authority_wip_tier3", "berserk_poison", "berserk_lasers":
+		return 10
+	default:
+		return 0
+	}
+}
+
+func talentRank(gs *GameState, skillID string) int {
+	if gs == nil || gs.Player.Talents == nil {
+		return 0
+	}
+	return max(0, gs.Player.Talents[skillID])
+}
+
+func normalizeTalentState(gs *GameState) {
+	if gs == nil {
+		return
+	}
+	if gs.Player.Talents == nil {
+		gs.Player.Talents = map[string]int{}
+	}
+	for key, rank := range gs.Player.Talents {
+		if talentSkillClass(key) == "" {
+			delete(gs.Player.Talents, key)
+			continue
+		}
+		if rank < 0 {
+			gs.Player.Talents[key] = 0
+		}
+		if rank > 10 {
+			gs.Player.Talents[key] = 10
+		}
+	}
+	if gs.Player.TalentClass != "" && !talentClassExists(gs.Player.TalentClass) {
+		gs.Player.TalentClass = ""
+	}
+	if gs.Player.TalentPoints < 0 {
+		gs.Player.TalentPoints = 0
+	}
+	if gs.Player.TalentDamageProgress < 0 {
+		gs.Player.TalentDamageProgress = 0
+	}
+	if gs.Player.TalentNextThreshold < 70 {
+		gs.Player.TalentNextThreshold = 70
+	}
+}
+
+func selectTalentClass(gs *GameState, classID string) error {
+	classID = strings.TrimSpace(classID)
+	if !talentClassExists(classID) {
+		return fmt.Errorf("неизвестный класс")
+	}
+	if gs.Player.TalentClass != "" && gs.Player.TalentClass != classID {
+		return fmt.Errorf("класс уже выбран")
+	}
+	gs.Player.TalentClass = classID
+	appendLog(gs, fmt.Sprintf("Выбран класс талантов: %s.", classID))
+	return nil
+}
+
+func buyTalentRank(gs *GameState, skillID string) error {
+	skillID = strings.TrimSpace(skillID)
+	classID := talentSkillClass(skillID)
+	if classID == "" {
+		return fmt.Errorf("талант не найден")
+	}
+	if gs.Player.TalentClass == "" {
+		return fmt.Errorf("сначала выбери класс")
+	}
+	if gs.Player.TalentClass != classID {
+		return fmt.Errorf("этот талант относится к другому классу")
+	}
+	if talentSkillWIP(skillID) {
+		return fmt.Errorf("талант пока в разработке")
+	}
+	maxRank := talentSkillMaxRank(skillID)
+	if maxRank <= 0 {
+		return fmt.Errorf("талант не найден")
+	}
+	if talentRank(gs, skillID) >= maxRank {
+		return fmt.Errorf("талант уже прокачан полностью")
+	}
+	if gs.Player.TalentPoints <= 0 {
+		return fmt.Errorf("не хватает очков талантов")
+	}
+	if gs.Player.Talents == nil {
+		gs.Player.Talents = map[string]int{}
+	}
+	gs.Player.Talents[skillID] = talentRank(gs, skillID) + 1
+	gs.Player.TalentPoints--
+	switch skillID {
+	case "martial_energy":
+		gs.Player.MaxEnergy++
+		if gs.Player.Energy < gs.Player.MaxEnergy {
+			gs.Player.Energy++
+		}
+	}
+	appendLog(gs, fmt.Sprintf("Прокачан талант %s до %d/%d.", skillID, gs.Player.Talents[skillID], maxRank))
+	return nil
+}
+
+func talentAttackBonusDamage(gs *GameState, attackType string) int {
+	if gs == nil {
+		return 0
+	}
+	if gs.Player.TalentClass == "martial_arts" && attackType == "bite" {
+		return 5 * talentRank(gs, "martial_bite")
+	}
+	if gs.Player.TalentClass == "authority" && attackType == "scratch" {
+		return 2 * talentRank(gs, "authority_scratch")
+	}
+	if gs.Player.TalentClass == "berserk" {
+		switch attackType {
+		case "poison_bite":
+			return 15 * talentRank(gs, "berserk_poison")
+		case "eye_lasers":
+			return 30 * talentRank(gs, "berserk_lasers")
+		}
+	}
+	return 0
+}
+
+func talentDamageProgress(gs *GameState, amount int) {
+	if gs == nil || amount <= 0 {
+		return
+	}
+	if gs.Player.TalentNextThreshold < 70 {
+		gs.Player.TalentNextThreshold = 70
+	}
+	gs.Player.TalentDamageProgress += amount
+	for gs.Player.TalentDamageProgress >= gs.Player.TalentNextThreshold {
+		gs.Player.TalentDamageProgress -= gs.Player.TalentNextThreshold
+		gs.Player.TalentPoints++
+		gs.Player.TalentNextThreshold += 50
+		appendLog(gs, fmt.Sprintf("Получено 1 очко талантов. Теперь доступно %d.", gs.Player.TalentPoints))
+	}
+}
+
+func (s *Server) selectTalentClass(gs *GameState, classID string) error {
+	if gs == nil {
+		return fmt.Errorf("игровое состояние недоступно")
+	}
+	classID = strings.TrimSpace(classID)
+	if classID == "" {
+		return fmt.Errorf("выбери класс талантов")
+	}
+	if !talentClassExists(classID) {
+		return fmt.Errorf("неизвестный класс талантов")
+	}
+	if gs.Player.TalentClass != "" && gs.Player.TalentClass != classID {
+		return fmt.Errorf("класс уже выбран")
+	}
+	gs.Player.TalentClass = classID
+	if gs.Player.Talents == nil {
+		gs.Player.Talents = map[string]int{}
+	}
+	appendLog(gs, fmt.Sprintf("Выбран класс талантов: %s.", classID))
+	return nil
+}
+
+func (s *Server) buyTalentRank(gs *GameState, skillID string) error {
+	if gs == nil {
+		return fmt.Errorf("игровое состояние недоступно")
+	}
+	skillID = strings.TrimSpace(skillID)
+	if skillID == "" {
+		return fmt.Errorf("талант не найден")
+	}
+	classID := talentSkillClass(skillID)
+	if classID == "" {
+		return fmt.Errorf("талант не найден")
+	}
+	skillClassSelected := gs.Player.TalentClass != "" && gs.Player.TalentClass != classID
+	if skillClassSelected {
+		return fmt.Errorf("этот талант не подходит текущему классу")
+	}
+	if talentSkillWIP(skillID) {
+		return fmt.Errorf("этот талант ещё в разработке")
+	}
+	maxRank := talentSkillMaxRank(skillID)
+	if talentRank(gs, skillID) >= maxRank {
+		return fmt.Errorf("талант уже прокачан до максимума")
+	}
+	if gs.Player.TalentPoints <= 0 {
+		return fmt.Errorf("не хватает очков талантов")
+	}
+	if gs.Player.Talents == nil {
+		gs.Player.Talents = map[string]int{}
+	}
+	gs.Player.Talents[skillID] = talentRank(gs, skillID) + 1
+	gs.Player.TalentPoints--
+	switch skillID {
+	case "martial_energy":
+		if gs.Player.MaxEnergy <= 0 {
+			gs.Player.MaxEnergy = 40
+		}
+		gs.Player.MaxEnergy++
+		if gs.Player.Energy < gs.Player.MaxEnergy {
+			gs.Player.Energy++
+		}
+	}
+	appendLog(gs, fmt.Sprintf("Талант %s улучшен до %d/%d.", skillID, gs.Player.Talents[skillID], maxRank))
+	return nil
+}
+
 func attackConfig(attackType string) (int, string, int, bool) {
 	switch attackType {
 	case "belly_punch":
@@ -2236,17 +2283,19 @@ func attackBonusDamage(gs *GameState, attackType string) int {
 	if gs == nil {
 		return 0
 	}
+	bonus := 0
 	switch attackType {
 	case "belly_punch", "iron_claw":
 		if gs.Player.Inventory["color2"] > 0 {
-			return 5
+			bonus += 5
 		}
 	case "poison_bite":
 		if gs.Player.Inventory["color1"] > 0 {
-			return 20
+			bonus += 20
 		}
 	}
-	return 0
+	bonus += talentAttackBonusDamage(gs, attackType)
+	return bonus
 }
 
 func maybeGrantBossCosmeticDrop(gs *GameState, boss *Boss) string {
@@ -2332,50 +2381,58 @@ func newGameState() GameState {
 				Body:       "none",
 				Shoes:      "none",
 			},
+			TalentClass:          "",
+			TalentPoints:         0,
+			TalentDamageProgress: 0,
+			TalentNextThreshold:  70,
+			Talents:              map[string]int{},
 		},
 		Location: "Поле",
 		Bosses: []Boss{
 			{
-				ID:              "rat",
-				Name:            "Крыса",
-				HP:              70,
-				MaxHP:           70,
-				Attack:          4,
-				Reward:          map[Currency]int{Seeds: 20, Wheat: 2, Carrot: 1, Cucumber: 0},
-				XP:              10,
-				Defeated:        false,
-				AttackCooldowns: map[string]time.Time{},
-				KillsToday:      0,
-				KillsDay:        bossKillDayKey(),
-				KillsTotal:      0,
+				ID:               "rat",
+				Name:             "Крыса",
+				HP:               70,
+				MaxHP:            70,
+				Attack:           4,
+				Reward:           map[Currency]int{Seeds: 20, Wheat: 2, Carrot: 1, Cucumber: 0},
+				XP:               10,
+				Defeated:         false,
+				AttackCooldowns:  map[string]time.Time{},
+				KillsToday:       0,
+				KillsDay:         bossKillDayKey(),
+				KillsTotal:       0,
+				BestClearSeconds: 0,
 			},
 			{
-				ID:              "lizard",
-				Name:            "Ящерица",
-				HP:              150,
-				MaxHP:           150,
-				Attack:          8,
-				Reward:          map[Currency]int{Seeds: 50, Wheat: 3, Carrot: 0, Cucumber: 1},
-				XP:              20,
-				Defeated:        false,
-				AttackCooldowns: map[string]time.Time{},
-				KillsToday:      0,
-				KillsDay:        bossKillDayKey(),
-				KillsTotal:      0,
+				ID:               "lizard",
+				Name:             "Ящерица",
+				HP:               150,
+				MaxHP:            150,
+				Attack:           8,
+				Reward:           map[Currency]int{Seeds: 50, Wheat: 3, Carrot: 0, Cucumber: 1},
+				XP:               20,
+				Defeated:         false,
+				AttackCooldowns:  map[string]time.Time{},
+				KillsToday:       0,
+				KillsDay:         bossKillDayKey(),
+				KillsTotal:       0,
+				BestClearSeconds: 0,
 			},
 			{
-				ID:              "sand_lizard",
-				Name:            "Песчаная ящерица",
-				HP:              600,
-				MaxHP:           600,
-				Attack:          16,
-				Reward:          map[Currency]int{Seeds: 200, Wheat: 0, Carrot: 3, Cucumber: 1},
-				XP:              50,
-				Defeated:        false,
-				AttackCooldowns: map[string]time.Time{},
-				KillsToday:      0,
-				KillsDay:        bossKillDayKey(),
-				KillsTotal:      0,
+				ID:               "sand_lizard",
+				Name:             "Песчаная ящерица",
+				HP:               600,
+				MaxHP:            600,
+				Attack:           16,
+				Reward:           map[Currency]int{Seeds: 200, Wheat: 0, Carrot: 3, Cucumber: 1},
+				XP:               50,
+				Defeated:         false,
+				AttackCooldowns:  map[string]time.Time{},
+				KillsToday:       0,
+				KillsDay:         bossKillDayKey(),
+				KillsTotal:       0,
+				BestClearSeconds: 0,
 			},
 		},
 		Adventure:               defaultAdventureNodes(),
@@ -2736,6 +2793,7 @@ func advanceBossTimers(gs *GameState) {
 		}
 		if !boss.BattleEndsAt.IsZero() && now.After(boss.BattleEndsAt) {
 			appendLog(gs, fmt.Sprintf("Битва с %s завершилась поражением по таймеру.", boss.Name))
+			freezeEnergyRegenForBattle(gs, boss.BattleStartedAt, now)
 			boss.HP = boss.MaxHP
 			resetBossBattle(boss)
 			if gs.ActiveBossID == boss.ID {
@@ -2748,6 +2806,29 @@ func advanceBossTimers(gs *GameState) {
 			boss.BattleStartedAt = now.Add(-bossBattleDuration + time.Minute)
 		}
 	}
+}
+
+func freezeEnergyRegenForBattle(gs *GameState, battleStartedAt, now time.Time) {
+	if gs == nil || now.IsZero() || battleStartedAt.IsZero() {
+		return
+	}
+	if gs.Player.MaxEnergy <= 0 {
+		gs.LastEnergyRegenAt = now
+		return
+	}
+	if gs.Player.Energy >= gs.Player.MaxEnergy {
+		gs.LastEnergyRegenAt = now
+		return
+	}
+	if gs.LastEnergyRegenAt.IsZero() {
+		gs.LastEnergyRegenAt = now
+		return
+	}
+	shifted := gs.LastEnergyRegenAt.Add(now.Sub(battleStartedAt))
+	if shifted.After(now) {
+		shifted = now
+	}
+	gs.LastEnergyRegenAt = shifted
 }
 
 func bossKillDayKey() string {
@@ -2802,6 +2883,17 @@ func allBossesDefeated(gs *GameState) bool {
 	return true
 }
 
+func bossBattleInProgress(gs *GameState) bool {
+	if gs == nil || gs.ActiveBossID == "" {
+		return false
+	}
+	boss, _, ok := currentBoss(gs, gs.ActiveBossID)
+	if !ok || boss == nil || boss.Defeated {
+		return false
+	}
+	return boss.BattleEndsAt.IsZero() || time.Now().Before(boss.BattleEndsAt)
+}
+
 func advanceEnergy(gs *GameState) {
 	now := time.Now()
 	if gs.LastEnergyRegenAt.IsZero() {
@@ -2815,6 +2907,9 @@ func advanceEnergy(gs *GameState) {
 	if gs.Player.Energy >= gs.Player.MaxEnergy {
 		gs.Player.Energy = gs.Player.MaxEnergy
 		gs.LastEnergyRegenAt = now
+		return
+	}
+	if bossBattleInProgress(gs) {
 		return
 	}
 
@@ -2856,8 +2951,8 @@ func (s *Server) getSession(sessionID string) *Session {
 func (s *Session) snapshot() GameState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	advanceEnergy(&s.state)
 	advanceBossTimers(&s.state)
+	advanceEnergy(&s.state)
 	return copyState(s.state)
 }
 
