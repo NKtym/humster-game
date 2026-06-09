@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	businessUnlockLevel = 5
+	businessUnlockLevel = 12
 	businessCycle       = 12 * time.Hour
 )
 

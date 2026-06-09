@@ -6,7 +6,7 @@ function renderAccessoryMarkup(slot, value) {
   return `<div class="appearance-layer appearance-layer--${slot} appearance-layer--${value}">${label}</div>`;
 }
 
-const BUSINESS_UNLOCK_LEVEL = 5;
+const BUSINESS_UNLOCK_LEVEL = 12;
 const BUSINESS_CYCLE_MS = 12 * 60 * 60 * 1000;
 
 const BUSINESS_DEFS = {
