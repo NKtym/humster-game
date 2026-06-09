@@ -492,15 +492,21 @@ button.primary {
   background: linear-gradient(180deg, rgba(255,255,255,0.7), rgba(220,220,220,0.48));
 }
 
-.appearance-layer--mask.scarf {
-  top: 58%;
-  left: 50%;
-  width: 72%;
-  height: 30%;
+.appearance-layer--mask.appearance-layer--scarf {
+  top: 30%;
+  left: 49%;
+  width: 71%;
+  height: 37%;
+  transform: translateX(-50%);
+  z-index: 5;
   background: url('/assets/characters/hamster/layers/scarf.png') center center / contain no-repeat;
   background-color: transparent;
+  background-repeat: no-repeat;
+  background-position: center center;
+  background-size: 100% 100%;
   border-radius: 0;
   box-shadow: none;
+  opacity: 1;
 }
 
 .appearance-layer--body {
@@ -542,9 +548,9 @@ button.primary {
 
 
 .appearance-layer--headwear.appearance-layer--cap {
-  top: 6%;
-  left: 43%;
-  width: 43%;
+  top: 8%;
+  left: 48%;
+  width: 39%;
   height: 35%;
   background: url('/assets/characters/hamster/layers/cap.png') center top / contain no-repeat;
   background-color: transparent;
@@ -554,10 +560,12 @@ button.primary {
 
 .appearance-layer--glasses.appearance-layer--glasses_round {
   top: 21%;
-  width: 196%;
+  left: 50%;
+  width: 88%;
   height: 34%;
   background: url('/assets/characters/hamster/layers/glasses_round.png') center center / contain no-repeat;
   background-color: transparent;
+  background-size: 100% 100%;
   border-radius: 0;
   box-shadow: none;
 }
@@ -601,12 +609,27 @@ button.primary {
   border: 1px solid rgba(255, 255, 255, 0.18);
 }
 
-.panel-action img {
-  width: 72px;
-  height: 72px;
+.panel-action__icon {
+  width: 88px;
+  height: 88px;
   flex: 0 0 auto;
   object-fit: contain;
   filter: drop-shadow(0 8px 16px rgba(0,0,0,0.12));
+}
+
+.panel-action__icon--battle {
+  width: 105px;
+  height: 105px;
+}
+
+.panel-action__icon--map {
+  width: 110px;
+  height: 110px;
+}
+
+.panel-action__icon--business {
+  width: 80px;
+  height: 80px;
 }
 
 .panel-action strong,
@@ -779,3 +802,137 @@ button.primary {
   display: none !important;
 }
 
+.business-screen {
+  margin-top: 16px;
+}
+
+.business-note-banner {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(255, 232, 171, 0.12);
+  border: 1px solid rgba(255, 233, 186, 0.16);
+  color: #fff1d5;
+  font-weight: 700;
+}
+
+
+.business-layout {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.business-locked {
+  display: grid;
+  place-items: center;
+  min-height: 280px;
+}
+
+.business-locked__panel {
+  width: min(620px, 100%);
+  padding: 24px;
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(92, 53, 21, 0.82), rgba(67, 36, 14, 0.84));
+  border: 1px solid rgba(255, 226, 160, 0.16);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.business-locked__panel p {
+  margin-top: 8px;
+}
+
+.business-card {
+  display: grid;
+  gap: 0;
+  border-radius: 26px;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+  border: 1px solid rgba(255, 233, 186, 0.12);
+}
+
+.business-card.is-max {
+  opacity: 0.96;
+}
+
+.business-card__img {
+  width: 100%;
+  height: 230px;
+  display: block;
+  object-fit: cover;
+  background: rgba(33, 19, 9, 0.20);
+}
+
+.business-card__body {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.business-card__head {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.business-card__head strong {
+  display: block;
+  font-size: 20px;
+}
+
+.business-card__head span {
+  display: block;
+  margin-top: 6px;
+  color: rgba(255, 236, 208, 0.84);
+}
+
+.business-card__stats {
+  display: grid;
+  gap: 10px;
+}
+
+.business-stat {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255, 233, 186, 0.08);
+}
+
+.business-stat span {
+  font-size: 12px;
+  color: rgba(255, 236, 208, 0.72);
+}
+
+.business-stat strong {
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.business-card__action {
+  width: 100%;
+}
+
+@media (max-width: 980px) {
+  .business-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-action__icon--battle {
+    width: 72px;
+    height: 72px;
+  }
+
+  .panel-action__icon--map {
+    width: 68px;
+    height: 68px;
+  }
+
+  .panel-action__icon--business {
+    width: 60px;
+    height: 60px;
+  }
+}

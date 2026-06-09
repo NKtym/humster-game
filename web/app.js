@@ -70,11 +70,11 @@ const VIEW_KEY = 'humster_view';
 
 function getSavedView() {
   const saved = localStorage.getItem(VIEW_KEY);
-  return ['main', 'battle', 'adventure', 'edit', 'talents'].includes(saved) ? saved : 'main';
+  return ['main', 'battle', 'adventure', 'business', 'edit', 'talents'].includes(saved) ? saved : 'main';
 }
 
 function setView(nextView) {
-  view = ['main', 'battle', 'adventure', 'edit', 'talents'].includes(nextView) ? nextView : 'main';
+  view = ['main', 'battle', 'adventure', 'business', 'edit', 'talents'].includes(nextView) ? nextView : 'main';
   localStorage.setItem(VIEW_KEY, view);
 }
 
@@ -351,9 +351,9 @@ const DEFAULT_STATE = {
   },
   location: 'Поле',
   bosses: [
-    { id: 'rat', name: 'Крыса', hp: 70, maxHp: 70, attack: 4, reward: { seeds: 20, wheat: 2, carrot: 1, cucumber: 0 }, xp: 10, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0, bestClearSeconds: 0 },
-    { id: 'lizard', name: 'Ящерица', hp: 150, maxHp: 150, attack: 8, reward: { seeds: 50, wheat: 3, carrot: 0, cucumber: 1 }, xp: 20, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0, bestClearSeconds: 0 },
-    { id: 'sand_lizard', name: 'Песчаная ящерица', hp: 600, maxHp: 600, attack: 16, reward: { seeds: 200, wheat: 0, carrot: 3, cucumber: 1 }, xp: 50, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0, bestClearSeconds: 0 },
+    { id: 'rat', name: 'Крыса', hp: 70, maxHp: 70, attack: 4, reward: { seeds: 20, wheat: 2, carrot: 1, cucumber: 0 }, xp: 10, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'lizard', name: 'Ящерица', hp: 150, maxHp: 150, attack: 8, reward: { seeds: 50, wheat: 3, carrot: 0, cucumber: 1 }, xp: 20, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'sand_lizard', name: 'Песчаная ящерица', hp: 600, maxHp: 600, attack: 16, reward: { seeds: 200, wheat: 0, carrot: 3, cucumber: 1 }, xp: 50, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
   ],
   activeBossId: '',
   locationPasses: 0,
@@ -376,6 +376,12 @@ const DEFAULT_STATE = {
     completed: false,
   })),
   activeAdventureId: 'stage5',
+  business: {
+    shopLevel: 0,
+    shopLastClaimAt: '',
+    wheelLevel: 0,
+    wheelLastClaimAt: '',
+  },
   log: ['Добро пожаловать в поле хомяков.'],
   updatedAt: new Date().toISOString(),
   lastEnergyRegenAt: new Date().toISOString(),
@@ -528,6 +534,7 @@ function normalizeBosses(stateBosses = []) {
     const maxHp = tpl.hp;
     const killsToday = clampNumber(existing.killsToday ?? 0, 0, BOSS_KILL_LIMIT);
     const killsDay = existing.killsDay || bossKillDayKey();
+    const bestClearSeconds = clampNumber(existing.bestClearSeconds ?? 0, 0, 9999999);
     const reward = { ...(existing.reward && typeof existing.reward === 'object' ? existing.reward : {}) };
     reward.seeds = tpl.reward.seeds;
     reward.wheat = tpl.reward.wheat;
@@ -536,7 +543,6 @@ function normalizeBosses(stateBosses = []) {
     const attackCooldowns = existing.attackCooldowns && typeof existing.attackCooldowns === 'object' ? { ...existing.attackCooldowns } : {};
     const defeated = Boolean(existing.defeated) || clampNumber(existing.hp ?? maxHp, 0, maxHp) <= 0;
     const killsTotal = clampNumber(existing.killsTotal ?? 0, 0, 9999999);
-    const bestClearSeconds = clampNumber(existing.bestClearSeconds ?? 0, 0, 9999999);
 
     return {
       ...existing,
@@ -575,11 +581,6 @@ function normalizeBossTimers(state) {
     if (!boss.defeated && cleanTimestamp(boss.battleEndsAt)) {
       const endsAt = toMillis(boss.battleEndsAt);
       if (endsAt && now > endsAt) {
-        const startedAt = toMillis(boss.battleStartedAt);
-        if (startedAt) {
-          const shifted = toMillis(next.lastEnergyRegenAt) + (now - startedAt);
-          next.lastEnergyRegenAt = new Date(Math.min(now, Math.max(0, shifted || now))).toISOString();
-        }
         boss.hp = boss.maxHp;
         boss.battleStartedAt = '';
         boss.battleEndsAt = '';
@@ -650,8 +651,6 @@ function normalizeState(state) {
   next.bossBattleDamageCurrent = Math.max(0, Number(state.bossBattleDamageCurrent ?? next.bossBattleDamageCurrent) || 0);
   next.bossBattleDamageBest = Math.max(0, Number(state.bossBattleDamageBest ?? next.bossBattleDamageBest) || 0);
   next.economyTotals = { ...DEFAULT_STATE.economyTotals, ...((state && state.economyTotals) || {}) };
-  next.updatedAt = state.updatedAt || next.updatedAt;
-  next.lastEnergyRegenAt = state.lastEnergyRegenAt || next.lastEnergyRegenAt;
   if (next.bossBattleDamageBest < next.bossBattleDamageCurrent) {
     next.bossBattleDamageBest = next.bossBattleDamageCurrent;
   }
@@ -662,12 +661,21 @@ function normalizeState(state) {
   normalizeBossTimers(next);
   refreshBossKillLimit(next);
 
+  next.business = {
+    shopLevel: clampNumber(state?.business?.shopLevel ?? next.business?.shopLevel ?? 0, 0, 100),
+    shopLastClaimAt: cleanTimestamp(state?.business?.shopLastClaimAt || next.business?.shopLastClaimAt || ''),
+    wheelLevel: clampNumber(state?.business?.wheelLevel ?? next.business?.wheelLevel ?? 0, 0, 100),
+    wheelLastClaimAt: cleanTimestamp(state?.business?.wheelLastClaimAt || next.business?.wheelLastClaimAt || ''),
+  };
+
   next.adventure = mergeAdventure(state.adventure);
   next.activeAdventureId = state.activeAdventureId && next.adventure.some((node) => node.id === state.activeAdventureId)
     ? state.activeAdventureId
     : next.adventure.find((node) => !node.completed)?.id || next.adventure[0]?.id || '';
 
   next.log = Array.isArray(state.log) ? [...state.log] : [...next.log];
+  next.updatedAt = state.updatedAt || next.updatedAt;
+  next.lastEnergyRegenAt = state.lastEnergyRegenAt || next.lastEnergyRegenAt;
   return next;
 }
 
@@ -696,18 +704,11 @@ function timeRemainingLabel(isoString) {
   return formatCountdown(ms - Date.now());
 }
 
-function activeBossBattle(state) {
-  const boss = bossById(state, state?.activeBossId);
-  if (!boss || boss.defeated) return false;
-  const endsAt = cleanTimestamp(boss.battleEndsAt);
-  return !endsAt || toMillis(endsAt) > Date.now();
-}
-
 function advanceLocalEnergy(state) {
   if (!state || !state.player) return state;
   const next = state;
   const now = Date.now();
-  const maxEnergy = 40;
+  const maxEnergy = Math.max(1, Number(next.player.maxEnergy) || 40);
   const energy = clampNumber(next.player.energy, 0, maxEnergy);
   const lastTick = toMillis(next.lastEnergyRegenAt) || now;
 
@@ -721,10 +722,6 @@ function advanceLocalEnergy(state) {
   if (energy >= maxEnergy) {
     next.player.energy = maxEnergy;
     next.lastEnergyRegenAt = new Date(now).toISOString();
-    return next;
-  }
-
-  if (activeBossBattle(next)) {
     return next;
   }
 
@@ -749,8 +746,8 @@ function advanceLocalEnergy(state) {
 
 function getEnergyCountdown(state) {
   const player = state?.player || {};
-  const energy = clampNumber(player.energy, 0, 40);
-  const maxEnergy = 40;
+  const maxEnergy = Math.max(1, Number(player.maxEnergy) || 40);
+  const energy = clampNumber(player.energy, 0, maxEnergy);
   if (energy >= maxEnergy) return 'Энергия полная';
   const lastTick = toMillis(state?.lastEnergyRegenAt);
   if (!lastTick) return '+1 через 04:00';
@@ -780,6 +777,14 @@ function bossDailyRemaining(boss) {
 
 function bossById(state, id) {
   return (state?.bosses || []).find((boss) => boss.id === id) || null;
+}
+
+function isBossBattleActive(state) {
+  const boss = bossById(state, state?.activeBossId);
+  if (!boss || boss.defeated) return false;
+  const startedAt = toMillis(boss.battleStartedAt);
+  const endsAt = toMillis(boss.battleEndsAt);
+  return startedAt > 0 && endsAt > Date.now();
 }
 
 function getAdventureDef(id) {
@@ -1061,6 +1066,33 @@ function formatSeenAt(value) {
   return date.toLocaleString('ru-RU');
 }
 
+
+function countUnlockedAchievements(state) {
+  const bestBattleDamage = Math.max(0, Number(state?.bossBattleDamageBest) || 0);
+  const battleDamageUnlocked = BATTLE_DAMAGE_ACHIEVEMENTS.filter((threshold) => bestBattleDamage >= threshold).length;
+
+  const bosses = Array.isArray(state?.bosses) ? state.bosses : [];
+  const speedTargets = [
+    { bossId: 'rat', threshold: 3600 },
+    { bossId: 'lizard', threshold: 3600 },
+    { bossId: 'sand_lizard', threshold: 3600 },
+  ];
+  const speedUnlocked = speedTargets.reduce((sum, target) => {
+    const boss = bosses.find((item) => item && item.id === target.bossId);
+    const bestClearSeconds = Math.max(0, Number(boss?.bestClearSeconds) || 0);
+    return sum + (bestClearSeconds > 0 && bestClearSeconds <= target.threshold ? 1 : 0);
+  }, 0);
+
+  const totals = state?.economyTotals || {};
+  const economyUnlocked = ECONOMY_ACHIEVEMENTS.reduce((sum, resource) => {
+    const total = Math.max(0, Number(totals?.[resource.key]) || 0);
+    const unlocked = ECONOMY_ACHIEVEMENT_THRESHOLDS.filter((threshold) => total >= threshold).length;
+    return sum + unlocked;
+  }, 0);
+
+  return battleDamageUnlocked + speedUnlocked + economyUnlocked;
+}
+
 function renderProfileSummary(profile) {
   const state = profile?.state || {};
   const player = state.player || {};
@@ -1084,8 +1116,10 @@ function renderProfileSummary(profile) {
       </div>
     `;
 
+  const totalAchievements = countUnlockedAchievements(state);
   const stats = [
     { label: 'Уровень хомяка', value: String(player.level || 1) },
+    { label: 'Получено достижений', value: formatAchievementNumber(totalAchievements) },
     { label: 'Урон за день', value: formatAchievementNumber(bossDamageDay) },
     { label: 'Урон за неделю', value: formatAchievementNumber(bossDamageWeek) },
     { label: 'Урон за месяц', value: formatAchievementNumber(bossDamageMonth) },

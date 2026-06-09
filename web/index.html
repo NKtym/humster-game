@@ -93,7 +93,7 @@
               </div>
 
               <button id="btn-battle-panel" class="panel-action panel-action--battle" type="button">
-                <img src="/assets/ui/buttons/boss-battle-btn.png" alt="" />
+                <img class="panel-action__icon panel-action__icon--battle" src="/assets/ui/buttons/boss-battle-btn.png" alt="" />
                 <div>
                   <strong>Бой с боссами</strong>
                   <span>Переход на экран выбора и битвы с боссами</span>
@@ -101,10 +101,18 @@
               </button>
 
               <button id="btn-map-panel" class="panel-action panel-action--map" type="button">
-                <img src="/assets/ui/buttons/adventure-map-btn.png" alt="" />
+                <img class="panel-action__icon panel-action__icon--map" src="/assets/ui/buttons/adventure-map-btn.png" alt="" />
                 <div>
                   <strong>Карта приключений</strong>
                   <span>Открыть маршрут</span>
+                </div>
+              </button>
+
+              <button id="btn-business-panel" class="panel-action panel-action--business" type="button" title="Откроется с 5 уровня">
+                <img class="panel-action__icon panel-action__icon--business" src="/assets/business/menu.png" alt="" />
+                <div>
+                  <strong>Бизнес</strong>
+                  <span>Пассивный доход</span>
                 </div>
               </button>
             </div>
@@ -156,6 +164,18 @@
         <button id="btn-adventure-back-top" class="ghost" type="button">Вернуться к сцене</button>
       </div>
       <div id="adventure-screen-body"></div>
+    </section>
+
+    <section id="business-screen" class="card battle-screen business-screen" hidden>
+      <div class="battle-screen__head">
+        <div>
+          <div class="eyebrow">Бизнес</div>
+          <h2>Пассивный доход</h2>
+          <p>Магазин и колёсико открываются с 5 уровня хомяка.</p>
+        </div>
+        <button id="btn-business-back" class="ghost" type="button">Вернуться к сцене</button>
+      </div>
+      <div id="business-screen-body"></div>
     </section>
   </div>
 

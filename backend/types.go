@@ -44,6 +44,13 @@ type Boss struct {
 	BestClearSeconds int                  `json:"bestClearSeconds"`
 }
 
+type Business struct {
+	ShopLevel        int       `json:"shopLevel"`
+	ShopLastClaimAt  time.Time `json:"shopLastClaimAt"`
+	WheelLevel       int       `json:"wheelLevel"`
+	WheelLastClaimAt time.Time `json:"wheelLastClaimAt"`
+}
+
 type AdventureNode struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
@@ -93,6 +100,7 @@ type GameState struct {
 	ActiveBossID            string           `json:"activeBossId"`
 	Adventure               []AdventureNode  `json:"adventure"`
 	ActiveAdventureID       string           `json:"activeAdventureId"`
+	Business                Business         `json:"business"`
 	BossKillsToday          int              `json:"bossKillsToday"`
 	BossKillsDay            string           `json:"bossKillsDay"`
 	LocationPasses          int              `json:"locationPasses"`

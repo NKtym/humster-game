@@ -6,6 +6,107 @@ function renderAccessoryMarkup(slot, value) {
   return `<div class="appearance-layer appearance-layer--${slot} appearance-layer--${value}">${label}</div>`;
 }
 
+const BUSINESS_UNLOCK_LEVEL = 5;
+const BUSINESS_CYCLE_MS = 12 * 60 * 60 * 1000;
+
+const BUSINESS_DEFS = {
+  shop: {
+    id: 'shop',
+    name: 'Магазин',
+    image: '/assets/business/shop.png',
+    purchaseCost: 1000,
+    upgradeBaseCost: 500,
+    upgradeStep: 50,
+    rewardLabel: 'семечек',
+    rewardPerLevel: 10,
+    action: 'buy_business_shop',
+    description: 'Даёт семечки каждые 12 часов.',
+  },
+  wheel: {
+    id: 'wheel',
+    name: 'Колёсико',
+    image: '/assets/business/wheel.png',
+    purchaseCost: 500,
+    upgradeBaseCost: 300,
+    upgradeStep: 40,
+    rewardLabel: 'опыта',
+    rewardPerLevel: 1,
+    action: 'buy_business_wheel',
+    description: 'Даёт опыт каждые 12 часов.',
+  },
+};
+
+function businessState(state) {
+  return state?.business || {};
+}
+
+function businessUpgradeCost(def, level) {
+  if (level <= 0) return def.purchaseCost;
+  if (level >= 100) return 0;
+  return def.upgradeBaseCost + def.upgradeStep * (level - 1);
+}
+
+function businessRewardAmount(def, level) {
+  return Math.max(0, Number(level) || 0) * def.rewardPerLevel;
+}
+
+function businessNextClaimCountdown(lastClaimAt) {
+  const ms = toMillis(lastClaimAt);
+  if (!ms) return '';
+  const elapsed = Date.now() - ms;
+  const remaining = BUSINESS_CYCLE_MS - (elapsed % BUSINESS_CYCLE_MS);
+  return formatCountdown(remaining);
+}
+
+function advanceLocalBusiness(state) {
+  if (!state || !state.player) return state;
+  const next = state;
+  const business = next.business || {};
+  const now = Date.now();
+
+  const shopLevel = Math.max(0, Math.min(100, Number(business.shopLevel) || 0));
+  if (shopLevel > 0) {
+    const key = 'shopLastClaimAt';
+    const lastTick = toMillis(business[key]) || now;
+    if (!business[key] || !toMillis(business[key])) {
+      business[key] = new Date(now).toISOString();
+    } else {
+      const elapsed = now - lastTick;
+      if (elapsed >= BUSINESS_CYCLE_MS) {
+        const cycles = Math.floor(elapsed / BUSINESS_CYCLE_MS);
+        const payout = cycles * businessRewardAmount(BUSINESS_DEFS.shop, shopLevel);
+        if (payout > 0) {
+          next.player.currency.seeds = Math.max(0, Number(next.player.currency.seeds) || 0) + payout;
+        }
+        business[key] = new Date(lastTick + (cycles * BUSINESS_CYCLE_MS)).toISOString();
+      }
+    }
+  }
+
+  const wheelLevel = Math.max(0, Math.min(100, Number(business.wheelLevel) || 0));
+  if (wheelLevel > 0) {
+    const key = 'wheelLastClaimAt';
+    const lastTick = toMillis(business[key]) || now;
+    if (!business[key] || !toMillis(business[key])) {
+      business[key] = new Date(now).toISOString();
+    } else {
+      const elapsed = now - lastTick;
+      if (elapsed >= BUSINESS_CYCLE_MS) {
+        const cycles = Math.floor(elapsed / BUSINESS_CYCLE_MS);
+        const payout = cycles * businessRewardAmount(BUSINESS_DEFS.wheel, wheelLevel);
+        if (payout > 0) {
+          next.player.xp = Math.max(0, Number(next.player.xp) || 0) + payout;
+          recalcLevel(next);
+        }
+        business[key] = new Date(lastTick + (cycles * BUSINESS_CYCLE_MS)).toISOString();
+      }
+    }
+  }
+
+  next.business = business;
+  return next;
+}
+
 function renderResourceStrip(state) {
   const p = state.player;
   const currencies = p.currency || {};
@@ -114,6 +215,7 @@ function hasAttackCharge(state, attackType) {
 
 function applyLocalAction(action, payload = {}) {
   const state = currentState;
+  advanceLocalBusiness(state);
   const bossIndex = state.bosses.findIndex((boss) => boss.id === state.activeBossId);
   const boss = bossIndex >= 0 ? state.bosses[bossIndex] : null;
 
@@ -232,6 +334,25 @@ function applyLocalAction(action, payload = {}) {
       }
       return;
     }
+    case 'buy_business_shop':
+    case 'buy_business_wheel': {
+      const def = action === 'buy_business_shop' ? BUSINESS_DEFS.shop : BUSINESS_DEFS.wheel;
+      const key = action === 'buy_business_shop' ? 'shop' : 'wheel';
+      const levelKey = `${key}Level`;
+      const timeKey = `${key}LastClaimAt`;
+      const currentLevel = Math.max(0, Number(state.business?.[levelKey]) || 0);
+      if ((state.player.level || 1) < BUSINESS_UNLOCK_LEVEL) return;
+      if (currentLevel >= 100) return;
+      const cost = businessUpgradeCost(def, currentLevel);
+      if ((state.player.currency.seeds || 0) < cost) return;
+      state.player.currency.seeds -= cost;
+      state.business = state.business || { shopLevel: 0, shopLastClaimAt: '', wheelLevel: 0, wheelLastClaimAt: '' };
+      state.business[levelKey] = currentLevel <= 0 ? 1 : currentLevel + 1;
+      if (currentLevel <= 0) {
+        state.business[timeKey] = new Date().toISOString();
+      }
+      return;
+    }
     case 'select_adventure': {
       const nodeId = payload.nodeId;
       if (nodeId && currentState.adventure.some((node) => node.id === nodeId)) {
@@ -313,6 +434,10 @@ function applyLocalAction(action, payload = {}) {
   }
 }
 
+function isBusinessAction(action) {
+  return action === 'buy_business_shop' || action === 'buy_business_wheel';
+}
+
 async function syncAction(action, payload = {}) {
   const response = await api('/action', { action, ...payload });
   if (response.data && response.data.state) {
@@ -324,6 +449,13 @@ async function syncAction(action, payload = {}) {
   } else {
     applyLocalAction(action, payload);
   }
+
+  // Бизнес должен быть отзывчивым даже если сервер ответил ошибкой без
+  // актуального состояния: локальная логика здесь полностью совпадает с backend.
+  if (!response.ok && isBusinessAction(action)) {
+    applyLocalAction(action, payload);
+  }
+
   render();
   return response;
 }
@@ -699,6 +831,107 @@ function renderAdventureScreen() {
   }
 }
 
+function renderBusinessScreen() {
+  const body = $('#business-screen-body');
+  if (!body) return;
+
+  const level = Number(currentState?.player?.level || 1);
+  const unlocked = level >= BUSINESS_UNLOCK_LEVEL;
+  const seeds = Math.max(0, Number(currentState?.player?.currency?.seeds) || 0);
+  const business = currentState.business || {};
+  const latestLog = Array.isArray(currentState.log) && currentState.log.length > 0 ? currentState.log[0] : '';
+  const cards = Object.values(BUSINESS_DEFS).map((def) => {
+    const currentLevel = Math.max(0, Number(business[`${def.id}Level`] || 0));
+    const lastClaimAt = business[`${def.id}LastClaimAt`] || '';
+    const nextCost = businessUpgradeCost(def, currentLevel);
+    const purchaseCost = def.purchaseCost;
+    const cost = currentLevel <= 0 ? purchaseCost : nextCost;
+    const canAfford = seeds >= cost;
+    const payout = businessRewardAmount(def, Math.max(1, currentLevel || 0));
+    const countdown = currentLevel > 0 ? businessNextClaimCountdown(lastClaimAt) : '';
+    const maxed = currentLevel >= 100;
+    const actionLabel = currentLevel <= 0
+      ? `Купить за ${purchaseCost} семечек`
+      : (maxed ? 'Максимальный уровень' : `Прокачать за ${nextCost} семечек`);
+    const actionDisabled = !unlocked || maxed;
+    const subtitle = currentLevel <= 0
+      ? 'После покупки доход начнёт приходить каждые 12 часов.'
+      : `Приносит ${payout} ${def.rewardLabel} каждые 12 часов.`;
+    const timer = currentLevel <= 0
+      ? 'Пока не куплено'
+      : (countdown ? `Следующая выплата через ${countdown}` : 'Таймер запускается после покупки');
+    const fundsHint = currentLevel <= 0
+      ? `Нужно ${purchaseCost} семечек${canAfford ? ' • можно купить' : ` • не хватает ${Math.max(0, purchaseCost - seeds)}`}`
+      : (maxed ? 'Уровень уже максимальный' : `Нужно ${nextCost} семечек${canAfford ? ' • можно улучшить' : ` • не хватает ${Math.max(0, nextCost - seeds)}`}`);
+    return `
+      <article class="business-card ${maxed ? 'is-max' : ''}">
+        <img class="business-card__img" src="${def.image}" alt="${def.name}" />
+        <div class="business-card__body">
+          <div class="business-card__head">
+            <div>
+              <strong>${def.name}</strong>
+              <span>${subtitle}</span>
+            </div>
+            <div class="tag">Уровень ${currentLevel}/100</div>
+          </div>
+          <div class="business-card__stats">
+            <div class="business-stat">
+              <span>Доход</span>
+              <strong>${payout} ${def.rewardLabel}</strong>
+            </div>
+            <div class="business-stat">
+              <span>Покупка / следующий уровень</span>
+              <strong>${actionLabel}</strong>
+            </div>
+            <div class="business-stat">
+              <span>Семечки</span>
+              <strong>${fundsHint}</strong>
+            </div>
+            <div class="business-stat">
+              <span>Таймер</span>
+              <strong>${timer}</strong>
+            </div>
+          </div>
+          <button type="button" class="primary business-card__action" data-business-action="${def.action}" ${actionDisabled ? 'disabled' : ''}>
+            ${actionLabel}
+          </button>
+        </div>
+      </article>
+    `;
+  }).join('');
+
+  if (!unlocked) {
+    body.innerHTML = `
+      <div class="business-locked">
+        <div class="business-locked__panel">
+          <div class="eyebrow">Бизнес недоступен</div>
+          <h3>Откроется с ${BUSINESS_UNLOCK_LEVEL} уровня хомяка</h3>
+          <p>Пока бизнес закрыт. Как только хомяк достигнет ${BUSINESS_UNLOCK_LEVEL} уровня, здесь появятся магазин и колёсико.</p>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  body.innerHTML = `
+    ${latestLog ? `<div class="business-note-banner">${latestLog}</div>` : ''}
+    <div class="business-layout">
+      ${cards}
+    </div>
+  `;
+
+  document.querySelectorAll('[data-business-action]').forEach((btn) => {
+    btn.onclick = async () => {
+      const action = btn.dataset.businessAction;
+      if (!action) return;
+      btn.disabled = true;
+      await syncAction(action, {});
+      setView('business');
+      render();
+    };
+  });
+}
+
 function renderAppearanceOptionButton(option, slot) {
   const selected = (currentState.player.appearance?.[slot] || (slot === 'background' ? currentState.player.wallpaper : 'none')) === option.id;
   const thumbStyle = option.color ? `style="--chip-color: ${option.color};"` : '';
@@ -798,6 +1031,7 @@ function renderEditScreen() {
 
 function render() {
   currentState = normalizeState(currentState);
+  currentState = advanceLocalBusiness(currentState);
   if (!currentState.activeBossId) {
     currentState = advanceLocalEnergy(currentState);
   }
@@ -809,6 +1043,14 @@ function render() {
   document.body.classList.toggle('is-authenticated', isAuthenticated);
   document.body.classList.toggle('is-guest', !isAuthenticated);
   renderResourceStrip(currentState);
+  const businessPanelButton = $('#btn-business-panel');
+  if (businessPanelButton) {
+    const playerLevel = Math.max(1, Number(currentState?.player?.level) || 1);
+    businessPanelButton.disabled = playerLevel < BUSINESS_UNLOCK_LEVEL;
+    businessPanelButton.title = businessPanelButton.disabled
+      ? `Откроется с ${BUSINESS_UNLOCK_LEVEL} уровня`
+      : 'Открыть бизнес';
+  }
   updateScene(currentState);
   updateFriendsBadge();
   if (isAuthenticated) {
@@ -843,6 +1085,7 @@ function render() {
   const main = $('#main-screen');
   const battle = $('#battle-screen');
   const adventure = $('#adventure-screen');
+  const business = $('#business-screen');
   const edit = $('#edit-screen');
   const talents = $('#talents-screen');
 
@@ -859,6 +1102,7 @@ function render() {
   if (view === 'battle') {
     main.hidden = true;
     adventure.hidden = true;
+    business.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
     battle.hidden = false;
@@ -866,14 +1110,24 @@ function render() {
   } else if (view === 'adventure') {
     main.hidden = true;
     battle.hidden = true;
+    business.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
     adventure.hidden = false;
     renderAdventureScreen();
+  } else if (view === 'business') {
+    main.hidden = true;
+    battle.hidden = true;
+    adventure.hidden = true;
+    edit.hidden = true;
+    if (talents) talents.hidden = true;
+    business.hidden = false;
+    renderBusinessScreen();
   } else if (view === 'edit') {
     main.hidden = true;
     battle.hidden = true;
     adventure.hidden = true;
+    business.hidden = true;
     if (talents) talents.hidden = true;
     edit.hidden = false;
     renderEditScreen();
@@ -881,12 +1135,14 @@ function render() {
     main.hidden = true;
     battle.hidden = true;
     adventure.hidden = true;
+    business.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = false;
     renderTalentsScreen();
   } else {
     battle.hidden = true;
     adventure.hidden = true;
+    business.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
     main.hidden = false;
@@ -972,6 +1228,24 @@ function initTopButtons() {
   if (mapPanelButton) {
     mapPanelButton.onclick = () => {
       setView('adventure');
+      render();
+    };
+  }
+
+  const businessBackButton = $('#btn-business-back');
+  if (businessBackButton) {
+    businessBackButton.onclick = () => {
+      setView('main');
+      render();
+    };
+  }
+
+  const businessPanelButton = $('#btn-business-panel');
+  if (businessPanelButton) {
+    businessPanelButton.disabled = Number(currentState?.player?.level || 1) < BUSINESS_UNLOCK_LEVEL;
+    businessPanelButton.onclick = () => {
+      if (businessPanelButton.disabled) return;
+      setView('business');
       render();
     };
   }
@@ -1085,6 +1359,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   if (!uiTicker) {
     uiTicker = window.setInterval(() => {
+      currentState = advanceLocalBusiness(currentState);
       if (!currentState.activeBossId) {
         currentState = advanceLocalEnergy(currentState);
       }

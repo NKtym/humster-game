@@ -22,6 +22,11 @@ import (
 	"time"
 )
 
+const (
+	businessUnlockLevel = 5
+	businessCycle       = 12 * time.Hour
+)
+
 func main() {
 	srv := newServer()
 	mux := http.NewServeMux()
@@ -142,8 +147,9 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	}
 	defer lease.release()
 
-	advanceBossTimers(lease.state)
 	advanceEnergy(lease.state)
+	advanceBusiness(lease.state)
+	advanceBossTimers(lease.state)
 	if err := lease.commit(); err != nil {
 		writeJSON(w, ActionResponse{OK: false, Error: err.Error()})
 		return
@@ -181,8 +187,9 @@ func (s *Server) handleName(w http.ResponseWriter, r *http.Request) {
 	}
 	defer lease.release()
 
-	advanceBossTimers(lease.state)
 	advanceEnergy(lease.state)
+	advanceBusiness(lease.state)
+	advanceBossTimers(lease.state)
 	lease.state.Player.Name = name
 	appendLog(lease.state, fmt.Sprintf("Теперь тебя зовут %s.", name))
 
@@ -214,10 +221,9 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	}
 	defer lease.release()
 
+	advanceEnergy(lease.state)
+	advanceBusiness(lease.state)
 	advanceBossTimers(lease.state)
-	if req.Action != "attack_boss" {
-		advanceEnergy(lease.state)
-	}
 	lease.state.UpdatedAt = time.Now()
 
 	switch req.Action {
@@ -237,6 +243,10 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		err = s.buyAttack(lease.state, req.AttackType)
 	case "buy_item":
 		err = s.buyItem(lease.state, req.ItemID)
+	case "buy_business_shop":
+		err = s.buyBusiness(lease.state, "shop")
+	case "buy_business_wheel":
+		err = s.buyBusiness(lease.state, "wheel")
 	case "equip_item":
 		err = s.equipItem(lease.state, req.ItemID)
 	case "rest":
@@ -1306,6 +1316,18 @@ func normalizeGameState(state *GameState) {
 	if state.Player.Defense < 0 {
 		state.Player.Defense = defaults.Player.Defense
 	}
+	if state.Business.ShopLevel < 0 {
+		state.Business.ShopLevel = 0
+	}
+	if state.Business.ShopLevel > 100 {
+		state.Business.ShopLevel = 100
+	}
+	if state.Business.WheelLevel < 0 {
+		state.Business.WheelLevel = 0
+	}
+	if state.Business.WheelLevel > 100 {
+		state.Business.WheelLevel = 100
+	}
 	if state.Player.Currency == nil {
 		state.Player.Currency = map[Currency]int{}
 	}
@@ -1596,7 +1618,6 @@ func (s *Server) finishBossBattle(gs *GameState) error {
 	}
 
 	gs.Player.Currency[Kormik]--
-	freezeEnergyRegenForBattle(gs, boss.BattleStartedAt, now)
 	gs.Bosses[idx].HP = gs.Bosses[idx].MaxHP
 	resetBossBattle(&gs.Bosses[idx])
 	resetBossBattleDamage(gs)
@@ -1636,7 +1657,6 @@ func finalizeBossVictory(gs *GameState, idx int, now time.Time) {
 	}
 	boss := &gs.Bosses[idx]
 	if !boss.BattleStartedAt.IsZero() {
-		freezeEnergyRegenForBattle(gs, boss.BattleStartedAt, now)
 		clearSeconds := int(now.Sub(boss.BattleStartedAt).Seconds())
 		if clearSeconds > 0 && (boss.BestClearSeconds <= 0 || clearSeconds < boss.BestClearSeconds) {
 			boss.BestClearSeconds = clearSeconds
@@ -2438,6 +2458,7 @@ func newGameState() GameState {
 		Adventure:               defaultAdventureNodes(),
 		ActiveAdventureID:       adventureBlueprints[0].ID,
 		ActiveBossID:            "",
+		Business:                Business{},
 		BossKillsToday:          0,
 		BossKillsDay:            bossKillDayKey(),
 		LocationPasses:          0,
@@ -2793,7 +2814,6 @@ func advanceBossTimers(gs *GameState) {
 		}
 		if !boss.BattleEndsAt.IsZero() && now.After(boss.BattleEndsAt) {
 			appendLog(gs, fmt.Sprintf("Битва с %s завершилась поражением по таймеру.", boss.Name))
-			freezeEnergyRegenForBattle(gs, boss.BattleStartedAt, now)
 			boss.HP = boss.MaxHP
 			resetBossBattle(boss)
 			if gs.ActiveBossID == boss.ID {
@@ -2806,29 +2826,6 @@ func advanceBossTimers(gs *GameState) {
 			boss.BattleStartedAt = now.Add(-bossBattleDuration + time.Minute)
 		}
 	}
-}
-
-func freezeEnergyRegenForBattle(gs *GameState, battleStartedAt, now time.Time) {
-	if gs == nil || now.IsZero() || battleStartedAt.IsZero() {
-		return
-	}
-	if gs.Player.MaxEnergy <= 0 {
-		gs.LastEnergyRegenAt = now
-		return
-	}
-	if gs.Player.Energy >= gs.Player.MaxEnergy {
-		gs.LastEnergyRegenAt = now
-		return
-	}
-	if gs.LastEnergyRegenAt.IsZero() {
-		gs.LastEnergyRegenAt = now
-		return
-	}
-	shifted := gs.LastEnergyRegenAt.Add(now.Sub(battleStartedAt))
-	if shifted.After(now) {
-		shifted = now
-	}
-	gs.LastEnergyRegenAt = shifted
 }
 
 func bossKillDayKey() string {
@@ -2883,17 +2880,6 @@ func allBossesDefeated(gs *GameState) bool {
 	return true
 }
 
-func bossBattleInProgress(gs *GameState) bool {
-	if gs == nil || gs.ActiveBossID == "" {
-		return false
-	}
-	boss, _, ok := currentBoss(gs, gs.ActiveBossID)
-	if !ok || boss == nil || boss.Defeated {
-		return false
-	}
-	return boss.BattleEndsAt.IsZero() || time.Now().Before(boss.BattleEndsAt)
-}
-
 func advanceEnergy(gs *GameState) {
 	now := time.Now()
 	if gs.LastEnergyRegenAt.IsZero() {
@@ -2907,9 +2893,6 @@ func advanceEnergy(gs *GameState) {
 	if gs.Player.Energy >= gs.Player.MaxEnergy {
 		gs.Player.Energy = gs.Player.MaxEnergy
 		gs.LastEnergyRegenAt = now
-		return
-	}
-	if bossBattleInProgress(gs) {
 		return
 	}
 
@@ -2933,6 +2916,118 @@ func advanceEnergy(gs *GameState) {
 	}
 }
 
+func businessNextCost(level, base, step int) int {
+	if level <= 0 {
+		return 0
+	}
+	if level >= 100 {
+		return 0
+	}
+	return base + step*(level-1)
+}
+
+func advanceBusiness(gs *GameState) {
+	if gs == nil {
+		return
+	}
+	now := time.Now()
+	if gs.Business.ShopLevel > 0 {
+		if gs.Business.ShopLastClaimAt.IsZero() {
+			gs.Business.ShopLastClaimAt = now
+		}
+		elapsed := now.Sub(gs.Business.ShopLastClaimAt)
+		if elapsed >= businessCycle {
+			cycles := int(elapsed / businessCycle)
+			payout := cycles * gs.Business.ShopLevel * 10
+			if payout > 0 {
+				addCurrencyGain(gs, Seeds, payout)
+			}
+			gs.Business.ShopLastClaimAt = gs.Business.ShopLastClaimAt.Add(time.Duration(cycles) * businessCycle)
+		}
+	}
+	if gs.Business.WheelLevel > 0 {
+		if gs.Business.WheelLastClaimAt.IsZero() {
+			gs.Business.WheelLastClaimAt = now
+		}
+		elapsed := now.Sub(gs.Business.WheelLastClaimAt)
+		if elapsed >= businessCycle {
+			cycles := int(elapsed / businessCycle)
+			payout := cycles * gs.Business.WheelLevel
+			if payout > 0 {
+				gs.Player.XP += payout
+				recalcLevel(gs)
+			}
+			gs.Business.WheelLastClaimAt = gs.Business.WheelLastClaimAt.Add(time.Duration(cycles) * businessCycle)
+		}
+	}
+}
+
+func (s *Server) buyBusiness(gs *GameState, item string) error {
+	if gs == nil {
+		return fmt.Errorf("игровое состояние недоступно")
+	}
+	if gs.Player.Level < businessUnlockLevel {
+		return fmt.Errorf("бизнес откроется с %d уровня", businessUnlockLevel)
+	}
+	advanceBusiness(gs)
+	now := time.Now()
+
+	switch item {
+	case "shop":
+		if gs.Business.ShopLevel <= 0 {
+			if gs.Player.Currency[Seeds] < 1000 {
+				return fmt.Errorf("для покупки магазина нужно 1000 семечек")
+			}
+			gs.Player.Currency[Seeds] -= 1000
+			gs.Business.ShopLevel = 1
+			gs.Business.ShopLastClaimAt = now
+			appendLog(gs, "Магазин куплен.")
+			return nil
+		}
+		if gs.Business.ShopLevel >= 100 {
+			return fmt.Errorf("магазин уже достиг максимального уровня")
+		}
+		cost := businessNextCost(gs.Business.ShopLevel, 500, 50)
+		if cost <= 0 {
+			return fmt.Errorf("магазин уже достиг максимального уровня")
+		}
+		if gs.Player.Currency[Seeds] < cost {
+			return fmt.Errorf("для улучшения магазина нужно %d семечек", cost)
+		}
+		gs.Player.Currency[Seeds] -= cost
+		gs.Business.ShopLevel++
+		appendLog(gs, fmt.Sprintf("Магазин улучшен до уровня %d.", gs.Business.ShopLevel))
+		return nil
+	case "wheel":
+		if gs.Business.WheelLevel <= 0 {
+			if gs.Player.Currency[Seeds] < 500 {
+				return fmt.Errorf("для покупки колёсика нужно 500 семечек")
+			}
+			gs.Player.Currency[Seeds] -= 500
+			gs.Business.WheelLevel = 1
+			gs.Business.WheelLastClaimAt = now
+			appendLog(gs, "Колёсико куплено.")
+			return nil
+		}
+		if gs.Business.WheelLevel >= 100 {
+			return fmt.Errorf("колёсико уже достигло максимального уровня")
+		}
+		cost := businessNextCost(gs.Business.WheelLevel, 300, 40)
+		if cost <= 0 {
+			return fmt.Errorf("колёсико уже достигло максимального уровня")
+		}
+		if gs.Player.Currency[Seeds] < cost {
+			return fmt.Errorf("для улучшения колёсика нужно %d семечек", cost)
+		}
+		gs.Player.Currency[Seeds] -= cost
+		gs.Business.WheelLevel++
+		appendLog(gs, fmt.Sprintf("Колёсико улучшено до уровня %d.", gs.Business.WheelLevel))
+		return nil
+	default:
+		return fmt.Errorf("неизвестный объект бизнеса")
+	}
+}
+
 func (s *Server) getSession(sessionID string) *Session {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -2951,8 +3046,9 @@ func (s *Server) getSession(sessionID string) *Session {
 func (s *Session) snapshot() GameState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	advanceBossTimers(&s.state)
 	advanceEnergy(&s.state)
+	advanceBusiness(&s.state)
+	advanceBossTimers(&s.state)
 	return copyState(s.state)
 }
 
