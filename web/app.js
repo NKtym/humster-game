@@ -55,9 +55,9 @@ const ECONOMY_ACHIEVEMENT_THRESHOLDS = (() => {
 })();
 
 const LEADERBOARD_PERIODS = [
-  { key: 'day', label: 'За день' },
-  { key: 'week', label: 'За неделю' },
-  { key: 'month', label: 'За месяц' },
+  { key: 'day', label: 'За день', rewardText: '1 место: 50 семечек, 5 пшеницы и 1 морковь' },
+  { key: 'week', label: 'За неделю', rewardText: '1 место: 200 семечек, 15 пшеницы, 6 моркови и 2 огурца' },
+  { key: 'month', label: 'За месяц', rewardText: '1 место: 2000 семечек, 50 пшеницы, 20 моркови, 10 огурцов, 2 яблока и 1 кормик' },
 ];
 
 const LEADERBOARD_REFRESH_MS = 180000;
@@ -70,11 +70,11 @@ const VIEW_KEY = 'humster_view';
 
 function getSavedView() {
   const saved = localStorage.getItem(VIEW_KEY);
-  return ['main', 'battle', 'adventure', 'business', 'edit', 'talents'].includes(saved) ? saved : 'main';
+  return ['main', 'battle', 'adventure', 'adventure-select', 'business', 'edit', 'talents'].includes(saved) ? saved : 'main';
 }
 
 function setView(nextView) {
-  view = ['main', 'battle', 'adventure', 'business', 'edit', 'talents'].includes(nextView) ? nextView : 'main';
+  view = ['main', 'battle', 'adventure', 'adventure-select', 'business', 'edit', 'talents'].includes(nextView) ? nextView : 'main';
   localStorage.setItem(VIEW_KEY, view);
 }
 
@@ -101,7 +101,9 @@ const CATALOG = {
   bosses: [
     { id: 'rat', name: 'Крыса', img: '/assets/characters/bosses/rat.png' },
     { id: 'lizard', name: 'Ящерица', img: '/assets/characters/bosses/lizard.png' },
+    { id: 'swagusinitsa', name: 'Свагусиница', img: '/assets/characters/bosses/swagusinitsa.png' },
     { id: 'sand_lizard', name: 'Песчаная ящерица', img: '/assets/characters/bosses/sand_lizard.png' },
+    { id: 'sand_snake', name: 'Песчаная змея', img: '/assets/characters/bosses/sand_snake.png' },
   ],
   adventure: ADVENTURE_DEFS,
 };
@@ -184,9 +186,9 @@ const ATTACKS = [
   { id: 'scratch', label: 'Царапанье', damage: 20, costWheat: 0, icon: '/assets/combat/attacks/scratch.png' },
   { id: 'rush', label: 'Удар с разбега', damage: 15, costWheat: 0, icon: '/assets/combat/attacks/rush.png' },
   { id: 'bite', label: 'Укус', damage: 30, costWheat: 0, icon: '/assets/combat/attacks/bite.png' },
-  { id: 'iron_claw', label: 'Удар железным когтем', damage: 100, costWheat: 2, icon: '/assets/combat/attacks/iron_claw.png', reusable: true },
-  { id: 'poison_bite', label: 'Ядовитый укус', damage: 300, costWheat: 6, icon: '/assets/combat/attacks/poison_bite.png', reusable: true },
-  { id: 'eye_lasers', label: 'Лазеры из глаз', damage: 700, costWheat: 13, icon: '/assets/combat/attacks/eye_lasers.png', reusable: true },
+  { id: 'iron_claw', label: 'Удар железным когтем', damage: 100, costWheat: 2, icon: '/assets/combat/attacks/iron_claw.png' },
+  { id: 'poison_bite', label: 'Ядовитый укус', damage: 300, costWheat: 6, icon: '/assets/combat/attacks/poison_bite.png' },
+  { id: 'eye_lasers', label: 'Лазеры из глаз', damage: 700, costWheat: 13, icon: '/assets/combat/attacks/eye_lasers.png' },
 ];
 
 const BOSS_KILL_LIMIT = 8;
@@ -194,7 +196,9 @@ const BOSS_KILL_LIMIT = 8;
 const BOSS_BLUEPRINTS = {
   rat: { name: 'Крыса', hp: 70, attack: 4, xp: 10, reward: { seeds: 20, wheat: 2, carrot: 1, cucumber: 0 } },
   lizard: { name: 'Ящерица', hp: 150, attack: 8, xp: 20, reward: { seeds: 50, wheat: 3, carrot: 0, cucumber: 1 } },
-  sand_lizard: { name: 'Песчаная ящерица', hp: 600, attack: 16, xp: 50, reward: { seeds: 200, wheat: 0, carrot: 3, cucumber: 1 } },
+  swagusinitsa: { name: 'Свагусиница', hp: 600, attack: 12, xp: 50, reward: { seeds: 200, wheat: 0, carrot: 2, cucumber: 1 } },
+  sand_lizard: { name: 'Песчаная ящерица', hp: 7000, attack: 16, xp: 300, reward: { seeds: 1000, wheat: 0, carrot: 5, cucumber: 2 } },
+  sand_snake: { name: 'Песчаная змея', hp: 15000, attack: 24, xp: 500, reward: { seeds: 2000, wheat: 10, carrot: 10, cucumber: 4 } },
 };
 
 const BOSS_COSMETIC_DROPS = {
@@ -763,8 +767,6 @@ function bossBattleCountdown(boss) {
 }
 
 function bossAttackCooldownRemaining(boss, attackId) {
-  const attack = ATTACKS.find((item) => item.id === attackId);
-  if (attack?.reusable) return '';
   const until = cleanTimestamp(boss?.attackCooldowns?.[attackId]);
   if (!until) return '';
   return formatCountdown(toMillis(until) - Date.now());
@@ -974,6 +976,7 @@ let leaderboardsData = null;
 let leaderboardsLoading = false;
 let leaderboardsError = '';
 let leaderboardsLoadedAt = 0;
+let leaderboardsRequestId = 0;
 let socialSnapshotProfile = null;
 let socialSnapshotLoading = false;
 let socialSnapshotError = '';

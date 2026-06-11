@@ -632,6 +632,15 @@ button.primary {
   height: 80px;
 }
 
+.panel-action__icon--talents {
+  width: 80px;
+  height: 80px;
+}
+
+.panel-action--talents {
+  background: linear-gradient(180deg, rgba(246, 230, 201, 0.98), rgba(220, 176, 96, 0.96));
+}
+
 .panel-action strong,
 .panel-action span {
   display: block;

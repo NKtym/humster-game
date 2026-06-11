@@ -822,3 +822,76 @@
   color: var(--text);
   padding: 12px 14px;
 }
+
+.adventure-select {
+  display: grid;
+  gap: 14px;
+}
+
+.adventure-select__map {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  overflow: hidden;
+  border-radius: 22px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.adventure-select__bg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center center;
+}
+
+.adventure-select__overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 45%, rgba(255,255,255,0.04), rgba(0,0,0,0.12));
+}
+
+.adventure-select__node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: clamp(92px, 10vw, 138px);
+  padding: 8px 8px 10px;
+  border: 0;
+  border-radius: 20px;
+  background: rgba(33, 21, 9, 0.58);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.08);
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  color: #fff0cf;
+  cursor: pointer;
+}
+
+.adventure-select__node:hover,
+.adventure-select__node:focus {
+  transform: translate(-50%, -50%) scale(1.03);
+}
+
+.adventure-select__node.is-active {
+  box-shadow: 0 0 0 3px rgba(255, 236, 171, 0.45), 0 14px 28px rgba(0,0,0,0.30);
+}
+
+.adventure-select__node img {
+  width: min(88px, 8.2vw);
+  height: min(88px, 8.2vw);
+  object-fit: contain;
+  display: block;
+}
+
+.adventure-select__node span {
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.35);
+}
+
+.adventure-select__legend {
+  display: grid;
+  gap: 8px;
+}

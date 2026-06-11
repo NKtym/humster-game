@@ -20,8 +20,9 @@
         <input id="player-name-input" class="name-input" maxlength="20" placeholder="Имя хомяка" />
         <button id="btn-save-name" class="ghost" type="button">Сохранить имя</button>
         <button id="btn-profile" class="ghost" type="button">Профиль</button>
-        <button id="btn-friends" class="ghost" type="button">Друзья <img id="friends-badge" class="friends-badge" src="/assets/social/friend_request_badge.png" alt="" hidden /></button>
+        <button id="btn-friends" class="ghost" type="button">Друзья <span id="friends-badge" class="friends-badge" hidden></span></button>
         <button id="btn-achievements" class="ghost" type="button">Достижения</button>
+        <button id="btn-talents" class="ghost" type="button">Таланты</button>
         <button id="btn-logout" class="ghost" type="button">Выйти</button>
       </div>
     </header>
@@ -30,7 +31,7 @@
       <div class="hud-card__head">
         <div>
           <h2>Экономика</h2>
-          
+          <p>Смотри ресурсы и прогресс.</p>
         </div>
       </div>
       <div class="hud-grid" id="resource-strip"></div>
@@ -68,7 +69,7 @@
           <div>
             <h2>Сцена</h2>
           </div>
-          <div class="tag" id="scene-meta"></div>
+          <div class="tag" id="scene-meta">Летнее поле</div>
         </div>
 
         <div class="scene-stage">
@@ -108,19 +109,19 @@
                 </div>
               </button>
 
-              <button id="btn-talents" class="panel-action panel-action--talents" type="button">
-                <img class="panel-action__icon panel-action__icon--talents" src="/assets/talents/icons/menu_talents.png" alt="" />
-                <div>
-                  <strong>Таланты</strong>
-                  <span>Дерево и классы</span>
-                </div>
-              </button>
-
               <button id="btn-business-panel" class="panel-action panel-action--business" type="button" title="Откроется с 12 уровня">
                 <img class="panel-action__icon panel-action__icon--business" src="/assets/business/menu.png" alt="" />
                 <div>
                   <strong>Бизнес</strong>
                   <span>Пассивный доход</span>
+                </div>
+              </button>
+
+              <button id="btn-talents-panel" class="panel-action panel-action--talents" type="button">
+                <img class="panel-action__icon panel-action__icon--talents" src="/assets/talents/icons/menu_talents.png" alt="" />
+                <div>
+                  <strong>Таланты</strong>
+                  <span>Дерево навыков</span>
                 </div>
               </button>
             </div>
@@ -132,6 +133,7 @@
         <div class="leaderboard-home-card__head">
           <div>
             <h2>Таблица лидеров</h2>
+            <p>Топ игроков по урону по боссам за день, неделю и месяц.</p>
           </div>
         </div>
         <div id="leaderboard-home-body"></div>
@@ -160,6 +162,18 @@
         <button id="btn-battle-back" class="ghost" type="button">Вернуться к сцене</button>
       </div>
       <div id="battle-screen-body"></div>
+    </section>
+
+    <section id="adventure-select-screen" class="card adventure-screen" hidden>
+      <div class="battle-screen__head">
+        <div>
+          <div class="eyebrow">Карта приключений</div>
+          <h2>Выбор карты</h2>
+          <p>Выбери поле, пустыню или пещеру.</p>
+        </div>
+        <button id="btn-adventure-select-back" class="ghost" type="button">Вернуться к сцене</button>
+      </div>
+      <div id="adventure-select-screen-body"></div>
     </section>
 
     <section id="adventure-screen" class="card adventure-screen" hidden>

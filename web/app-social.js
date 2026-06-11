@@ -194,6 +194,9 @@ function updateFriendsBadge() {
   const show = isAuthenticated && friendsBadgeCount > 0;
   badge.hidden = !show;
   badge.classList.toggle('is-active', show);
+  badge.innerHTML = show
+    ? '<img src="/assets/social/friend_request_badge.png" alt="" aria-hidden="true" />'
+    : '';
   badge.title = show ? `У вас ${friendsBadgeCount} заявк(и)` : '';
 }
 
@@ -315,14 +318,6 @@ function captureAchievementsAccordionState() {
   achievementsAccordionState = next;
 }
 
-
-function getLeaderboardPeriodCacheKey() {
-  const day = typeof damageDayKey === 'function' ? damageDayKey() : '';
-  const week = typeof damageWeekKey === 'function' ? damageWeekKey() : '';
-  const month = typeof damageMonthKey === 'function' ? damageMonthKey() : '';
-  return [day, week, month].join('|');
-}
-
 function renderLeaderboardSection(period, entries) {
   const rows = Array.isArray(entries) && entries.length
     ? entries.map((entry, index) => `
@@ -338,6 +333,7 @@ function renderLeaderboardSection(period, entries) {
       <div class="profile-section__head">
         <strong>${period.label}</strong>
       </div>
+      ${period.rewardText ? `<div class="leaderboard-reward">Награда за лидерство: ${period.rewardText}</div>` : ''}
       <div class="leaderboard-table">
         <div class="leaderboard-table__head">
           <span>#</span><span>Игрок</span><span>Урон</span>
@@ -377,29 +373,33 @@ function renderHomeLeaderboards() {
 }
 
 async function loadLeaderboards(force = false) {
-  const periodCacheKey = getLeaderboardPeriodCacheKey();
-  const periodChanged = leaderboardsPeriodCacheKey !== periodCacheKey;
-  if (periodChanged) {
+  if (leaderboardsLoading && !force) return;
+  if (!force && leaderboardsData && Date.now() - leaderboardsLoadedAt < LEADERBOARD_REFRESH_MS) return;
+  const requestId = ++leaderboardsRequestId;
+  if (force) {
     leaderboardsData = null;
-    leaderboardsLoadedAt = 0;
+    leaderboardsError = '';
   }
-  if (leaderboardsLoading && !force && !periodChanged) return;
-  if (!force && !periodChanged && leaderboardsData && Date.now() - leaderboardsLoadedAt < LEADERBOARD_REFRESH_MS) return;
   leaderboardsLoading = true;
   leaderboardsError = '';
   try {
     const response = await api('/leaderboards', {}, 'GET');
+    if (requestId !== leaderboardsRequestId) return;
     if (response.ok && response.data && response.data.ok && response.data.leaderboards) {
       leaderboardsData = response.data.leaderboards;
       leaderboardsLoadedAt = Date.now();
-      leaderboardsPeriodCacheKey = periodCacheKey;
     } else {
+      leaderboardsData = null;
       leaderboardsError = response.data && response.data.error ? response.data.error : 'Не удалось загрузить таблицу лидеров';
     }
   } catch (_) {
+    if (requestId !== leaderboardsRequestId) return;
+    leaderboardsData = null;
     leaderboardsError = 'Не удалось загрузить таблицу лидеров';
   } finally {
-    leaderboardsLoading = false;
+    if (requestId === leaderboardsRequestId) {
+      leaderboardsLoading = false;
+    }
     const modal = document.getElementById('achievements-modal');
     if (modal && !modal.hidden && achievementsModalTab === 'leaders') {
       renderAchievementsModal();
@@ -506,7 +506,9 @@ function renderBattleAchievements() {
   const speedTargets = [
     { bossId: 'rat', label: 'Крыса', threshold: 3600 },
     { bossId: 'lizard', label: 'Ящерица', threshold: 3600 },
+    { bossId: 'swagusinitsa', label: 'Свагусиница', threshold: 3600 },
     { bossId: 'sand_lizard', label: 'Песчаная ящерица', threshold: 3600 },
+    { bossId: 'sand_snake', label: 'Песчаная змея', threshold: 3600 },
   ];
   const speedRows = speedTargets.map((target) => {
     const boss = Array.isArray(currentState?.bosses) ? currentState.bosses.find((item) => item.id === target.bossId) : null;

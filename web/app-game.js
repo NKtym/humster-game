@@ -36,6 +36,13 @@ const BUSINESS_DEFS = {
   },
 };
 
+const ADVENTURE_MAP_KEY = 'humster_adventure_map';
+const ADVENTURE_MAPS = {
+  field: { id: 'field', label: 'Поле', image: '/assets/maps/adventure-select/field.png', note: 'Текущая карта.' },
+  desert: { id: 'desert', label: 'Пустыня', image: '/assets/maps/adventure-select/desert.png', note: 'Пока используется то же поле.' },
+  cave: { id: 'cave', label: 'Пещера', image: '/assets/maps/adventure-select/cave.png', note: 'Пока используется то же поле.' },
+};
+
 function businessState(state) {
   return state?.business || {};
 }
@@ -74,9 +81,7 @@ function advanceLocalBusiness(state) {
       const elapsed = now - lastTick;
       if (elapsed >= BUSINESS_CYCLE_MS) {
         const cycles = Math.floor(elapsed / BUSINESS_CYCLE_MS);
-        const basePayout = cycles * businessRewardAmount(BUSINESS_DEFS.shop, shopLevel);
-        const authorityRank = Math.max(0, Number(next.player?.talents?.authority_shop_income || next.player?.talents?.authority_wip_tier2) || 0);
-        const payout = basePayout + (cycles * authorityRank * 5);
+        const payout = cycles * businessRewardAmount(BUSINESS_DEFS.shop, shopLevel);
         if (payout > 0) {
           next.player.currency.seeds = Math.max(0, Number(next.player.currency.seeds) || 0) + payout;
         }
@@ -95,9 +100,7 @@ function advanceLocalBusiness(state) {
       const elapsed = now - lastTick;
       if (elapsed >= BUSINESS_CYCLE_MS) {
         const cycles = Math.floor(elapsed / BUSINESS_CYCLE_MS);
-        const basePayout = cycles * businessRewardAmount(BUSINESS_DEFS.wheel, wheelLevel);
-        const authorityRank = Math.max(0, Number(next.player?.talents?.authority_wheel_xp || next.player?.talents?.authority_wip_tier3) || 0);
-        const payout = basePayout + (cycles * authorityRank);
+        const payout = cycles * businessRewardAmount(BUSINESS_DEFS.wheel, wheelLevel);
         if (payout > 0) {
           next.player.xp = Math.max(0, Number(next.player.xp) || 0) + payout;
           recalcLevel(next);
@@ -147,8 +150,7 @@ function updateScene(state) {
   const wallpaper = getWallpaperAsset(wallpaperId);
 
   $('#scene-wallpaper').style.backgroundImage = `url("${wallpaper.img}")`;
-  const sceneMeta = $('#scene-meta');
-  if (sceneMeta) sceneMeta.textContent = '';
+  $('#scene-meta').textContent = wallpaper.name;
 
   const hamsterSprite = getHamsterSpriteAsset(appearance.color || 'default');
   const spriteLayer = $('#hamster-sprite');
@@ -227,6 +229,9 @@ function applyLocalAction(action, payload = {}) {
   switch (action) {
     case 'select_boss': {
       const bossId = payload.bossId || '';
+      if (bossIsLocked(state, bossId)) {
+        return;
+      }
       if (state.activeBossId && state.activeBossId !== bossId) {
         const activeBoss = bossById(state, state.activeBossId);
         if (activeBoss && !activeBoss.defeated && (!activeBoss.battleEndsAt || toMillis(activeBoss.battleEndsAt) > Date.now())) {
@@ -285,13 +290,10 @@ function applyLocalAction(action, payload = {}) {
     }
     case 'attack_boss': {
       if (!boss) return;
-      const attack = ATTACKS.find((item) => item.id === payload.attackType);
-      if (!attack) return;
-      const reusable = Boolean(attack.reusable);
       const dmg = attackDamage(state, payload.attackType);
       const cost = attackCostWheat(payload.attackType);
       const now = Date.now();
-      if (cost > 0 && !reusable && attackOwnedCount(state, payload.attackType) <= 0) {
+      if (cost > 0 && attackOwnedCount(state, payload.attackType) <= 0) {
         return;
       }
       if (boss.defeated) {
@@ -316,19 +318,15 @@ function applyLocalAction(action, payload = {}) {
         return;
       }
       boss.attackCooldowns = boss.attackCooldowns || {};
-      const cooldownUntil = reusable ? 0 : toMillis(boss.attackCooldowns[payload.attackType]);
-      if (!reusable && cooldownUntil && now < cooldownUntil) return;
+      const cooldownUntil = toMillis(boss.attackCooldowns[payload.attackType]);
+      if (cooldownUntil && now < cooldownUntil) return;
       const killsToday = boss.killsDay === bossKillDayKey() ? (boss.killsToday || 0) : 0;
       if (boss.hp - dmg <= 0 && killsToday >= BOSS_KILL_LIMIT) return;
       boss.hp = Math.max(0, boss.hp - dmg);
-      if (cost > 0 && !reusable) {
+      if (cost > 0) {
         state.player.inventory[payload.attackType] = Math.max(0, attackOwnedCount(state, payload.attackType) - 1);
       }
-      if (!reusable) {
-        boss.attackCooldowns[payload.attackType] = new Date(now + (6 * 60 * 60 * 1000)).toISOString();
-      } else {
-        delete boss.attackCooldowns[payload.attackType];
-      }
+      boss.attackCooldowns[payload.attackType] = new Date(now + (6 * 60 * 60 * 1000)).toISOString();
       if (boss.hp === 0) {
         boss.defeated = true;
         boss.battleStartedAt = '';
@@ -481,12 +479,27 @@ async function syncAction(action, payload = {}) {
   return response;
 }
 
+
+function bossUnlockPasses(bossId) {
+  switch ((bossId || '').trim()) {
+    case 'sand_lizard':
+    case 'sand_snake':
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function bossIsLocked(state, bossId) {
+  const passes = Math.max(0, Number(state?.locationPasses) || 0);
+  return passes < bossUnlockPasses(bossId);
+}
+
 function renderBossSelection() {
   $('#battle-screen-title').textContent = 'Выбор босса';
-  $('#battle-screen-subtitle').textContent = 'Нажми на босса для боя.';
+  $('#battle-screen-subtitle').textContent = '';
   const body = $('#battle-screen-body');
   body.innerHTML = `
-    <div class="modal-note">Выбери босса, чтобы открыть бой. У каждого босса свой дневной лимит: ${BOSS_KILL_LIMIT} побед в день.</div>
     <div class="boss-grid">
       ${(currentState.bosses || []).map((boss) => {
         const cat = CATALOG.bosses.find((item) => item.id === boss.id) || boss;
@@ -494,8 +507,16 @@ function renderBossSelection() {
         const hpText = `${boss.maxHp || boss.hp} HP`;
         const battleTimer = !boss.defeated && boss.battleEndsAt ? bossBattleCountdown(boss) : '';
         const remainingKills = bossDailyRemaining(boss);
+        const bossLocked = bossIsLocked(currentState, boss.id);
+        const anotherBossActive = !!(currentState.activeBossId && currentState.activeBossId !== boss.id);
+        const disabled = bossLocked || anotherBossActive;
+        const buttonLabel = bossLocked
+          ? 'Откроется после 1 полного прохождения поля'
+          : (anotherBossActive
+            ? 'Бой уже выбран'
+            : (boss.defeated ? (remainingKills > 0 ? 'Пройти ещё раз' : 'Лимит исчерпан') : 'Выбрать и начать бой'));
         return `
-          <article class="boss-card ${boss.defeated ? 'is-defeated' : ''}">
+          <article class="boss-card ${boss.defeated ? 'is-defeated' : ''} ${bossLocked ? 'is-locked' : ''}">
             <img class="boss-card__img" src="${cat.img}" alt="${boss.name}" />
             <div class="boss-card__body">
               <div class="boss-card__title">
@@ -506,11 +527,10 @@ function renderBossSelection() {
               <div class="boss-card__xp">Опыт: ${boss.xp || 0}</div>
               <div class="boss-card__limit">Осталось сегодня: ${remainingKills}/${BOSS_KILL_LIMIT}</div>
               ${battleTimer ? `<div class="boss-card__timer">До конца битвы: ${battleTimer}</div>` : ''}
-              ${currentState.activeBossId && currentState.activeBossId !== boss.id ? `<div class="boss-card__lock">Сначала заверши текущую битву с ${bossById(currentState, currentState.activeBossId)?.name || 'другим боссом'}.</div>` : ''}
-              <button class="primary boss-select" data-boss="${boss.id}" type="button" ${currentState.activeBossId && currentState.activeBossId !== boss.id ? 'disabled' : ''}>
-                ${currentState.activeBossId && currentState.activeBossId !== boss.id
-      ? 'Бой уже выбран'
-      : (boss.defeated ? (remainingKills > 0 ? 'Пройти ещё раз' : 'Лимит исчерпан') : 'Выбрать и начать бой')}
+              ${bossLocked ? '<div class="boss-card__lock">Откроется после 1 полного прохождения поля.</div>' : ''}
+              ${anotherBossActive ? `<div class="boss-card__lock">Сначала заверши текущую битву с ${bossById(currentState, currentState.activeBossId)?.name || 'другим боссом'}.</div>` : ''}
+              <button class="primary boss-select" data-boss="${boss.id}" type="button" ${disabled ? 'disabled' : ''}>
+                ${buttonLabel}
               </button>
             </div>
           </article>
@@ -529,6 +549,63 @@ function renderBossSelection() {
   });
 }
 
+
+function getAdventureMapChoice() {
+  const saved = String(localStorage.getItem(ADVENTURE_MAP_KEY) || 'field').trim();
+  return ADVENTURE_MAPS[saved] || ADVENTURE_MAPS.field;
+}
+
+function setAdventureMapChoice(mapId) {
+  const next = ADVENTURE_MAPS[String(mapId || '').trim()] || ADVENTURE_MAPS.field;
+  localStorage.setItem(ADVENTURE_MAP_KEY, next.id);
+  if (currentState) {
+    currentState.location = next.label;
+  }
+  return next;
+}
+
+function renderAdventureMapSelectScreen() {
+  const body = $('#adventure-select-screen-body');
+  if (!body) return;
+  const activeMap = getAdventureMapChoice();
+  body.innerHTML = `
+    <div class="adventure-select">
+      <div class="adventure-select__map">
+        <img class="adventure-select__bg" src="/assets/maps/adventure-select/map_choice.png" alt="Выбор карты">
+        <div class="adventure-select__overlay"></div>
+        <button type="button" class="adventure-select__node ${activeMap.id === 'field' ? 'is-active' : ''}" data-adventure-map="field" style="left: 24%; top: 61%;">
+          <img src="/assets/maps/adventure-select/field.png" alt="Поле">
+          <span>Поле</span>
+        </button>
+        <button type="button" class="adventure-select__node ${activeMap.id === 'desert' ? 'is-active' : ''}" data-adventure-map="desert" style="left: 56%; top: 30%;">
+          <img src="/assets/maps/adventure-select/desert.png" alt="Пустыня">
+          <span>Пустыня</span>
+        </button>
+        <button type="button" class="adventure-select__node ${activeMap.id === 'cave' ? 'is-active' : ''}" data-adventure-map="cave" style="left: 86%; top: 18%;">
+          <img src="/assets/maps/adventure-select/cave.png" alt="Пещера">
+          <span>Пещера</span>
+        </button>
+      </div>
+      <div class="adventure-select__legend">
+        <div class="social-note">Выбери карту. Поле уже подключено, пустыня и пещера пока показываются как выбор.</div>
+      </div>
+    </div>
+  `;
+
+  document.querySelectorAll('[data-adventure-map]').forEach((btn) => {
+    btn.onclick = async () => {
+      const mapId = btn.getAttribute('data-adventure-map') || 'field';
+      const choice = setAdventureMapChoice(mapId);
+      if (choice.id === 'field') {
+        setView('adventure');
+        render();
+        return;
+      }
+      setView('adventure');
+      render();
+    };
+  });
+}
 
 function renderBattleParticipants(activeBoss) {
   if (!activeBoss) return '';
@@ -602,8 +679,8 @@ function renderBattleScreen() {
   $('#battle-screen-title').textContent = `Бой: ${activeBoss.name}`;
   const battleRemaining = activeBoss.defeated ? '' : bossBattleCountdown(activeBoss);
   $('#battle-screen-subtitle').textContent = activeBoss.defeated
-    ? activeBoss.killsToday >= BOSS_KILL_LIMIT ? 'Дневной лимит этого босса исчерпан.' : `Босс уже побеждён. Можно пройти ещё раз. Осталось ${bossDailyRemaining(activeBoss)}/${BOSS_KILL_LIMIT} попыток на сегодня.`
-    : `Битва закончится через ${battleRemaining}. На этом боссе сегодня осталось: ${bossDailyRemaining(activeBoss)}/${BOSS_KILL_LIMIT}.`;
+    ? (activeBoss.killsToday >= BOSS_KILL_LIMIT ? 'Дневной лимит этого босса исчерпан.' : 'Босс уже побеждён.')
+    : `До конца битвы: ${battleRemaining}.`;
 
   const body = $('#battle-screen-body');
   const percent = activeBoss.maxHp ? Math.max(0, Math.min(100, (activeBoss.hp / activeBoss.maxHp) * 100)) : 0;
@@ -623,7 +700,7 @@ function renderBattleScreen() {
         <div class="battle-bar"><div style="width: ${percent}%"></div></div>
         <div class="battle-reward">Награда: ${bossRewardText(activeBoss)}</div>
         <div class="battle-xp">Опыт: ${activeBoss.xp || 0}</div>
-        <div class="battle-note">${activeBoss.defeated ? 'Босс уже побеждён. Выбирай следующего.' : `Битва закончится через ${battleRemaining}. На этом боссе сегодня осталось: ${bossDailyRemaining(activeBoss)}/${BOSS_KILL_LIMIT}.`}${isBattleExpired ? ' Время вышло, бой проигран.' : ''}</div>
+        <div class="battle-note">${activeBoss.defeated ? 'Босс уже побеждён. Выбирай следующего.' : `На этом боссе сегодня осталось: ${bossDailyRemaining(activeBoss)}/${BOSS_KILL_LIMIT}.`}${isBattleExpired ? ' Время вышло, бой проигран.' : ''}</div>
         ${typeof renderTalentBattleWidget === 'function' ? renderTalentBattleWidget(currentState) : ''}
         <div class="battle-controls">
           ${activeBoss.defeated && bossDailyRemaining(activeBoss) > 0 ? '<button class="primary" id="btn-boss-retry" type="button">Пройти ещё раз</button>' : ''}
@@ -637,22 +714,17 @@ function renderBattleScreen() {
 
     <div class="attack-panel">
       ${ATTACKS.map((attack) => {
-        const reusable = Boolean(attack.reusable);
-        const cd = reusable ? '' : bossAttackCooldownRemaining(activeBoss, attack.id);
-        const cooldownUntil = reusable ? '' : cleanTimestamp(activeBoss.attackCooldowns?.[attack.id]);
+        const cd = bossAttackCooldownRemaining(activeBoss, attack.id);
+        const cooldownUntil = cleanTimestamp(activeBoss.attackCooldowns?.[attack.id]);
         const owned = attackOwnedCount(currentState, attack.id);
         const canBuy = (attack.costWheat || 0) > 0 && (currentState.player.currency?.wheat || 0) >= (attack.costWheat || 0);
-        const lockedByCost = !reusable && (attack.costWheat || 0) > 0 && owned <= 0 && !canBuy;
-        const disabled = activeBoss.defeated || (!reusable && cooldownUntil && toMillis(cooldownUntil) > Date.now()) || lockedByCost;
+        const lockedByCost = (attack.costWheat || 0) > 0 && owned <= 0 && !canBuy;
+        const disabled = activeBoss.defeated || (cooldownUntil && toMillis(cooldownUntil) > Date.now()) || lockedByCost;
         const actualDamage = attackDamage(currentState, attack.id);
-        const subtitle = reusable
-          ? 'Доступно всегда'
-          : (attack.costWheat > 0
-            ? (owned > 0
-              ? `Зарядов: ${owned}${cd ? ` • ${cd}` : ''}`
-              : `Купить за ${attack.costWheat} пшеницы${cd ? ` • ${cd}` : ''}`)
-            : `Бесплатно${cd ? ` • ${cd}` : ''}`);
-        return `<button class="attack-btn ${(reusable || owned > 0 || attack.costWheat === 0) ? 'is-ready' : 'is-buyable'}" data-attack="${attack.id}" ${disabled ? 'disabled' : ''}>
+        const subtitle = attack.costWheat > 0
+          ? (owned > 0 ? `Зарядов: ${owned}${cd ? ` • ${cd}` : ''}` : `Купить за ${attack.costWheat} пшеницы${cd ? ` • ${cd}` : ''}`)
+          : `Бесплатно${cd ? ` • ${cd}` : ''}`;
+        return `<button class="attack-btn ${owned > 0 || attack.costWheat === 0 ? 'is-ready' : 'is-buyable'}" data-attack="${attack.id}" ${disabled ? 'disabled' : ''}>
           <div class="attack-btn__top">
             ${attack.icon ? `<img class="attack-btn__icon" src="${attack.icon}" alt="" aria-hidden="true" />` : ''}
             <span>${attack.label}</span>
@@ -668,14 +740,14 @@ function renderBattleScreen() {
     btn.onclick = async () => {
       const attackType = btn.dataset.attack;
       const attack = ATTACKS.find((item) => item.id === attackType);
-      const reusable = Boolean(attack?.reusable);
       const owned = attackOwnedCount(currentState, attackType);
-      if (!reusable && attack && attack.costWheat > 0 && owned <= 0) {
+      if (attack && attack.costWheat > 0 && owned <= 0) {
         const buyResponse = await syncAction('buy_attack', { attackType });
         if (!(buyResponse?.ok || buyResponse?.data?.state)) {
           return;
         }
       }
+      btn.disabled = true;
       await syncAction('attack_boss', { attackType });
       setView('battle');
       render();
@@ -707,6 +779,9 @@ function renderBattleScreen() {
 }
 
 function renderAdventureScreen() {
+  const selectedMap = getAdventureMapChoice();
+  const title = document.querySelector('#adventure-screen .battle-screen__head h2');
+  if (title) title.textContent = selectedMap.label;
   const selectedId = selectedAdventureId(currentState);
   const selected = getAdventureNode(currentState, selectedId) || currentState.adventure[0];
   const def = getAdventureDef(selected?.id || ADVENTURE_DEFS[0].id);
@@ -1110,6 +1185,7 @@ function render() {
   const auth = $('#auth-screen');
   const main = $('#main-screen');
   const battle = $('#battle-screen');
+  const adventureSelect = $('#adventure-select-screen');
   const adventure = $('#adventure-screen');
   const business = $('#business-screen');
   const edit = $('#edit-screen');
@@ -1119,6 +1195,7 @@ function render() {
   if (!isAuthenticated) {
     main.hidden = true;
     battle.hidden = true;
+    adventureSelect.hidden = true;
     adventure.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
@@ -1127,15 +1204,27 @@ function render() {
 
   if (view === 'battle') {
     main.hidden = true;
+    adventureSelect.hidden = true;
     adventure.hidden = true;
     business.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
     battle.hidden = false;
     renderBattleScreen();
+  } else if (view === 'adventure-select') {
+    main.hidden = true;
+    battle.hidden = true;
+    adventureSelect.hidden = true;
+    adventure.hidden = true;
+    business.hidden = true;
+    edit.hidden = true;
+    if (talents) talents.hidden = true;
+    adventureSelect.hidden = false;
+    renderAdventureMapSelectScreen();
   } else if (view === 'adventure') {
     main.hidden = true;
     battle.hidden = true;
+    adventureSelect.hidden = true;
     business.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
@@ -1144,6 +1233,7 @@ function render() {
   } else if (view === 'business') {
     main.hidden = true;
     battle.hidden = true;
+    adventureSelect.hidden = true;
     adventure.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
@@ -1167,6 +1257,7 @@ function render() {
     renderTalentsScreen();
   } else {
     battle.hidden = true;
+    adventureSelect.hidden = true;
     adventure.hidden = true;
     business.hidden = true;
     edit.hidden = true;
@@ -1253,7 +1344,15 @@ function initTopButtons() {
   const mapPanelButton = $('#btn-map-panel');
   if (mapPanelButton) {
     mapPanelButton.onclick = () => {
-      setView('adventure');
+      setView('adventure-select');
+      render();
+    };
+  }
+
+  const adventureSelectBackButton = $('#btn-adventure-select-back');
+  if (adventureSelectBackButton) {
+    adventureSelectBackButton.onclick = () => {
+      setView('main');
       render();
     };
   }
@@ -1280,6 +1379,14 @@ function initTopButtons() {
     businessPanelButton.onclick = () => {
       if (businessPanelButton.disabled) return;
       setView('business');
+      render();
+    };
+  }
+
+  const talentsPanelButton = $('#btn-talents-panel');
+  if (talentsPanelButton) {
+    talentsPanelButton.onclick = () => {
+      setView('talents');
       render();
     };
   }

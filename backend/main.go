@@ -1562,6 +1562,9 @@ func (s *Server) selectBoss(gs *GameState, bossID string) error {
 	if !ok {
 		return fmt.Errorf("босс не найден")
 	}
+	if bossLockedByProgress(gs, bossID) {
+		return fmt.Errorf("этот босс откроется после 1 полного прохождения поля")
+	}
 
 	now := time.Now()
 	refreshBossKillLimit(boss)
@@ -2501,13 +2504,43 @@ func newGameState() GameState {
 				BestClearSeconds: 0,
 			},
 			{
-				ID:               "sand_lizard",
-				Name:             "Песчаная ящерица",
+				ID:               "swagusinitsa",
+				Name:             "Свагусиница",
 				HP:               600,
 				MaxHP:            600,
-				Attack:           16,
-				Reward:           map[Currency]int{Seeds: 200, Wheat: 0, Carrot: 3, Cucumber: 1},
+				Attack:           12,
+				Reward:           map[Currency]int{Seeds: 200, Wheat: 0, Carrot: 2, Cucumber: 1},
 				XP:               50,
+				Defeated:         false,
+				AttackCooldowns:  map[string]time.Time{},
+				KillsToday:       0,
+				KillsDay:         bossKillDayKey(),
+				KillsTotal:       0,
+				BestClearSeconds: 0,
+			},
+			{
+				ID:               "sand_lizard",
+				Name:             "Песчаная ящерица",
+				HP:               7000,
+				MaxHP:            7000,
+				Attack:           16,
+				Reward:           map[Currency]int{Seeds: 1000, Wheat: 0, Carrot: 5, Cucumber: 2},
+				XP:               300,
+				Defeated:         false,
+				AttackCooldowns:  map[string]time.Time{},
+				KillsToday:       0,
+				KillsDay:         bossKillDayKey(),
+				KillsTotal:       0,
+				BestClearSeconds: 0,
+			},
+			{
+				ID:               "sand_snake",
+				Name:             "Песчаная змея",
+				HP:               15000,
+				MaxHP:            15000,
+				Attack:           24,
+				Reward:           map[Currency]int{Seeds: 2000, Wheat: 10, Carrot: 10, Cucumber: 4},
+				XP:               500,
 				Defeated:         false,
 				AttackCooldowns:  map[string]time.Time{},
 				KillsToday:       0,
@@ -2759,36 +2792,43 @@ func refreshBossKillLimit(boss *Boss) {
 
 func normalizeBosses(gs *GameState) {
 	type bossTemplate struct {
+		id     string
 		name   string
 		hp     int
 		attack int
 		xp     int
 		reward map[Currency]int
 	}
-	templates := map[string]bossTemplate{
-		"rat":         {name: "Крыса", hp: 70, attack: 4, xp: 10, reward: map[Currency]int{Seeds: 20, Wheat: 2, Carrot: 1, Cucumber: 0}},
-		"lizard":      {name: "Ящерица", hp: 150, attack: 8, xp: 20, reward: map[Currency]int{Seeds: 50, Wheat: 3, Carrot: 0, Cucumber: 1}},
-		"sand_lizard": {name: "Песчаная ящерица", hp: 600, attack: 16, xp: 50, reward: map[Currency]int{Seeds: 200, Wheat: 0, Carrot: 3, Cucumber: 1}},
+	templates := []bossTemplate{
+		{id: "rat", name: "Крыса", hp: 70, attack: 4, xp: 10, reward: map[Currency]int{Seeds: 20, Wheat: 2, Carrot: 1, Cucumber: 0}},
+		{id: "lizard", name: "Ящерица", hp: 150, attack: 8, xp: 20, reward: map[Currency]int{Seeds: 50, Wheat: 3, Carrot: 0, Cucumber: 1}},
+		{id: "swagusinitsa", name: "Свагусиница", hp: 600, attack: 12, xp: 50, reward: map[Currency]int{Seeds: 200, Wheat: 0, Carrot: 2, Cucumber: 1}},
+		{id: "sand_lizard", name: "Песчаная ящерица", hp: 7000, attack: 16, xp: 300, reward: map[Currency]int{Seeds: 1000, Wheat: 0, Carrot: 5, Cucumber: 2}},
+		{id: "sand_snake", name: "Песчаная змея", hp: 15000, attack: 24, xp: 500, reward: map[Currency]int{Seeds: 2000, Wheat: 10, Carrot: 10, Cucumber: 4}},
 	}
+	byID := map[string]Boss{}
 	for i := range gs.Bosses {
-		boss := &gs.Bosses[i]
-		tpl, ok := templates[boss.ID]
-		if !ok {
+		boss := gs.Bosses[i]
+		if strings.TrimSpace(boss.ID) == "" {
 			continue
 		}
-
+		byID[boss.ID] = boss
+	}
+	normalized := make([]Boss, 0, len(templates))
+	for _, tpl := range templates {
+		boss := byID[tpl.id]
+		boss.ID = tpl.id
 		boss.Name = tpl.name
 		boss.MaxHP = tpl.hp
 		boss.Attack = tpl.attack
 		boss.XP = tpl.xp
-
 		if boss.Reward == nil {
 			boss.Reward = map[Currency]int{}
 		}
-		for cur, amount := range tpl.reward {
-			boss.Reward[cur] = amount
-		}
-
+		boss.Reward[Seeds] = tpl.reward[Seeds]
+		boss.Reward[Wheat] = tpl.reward[Wheat]
+		boss.Reward[Carrot] = tpl.reward[Carrot]
+		boss.Reward[Cucumber] = tpl.reward[Cucumber]
 		if boss.AttackCooldowns == nil {
 			boss.AttackCooldowns = map[string]time.Time{}
 		}
@@ -2798,15 +2838,13 @@ func normalizeBosses(gs *GameState) {
 		if boss.KillsTotal < 0 {
 			boss.KillsTotal = 0
 		}
-		refreshBossKillLimit(boss)
-
+		refreshBossKillLimit(&boss)
 		if boss.HP < 0 {
 			boss.HP = 0
 		}
 		if boss.HP > boss.MaxHP {
 			boss.HP = boss.MaxHP
 		}
-
 		if boss.Defeated || boss.HP == 0 {
 			boss.Defeated = true
 			boss.HP = 0
@@ -2814,7 +2852,9 @@ func normalizeBosses(gs *GameState) {
 			boss.BattleEndsAt = time.Time{}
 			boss.AttackCooldowns = map[string]time.Time{}
 		}
+		normalized = append(normalized, boss)
 	}
+	gs.Bosses = normalized
 }
 
 func startBossBattle(boss *Boss, now time.Time) {
@@ -2935,6 +2975,22 @@ func currentBoss(gs *GameState, id string) (*Boss, int, bool) {
 		}
 	}
 	return nil, -1, false
+}
+
+func bossUnlockPasses(bossID string) int {
+	switch strings.TrimSpace(bossID) {
+	case "sand_lizard", "sand_snake":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func bossLockedByProgress(gs *GameState, bossID string) bool {
+	if gs == nil {
+		return false
+	}
+	return gs.LocationPasses < bossUnlockPasses(bossID)
 }
 
 func allBossesDefeated(gs *GameState) bool {
