@@ -1686,6 +1686,7 @@ func finalizeBossVictory(gs *GameState, idx int, now time.Time) {
 		appendLog(gs, fmt.Sprintf("Дневной лимит %s исчерпан.", boss.Name))
 	}
 	if gs.ActiveBossID == boss.ID {
+		resetBossBattleDamage(gs)
 		gs.ActiveBossID = ""
 	}
 	if allBossesDefeated(gs) {
@@ -1711,10 +1712,11 @@ func (s *Server) attackBoss(gs *GameState, attackType string, userID string) err
 
 	baseDamage, label, cost, ok := attackConfig(attackType)
 	damage := baseDamage + attackBonusDamage(gs, attackType)
+	reusable := attackReusable(attackType)
 	if !ok {
 		return fmt.Errorf("неизвестный удар")
 	}
-	if cost > 0 && gs.Player.Inventory[attackType] <= 0 {
+	if cost > 0 && !reusable && gs.Player.Inventory[attackType] <= 0 {
 		return fmt.Errorf("сначала купи эту атаку")
 	}
 
@@ -1737,8 +1739,10 @@ func (s *Server) attackBoss(gs *GameState, attackType string, userID string) err
 		boss.AttackCooldowns = map[string]time.Time{}
 	}
 	refreshBossKillLimit(boss)
-	if until, ok := boss.AttackCooldowns[attackType]; ok && now.Before(until) {
-		return fmt.Errorf("удар %s ещё перезаряжается", label)
+	if !reusable {
+		if until, ok := boss.AttackCooldowns[attackType]; ok && now.Before(until) {
+			return fmt.Errorf("удар %s ещё перезаряжается", label)
+		}
 	}
 
 	if boss.HP-damage <= 0 && boss.KillsToday >= 8 {
@@ -1751,13 +1755,17 @@ func (s *Server) attackBoss(gs *GameState, attackType string, userID string) err
 	talentDamageProgress(gs, actualDamage)
 	s.recordLeaderboardDamage(context.Background(), userID, actualDamage, now)
 	gs.Bosses[idx].HP = max(0, boss.HP-damage)
-	if cost > 0 {
+	if cost > 0 && !reusable {
 		if gs.Player.Inventory == nil {
 			gs.Player.Inventory = map[string]int{}
 		}
 		gs.Player.Inventory[attackType] = max(0, gs.Player.Inventory[attackType]-1)
 	}
-	gs.Bosses[idx].AttackCooldowns[attackType] = now.Add(bossAttackCooldown)
+	if reusable {
+		delete(gs.Bosses[idx].AttackCooldowns, attackType)
+	} else {
+		gs.Bosses[idx].AttackCooldowns[attackType] = now.Add(bossAttackCooldown)
+	}
 	appendLog(gs, fmt.Sprintf("Хомяк использовал %s и нанёс %d урона %s.", label, damage, boss.Name))
 
 	if gs.Bosses[idx].HP == 0 {
@@ -2025,9 +2033,11 @@ func talentSkillClass(skillID string) string {
 	switch strings.TrimSpace(skillID) {
 	case "martial_energy", "martial_bite":
 		return "martial_arts"
-	case "authority_scratch", "authority_wip_tier2", "authority_wip_tier3":
+	case "authority_scratch", "authority_shop_income", "authority_wip_tier2":
 		return "authority"
-	case "berserk_poison", "berserk_lasers":
+	case "authority_wheel_xp", "authority_wip_tier3":
+		return "authority"
+	case "berserk_poison", "berserk_lasers", "berserk_iron_claw":
 		return "berserk"
 	default:
 		return ""
@@ -2035,20 +2045,32 @@ func talentSkillClass(skillID string) string {
 }
 
 func talentSkillWIP(skillID string) bool {
-	switch strings.TrimSpace(skillID) {
-	case "authority_wip_tier2", "authority_wip_tier3":
-		return true
-	default:
-		return false
-	}
+	return false
 }
 
 func talentSkillMaxRank(skillID string) int {
 	switch strings.TrimSpace(skillID) {
-	case "martial_energy", "martial_bite", "authority_scratch", "authority_wip_tier2", "authority_wip_tier3", "berserk_poison", "berserk_lasers":
+	case "martial_energy", "martial_bite", "authority_scratch", "authority_shop_income", "authority_wheel_xp", "berserk_poison", "berserk_lasers", "berserk_iron_claw":
 		return 10
 	default:
 		return 0
+	}
+}
+
+func talentSkillPrerequisite(skillID string) (string, int) {
+	switch strings.TrimSpace(skillID) {
+	case "martial_bite":
+		return "martial_energy", 10
+	case "authority_shop_income", "authority_wip_tier2":
+		return "authority_scratch", 10
+	case "authority_wheel_xp", "authority_wip_tier3":
+		return "authority_shop_income", 10
+	case "berserk_lasers":
+		return "berserk_poison", 10
+	case "berserk_iron_claw":
+		return "berserk_lasers", 10
+	default:
+		return "", 0
 	}
 }
 
@@ -2065,6 +2087,24 @@ func normalizeTalentState(gs *GameState) {
 	}
 	if gs.Player.Talents == nil {
 		gs.Player.Talents = map[string]int{}
+	}
+	if value, ok := gs.Player.Talents["martial_scratch"]; ok {
+		if _, exists := gs.Player.Talents["martial_bite"]; !exists {
+			gs.Player.Talents["martial_bite"] = value
+		}
+		delete(gs.Player.Talents, "martial_scratch")
+	}
+	if value, ok := gs.Player.Talents["authority_wip_tier2"]; ok {
+		if _, exists := gs.Player.Talents["authority_shop_income"]; !exists {
+			gs.Player.Talents["authority_shop_income"] = value
+		}
+		delete(gs.Player.Talents, "authority_wip_tier2")
+	}
+	if value, ok := gs.Player.Talents["authority_wip_tier3"]; ok {
+		if _, exists := gs.Player.Talents["authority_wheel_xp"]; !exists {
+			gs.Player.Talents["authority_wheel_xp"] = value
+		}
+		delete(gs.Player.Talents, "authority_wip_tier3")
 	}
 	for key, rank := range gs.Player.Talents {
 		if talentSkillClass(key) == "" {
@@ -2124,6 +2164,11 @@ func buyTalentRank(gs *GameState, skillID string) error {
 	if maxRank <= 0 {
 		return fmt.Errorf("талант не найден")
 	}
+	if prereqSkill, prereqRank := talentSkillPrerequisite(skillID); prereqSkill != "" {
+		if talentRank(gs, prereqSkill) < prereqRank {
+			return fmt.Errorf("сначала прокачай предыдущий талант до %d/%d", prereqRank, prereqRank)
+		}
+	}
 	if talentRank(gs, skillID) >= maxRank {
 		return fmt.Errorf("талант уже прокачан полностью")
 	}
@@ -2162,6 +2207,8 @@ func talentAttackBonusDamage(gs *GameState, attackType string) int {
 			return 15 * talentRank(gs, "berserk_poison")
 		case "eye_lasers":
 			return 30 * talentRank(gs, "berserk_lasers")
+		case "iron_claw":
+			return 12 * talentRank(gs, "berserk_iron_claw")
 		}
 	}
 	return 0
@@ -2175,9 +2222,9 @@ func talentDamageProgress(gs *GameState, amount int) {
 		gs.Player.TalentNextThreshold = 70
 	}
 	gs.Player.TalentDamageProgress += amount
-	for gs.Player.TalentDamageProgress >= gs.Player.TalentNextThreshold {
-		gs.Player.TalentDamageProgress -= gs.Player.TalentNextThreshold
+	if gs.Player.TalentDamageProgress >= gs.Player.TalentNextThreshold {
 		gs.Player.TalentPoints++
+		gs.Player.TalentDamageProgress = 0
 		gs.Player.TalentNextThreshold += 50
 		appendLog(gs, fmt.Sprintf("Получено 1 очко талантов. Теперь доступно %d.", gs.Player.TalentPoints))
 	}
@@ -2225,6 +2272,11 @@ func (s *Server) buyTalentRank(gs *GameState, skillID string) error {
 		return fmt.Errorf("этот талант ещё в разработке")
 	}
 	maxRank := talentSkillMaxRank(skillID)
+	if prereqSkill, prereqRank := talentSkillPrerequisite(skillID); prereqSkill != "" {
+		if talentRank(gs, prereqSkill) < prereqRank {
+			return fmt.Errorf("сначала прокачай предыдущий талант до %d/%d", prereqRank, prereqRank)
+		}
+	}
 	if talentRank(gs, skillID) >= maxRank {
 		return fmt.Errorf("талант уже прокачан до максимума")
 	}
@@ -2268,6 +2320,15 @@ func attackConfig(attackType string) (int, string, int, bool) {
 		return 700, "лазеры из глаз", 13, true
 	default:
 		return 0, "", 0, false
+	}
+}
+
+func attackReusable(attackType string) bool {
+	switch attackType {
+	case "iron_claw", "poison_bite", "eye_lasers":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -2769,11 +2830,19 @@ func startBossBattle(boss *Boss, now time.Time) {
 	}
 }
 
+func resetTalentBattleProgress(gs *GameState) {
+	if gs == nil {
+		return
+	}
+	gs.Player.TalentDamageProgress = 0
+}
+
 func resetBossBattleDamage(gs *GameState) {
 	if gs == nil {
 		return
 	}
 	gs.BossBattleDamageCurrent = 0
+	resetTalentBattleProgress(gs)
 }
 
 func resetBossBattle(boss *Boss) {
@@ -2931,6 +3000,12 @@ func advanceBusiness(gs *GameState) {
 		return
 	}
 	now := time.Now()
+	authorityShopBonus := 0
+	authorityWheelBonus := 0
+	if gs.Player.TalentClass == "authority" {
+		authorityShopBonus = 5 * talentRank(gs, "authority_shop_income")
+		authorityWheelBonus = talentRank(gs, "authority_wheel_xp")
+	}
 	if gs.Business.ShopLevel > 0 {
 		if gs.Business.ShopLastClaimAt.IsZero() {
 			gs.Business.ShopLastClaimAt = now
@@ -2939,6 +3014,7 @@ func advanceBusiness(gs *GameState) {
 		if elapsed >= businessCycle {
 			cycles := int(elapsed / businessCycle)
 			payout := cycles * gs.Business.ShopLevel * 10
+			payout += cycles * authorityShopBonus
 			if payout > 0 {
 				addCurrencyGain(gs, Seeds, payout)
 			}
@@ -2953,6 +3029,7 @@ func advanceBusiness(gs *GameState) {
 		if elapsed >= businessCycle {
 			cycles := int(elapsed / businessCycle)
 			payout := cycles * gs.Business.WheelLevel
+			payout += cycles * authorityWheelBonus
 			if payout > 0 {
 				gs.Player.XP += payout
 				recalcLevel(gs)

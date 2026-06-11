@@ -193,7 +193,7 @@ function updateFriendsBadge() {
   if (!badge) return;
   const show = isAuthenticated && friendsBadgeCount > 0;
   badge.hidden = !show;
-  badge.textContent = '';
+  badge.classList.toggle('is-active', show);
   badge.title = show ? `У вас ${friendsBadgeCount} заявк(и)` : '';
 }
 
@@ -315,6 +315,14 @@ function captureAchievementsAccordionState() {
   achievementsAccordionState = next;
 }
 
+
+function getLeaderboardPeriodCacheKey() {
+  const day = typeof damageDayKey === 'function' ? damageDayKey() : '';
+  const week = typeof damageWeekKey === 'function' ? damageWeekKey() : '';
+  const month = typeof damageMonthKey === 'function' ? damageMonthKey() : '';
+  return [day, week, month].join('|');
+}
+
 function renderLeaderboardSection(period, entries) {
   const rows = Array.isArray(entries) && entries.length
     ? entries.map((entry, index) => `
@@ -329,7 +337,6 @@ function renderLeaderboardSection(period, entries) {
     <section class="leaderboard-card">
       <div class="profile-section__head">
         <strong>${period.label}</strong>
-        <span>Топ игроков по урону</span>
       </div>
       <div class="leaderboard-table">
         <div class="leaderboard-table__head">
@@ -363,7 +370,6 @@ function renderHomeLeaderboards() {
     <div class="leaderboard-home">
       <div class="profile-section__head">
         <strong>Таблица лидеров</strong>
-        <span>По урону по боссам за день, неделю и месяц • обновляется каждые 3 минуты</span>
       </div>
       ${renderLeaderboards()}
     </div>
@@ -371,8 +377,14 @@ function renderHomeLeaderboards() {
 }
 
 async function loadLeaderboards(force = false) {
-  if (leaderboardsLoading) return;
-  if (!force && leaderboardsData && Date.now() - leaderboardsLoadedAt < LEADERBOARD_REFRESH_MS) return;
+  const periodCacheKey = getLeaderboardPeriodCacheKey();
+  const periodChanged = leaderboardsPeriodCacheKey !== periodCacheKey;
+  if (periodChanged) {
+    leaderboardsData = null;
+    leaderboardsLoadedAt = 0;
+  }
+  if (leaderboardsLoading && !force && !periodChanged) return;
+  if (!force && !periodChanged && leaderboardsData && Date.now() - leaderboardsLoadedAt < LEADERBOARD_REFRESH_MS) return;
   leaderboardsLoading = true;
   leaderboardsError = '';
   try {
@@ -380,6 +392,7 @@ async function loadLeaderboards(force = false) {
     if (response.ok && response.data && response.data.ok && response.data.leaderboards) {
       leaderboardsData = response.data.leaderboards;
       leaderboardsLoadedAt = Date.now();
+      leaderboardsPeriodCacheKey = periodCacheKey;
     } else {
       leaderboardsError = response.data && response.data.error ? response.data.error : 'Не удалось загрузить таблицу лидеров';
     }

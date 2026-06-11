@@ -74,7 +74,9 @@ function advanceLocalBusiness(state) {
       const elapsed = now - lastTick;
       if (elapsed >= BUSINESS_CYCLE_MS) {
         const cycles = Math.floor(elapsed / BUSINESS_CYCLE_MS);
-        const payout = cycles * businessRewardAmount(BUSINESS_DEFS.shop, shopLevel);
+        const basePayout = cycles * businessRewardAmount(BUSINESS_DEFS.shop, shopLevel);
+        const authorityRank = Math.max(0, Number(next.player?.talents?.authority_shop_income || next.player?.talents?.authority_wip_tier2) || 0);
+        const payout = basePayout + (cycles * authorityRank * 5);
         if (payout > 0) {
           next.player.currency.seeds = Math.max(0, Number(next.player.currency.seeds) || 0) + payout;
         }
@@ -93,7 +95,9 @@ function advanceLocalBusiness(state) {
       const elapsed = now - lastTick;
       if (elapsed >= BUSINESS_CYCLE_MS) {
         const cycles = Math.floor(elapsed / BUSINESS_CYCLE_MS);
-        const payout = cycles * businessRewardAmount(BUSINESS_DEFS.wheel, wheelLevel);
+        const basePayout = cycles * businessRewardAmount(BUSINESS_DEFS.wheel, wheelLevel);
+        const authorityRank = Math.max(0, Number(next.player?.talents?.authority_wheel_xp || next.player?.talents?.authority_wip_tier3) || 0);
+        const payout = basePayout + (cycles * authorityRank);
         if (payout > 0) {
           next.player.xp = Math.max(0, Number(next.player.xp) || 0) + payout;
           recalcLevel(next);
@@ -143,7 +147,8 @@ function updateScene(state) {
   const wallpaper = getWallpaperAsset(wallpaperId);
 
   $('#scene-wallpaper').style.backgroundImage = `url("${wallpaper.img}")`;
-  $('#scene-meta').textContent = wallpaper.name;
+  const sceneMeta = $('#scene-meta');
+  if (sceneMeta) sceneMeta.textContent = '';
 
   const hamsterSprite = getHamsterSpriteAsset(appearance.color || 'default');
   const spriteLayer = $('#hamster-sprite');
@@ -280,10 +285,13 @@ function applyLocalAction(action, payload = {}) {
     }
     case 'attack_boss': {
       if (!boss) return;
+      const attack = ATTACKS.find((item) => item.id === payload.attackType);
+      if (!attack) return;
+      const reusable = Boolean(attack.reusable);
       const dmg = attackDamage(state, payload.attackType);
       const cost = attackCostWheat(payload.attackType);
       const now = Date.now();
-      if (cost > 0 && attackOwnedCount(state, payload.attackType) <= 0) {
+      if (cost > 0 && !reusable && attackOwnedCount(state, payload.attackType) <= 0) {
         return;
       }
       if (boss.defeated) {
@@ -308,15 +316,19 @@ function applyLocalAction(action, payload = {}) {
         return;
       }
       boss.attackCooldowns = boss.attackCooldowns || {};
-      const cooldownUntil = toMillis(boss.attackCooldowns[payload.attackType]);
-      if (cooldownUntil && now < cooldownUntil) return;
+      const cooldownUntil = reusable ? 0 : toMillis(boss.attackCooldowns[payload.attackType]);
+      if (!reusable && cooldownUntil && now < cooldownUntil) return;
       const killsToday = boss.killsDay === bossKillDayKey() ? (boss.killsToday || 0) : 0;
       if (boss.hp - dmg <= 0 && killsToday >= BOSS_KILL_LIMIT) return;
       boss.hp = Math.max(0, boss.hp - dmg);
-      if (cost > 0) {
+      if (cost > 0 && !reusable) {
         state.player.inventory[payload.attackType] = Math.max(0, attackOwnedCount(state, payload.attackType) - 1);
       }
-      boss.attackCooldowns[payload.attackType] = new Date(now + (6 * 60 * 60 * 1000)).toISOString();
+      if (!reusable) {
+        boss.attackCooldowns[payload.attackType] = new Date(now + (6 * 60 * 60 * 1000)).toISOString();
+      } else {
+        delete boss.attackCooldowns[payload.attackType];
+      }
       if (boss.hp === 0) {
         boss.defeated = true;
         boss.battleStartedAt = '';
@@ -405,9 +417,13 @@ function applyLocalAction(action, payload = {}) {
     }
     case 'select_talent_class': {
       const classId = String(payload.value ?? payload.classId ?? '').trim();
-      if (!classId) return;
+      const classDef = typeof getTalentClassDefinition === 'function' ? getTalentClassDefinition(classId) : null;
+      if (!classDef) return;
       if (currentState.player.talentClass && currentState.player.talentClass !== classId) return;
       currentState.player.talentClass = classId;
+      if (!currentState.player.talents || typeof currentState.player.talents !== 'object') {
+        currentState.player.talents = {};
+      }
       return;
     }
     case 'buy_talent': {
@@ -416,6 +432,11 @@ function applyLocalAction(action, payload = {}) {
       const skill = typeof getTalentSkillDefinition === 'function' ? getTalentSkillDefinition(skillId) : null;
       if (!skill || skill.wip) return;
       if (currentState.player.talentClass && skill.classId && currentState.player.talentClass !== skill.classId) return;
+      const prerequisite = typeof getTalentSkillPrerequisite === 'function' ? getTalentSkillPrerequisite(skillId) : (skill.prerequisite || null);
+      if (prerequisite) {
+        const prerequisiteRank = Number(currentState.player.talents?.[prerequisite.skillId] || 0);
+        if (prerequisiteRank < prerequisite.rank) return;
+      }
       if (!currentState.player.talents || typeof currentState.player.talents !== 'object') {
         currentState.player.talents = {};
       }
@@ -616,17 +637,22 @@ function renderBattleScreen() {
 
     <div class="attack-panel">
       ${ATTACKS.map((attack) => {
-        const cd = bossAttackCooldownRemaining(activeBoss, attack.id);
-        const cooldownUntil = cleanTimestamp(activeBoss.attackCooldowns?.[attack.id]);
+        const reusable = Boolean(attack.reusable);
+        const cd = reusable ? '' : bossAttackCooldownRemaining(activeBoss, attack.id);
+        const cooldownUntil = reusable ? '' : cleanTimestamp(activeBoss.attackCooldowns?.[attack.id]);
         const owned = attackOwnedCount(currentState, attack.id);
         const canBuy = (attack.costWheat || 0) > 0 && (currentState.player.currency?.wheat || 0) >= (attack.costWheat || 0);
-        const lockedByCost = (attack.costWheat || 0) > 0 && owned <= 0 && !canBuy;
-        const disabled = activeBoss.defeated || (cooldownUntil && toMillis(cooldownUntil) > Date.now()) || lockedByCost;
+        const lockedByCost = !reusable && (attack.costWheat || 0) > 0 && owned <= 0 && !canBuy;
+        const disabled = activeBoss.defeated || (!reusable && cooldownUntil && toMillis(cooldownUntil) > Date.now()) || lockedByCost;
         const actualDamage = attackDamage(currentState, attack.id);
-        const subtitle = attack.costWheat > 0
-          ? (owned > 0 ? `Зарядов: ${owned}${cd ? ` • ${cd}` : ''}` : `Купить за ${attack.costWheat} пшеницы${cd ? ` • ${cd}` : ''}`)
-          : `Бесплатно${cd ? ` • ${cd}` : ''}`;
-        return `<button class="attack-btn ${owned > 0 || attack.costWheat === 0 ? 'is-ready' : 'is-buyable'}" data-attack="${attack.id}" ${disabled ? 'disabled' : ''}>
+        const subtitle = reusable
+          ? 'Доступно всегда'
+          : (attack.costWheat > 0
+            ? (owned > 0
+              ? `Зарядов: ${owned}${cd ? ` • ${cd}` : ''}`
+              : `Купить за ${attack.costWheat} пшеницы${cd ? ` • ${cd}` : ''}`)
+            : `Бесплатно${cd ? ` • ${cd}` : ''}`);
+        return `<button class="attack-btn ${(reusable || owned > 0 || attack.costWheat === 0) ? 'is-ready' : 'is-buyable'}" data-attack="${attack.id}" ${disabled ? 'disabled' : ''}>
           <div class="attack-btn__top">
             ${attack.icon ? `<img class="attack-btn__icon" src="${attack.icon}" alt="" aria-hidden="true" />` : ''}
             <span>${attack.label}</span>
@@ -642,14 +668,14 @@ function renderBattleScreen() {
     btn.onclick = async () => {
       const attackType = btn.dataset.attack;
       const attack = ATTACKS.find((item) => item.id === attackType);
+      const reusable = Boolean(attack?.reusable);
       const owned = attackOwnedCount(currentState, attackType);
-      if (attack && attack.costWheat > 0 && owned <= 0) {
+      if (!reusable && attack && attack.costWheat > 0 && owned <= 0) {
         const buyResponse = await syncAction('buy_attack', { attackType });
         if (!(buyResponse?.ok || buyResponse?.data?.state)) {
           return;
         }
       }
-      btn.disabled = true;
       await syncAction('attack_boss', { attackType });
       setView('battle');
       render();
@@ -1235,6 +1261,14 @@ function initTopButtons() {
   const businessBackButton = $('#btn-business-back');
   if (businessBackButton) {
     businessBackButton.onclick = () => {
+      setView('main');
+      render();
+    };
+  }
+
+  const talentsBackButton = $('#btn-talents-back');
+  if (talentsBackButton) {
+    talentsBackButton.onclick = () => {
       setView('main');
       render();
     };

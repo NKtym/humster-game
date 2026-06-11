@@ -160,20 +160,26 @@
 }
 
 .friends-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
+  display: inline-block;
+  width: 20px;
+  height: 20px;
   margin-left: 6px;
-  border-radius: 999px;
-  background: #d92d20;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1;
+  object-fit: contain;
   vertical-align: middle;
+  transform-origin: 50% 65%;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+}
+
+.friends-badge.is-active {
+  animation: friends-badge-shake 0.9s ease-in-out infinite;
+}
+
+@keyframes friends-badge-shake {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  20% { transform: translateY(-1px) rotate(-6deg); }
+  40% { transform: translateY(1px) rotate(5deg); }
+  60% { transform: translateY(-1px) rotate(-4deg); }
+  80% { transform: translateY(1px) rotate(3deg); }
 }
 
 .achievements-modal {

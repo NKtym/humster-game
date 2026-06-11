@@ -184,9 +184,9 @@ const ATTACKS = [
   { id: 'scratch', label: 'Царапанье', damage: 20, costWheat: 0, icon: '/assets/combat/attacks/scratch.png' },
   { id: 'rush', label: 'Удар с разбега', damage: 15, costWheat: 0, icon: '/assets/combat/attacks/rush.png' },
   { id: 'bite', label: 'Укус', damage: 30, costWheat: 0, icon: '/assets/combat/attacks/bite.png' },
-  { id: 'iron_claw', label: 'Удар железным когтем', damage: 100, costWheat: 2, icon: '/assets/combat/attacks/iron_claw.png' },
-  { id: 'poison_bite', label: 'Ядовитый укус', damage: 300, costWheat: 6, icon: '/assets/combat/attacks/poison_bite.png' },
-  { id: 'eye_lasers', label: 'Лазеры из глаз', damage: 700, costWheat: 13, icon: '/assets/combat/attacks/eye_lasers.png' },
+  { id: 'iron_claw', label: 'Удар железным когтем', damage: 100, costWheat: 2, icon: '/assets/combat/attacks/iron_claw.png', reusable: true },
+  { id: 'poison_bite', label: 'Ядовитый укус', damage: 300, costWheat: 6, icon: '/assets/combat/attacks/poison_bite.png', reusable: true },
+  { id: 'eye_lasers', label: 'Лазеры из глаз', damage: 700, costWheat: 13, icon: '/assets/combat/attacks/eye_lasers.png', reusable: true },
 ];
 
 const BOSS_KILL_LIMIT = 8;
@@ -763,6 +763,8 @@ function bossBattleCountdown(boss) {
 }
 
 function bossAttackCooldownRemaining(boss, attackId) {
+  const attack = ATTACKS.find((item) => item.id === attackId);
+  if (attack?.reusable) return '';
   const until = cleanTimestamp(boss?.attackCooldowns?.[attackId]);
   if (!until) return '';
   return formatCountdown(toMillis(until) - Date.now());
