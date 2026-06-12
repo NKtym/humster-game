@@ -104,6 +104,10 @@ const CATALOG = {
     { id: 'swagusinitsa', name: 'Свагусиница', img: '/assets/characters/bosses/swagusinitsa.png' },
     { id: 'sand_lizard', name: 'Песчаная ящерица', img: '/assets/characters/bosses/sand_lizard.png' },
     { id: 'sand_snake', name: 'Песчаная змея', img: '/assets/characters/bosses/sand_snake.png' },
+    { id: 'cave_centipede', name: 'Пещерная многоножка', img: '/assets/characters/bosses/cave_centipede.png' },
+    { id: 'cave_bird', name: 'Пещерная птица', img: '/assets/characters/bosses/cave_bird.png' },
+    { id: 'cave_spider', name: 'Пещерный паук', img: '/assets/characters/bosses/cave_spider.png' },
+    { id: 'honey_badger', name: 'Медоед', img: '/assets/characters/bosses/honey_badger.png' },
   ],
   adventure: ADVENTURE_DEFS,
 };
@@ -192,6 +196,8 @@ const ATTACKS = [
 ];
 
 const BOSS_KILL_LIMIT = 8;
+const BOSS_PASS_ACHIEVEMENT_THRESHOLDS = [1, 5, 10, 25, 50, 100];
+const TALENT_POINTS_SPENT_ACHIEVEMENT_THRESHOLDS = [1, 10, 25, 50, 100, 150, 200];
 
 const BOSS_BLUEPRINTS = {
   rat: { name: 'Крыса', hp: 70, attack: 4, xp: 10, reward: { seeds: 20, wheat: 2, carrot: 1, cucumber: 0 } },
@@ -199,6 +205,10 @@ const BOSS_BLUEPRINTS = {
   swagusinitsa: { name: 'Свагусиница', hp: 600, attack: 12, xp: 50, reward: { seeds: 200, wheat: 0, carrot: 2, cucumber: 1 } },
   sand_lizard: { name: 'Песчаная ящерица', hp: 7000, attack: 16, xp: 300, reward: { seeds: 1000, wheat: 0, carrot: 5, cucumber: 2 } },
   sand_snake: { name: 'Песчаная змея', hp: 15000, attack: 24, xp: 500, reward: { seeds: 2000, wheat: 10, carrot: 10, cucumber: 4 } },
+  cave_centipede: { name: 'Пещерная многоножка', hp: 1200, attack: 14, xp: 100, reward: { seeds: 400, wheat: 0, carrot: 2, cucumber: 1 } },
+  cave_bird: { name: 'Пещерная птица', hp: 3400, attack: 18, xp: 200, reward: { seeds: 500, wheat: 0, carrot: 3, cucumber: 2 } },
+  cave_spider: { name: 'Пещерный паук', hp: 24000, attack: 32, xp: 800, reward: { seeds: 2000, wheat: 0, carrot: 8, cucumber: 2, apple: 1 } },
+  honey_badger: { name: 'Медоед', hp: 1000000, attack: 40, xp: 15000, reward: { seeds: 25000, wheat: 25, carrot: 30, cucumber: 10, apple: 2 } },
 };
 
 const BOSS_COSMETIC_DROPS = {
@@ -766,7 +776,12 @@ function bossBattleCountdown(boss) {
   return formatCountdown(toMillis(endsAt) - Date.now());
 }
 
+function attackConsumesChargeWithoutCooldown(attackId) {
+  return attackId === 'iron_claw' || attackId === 'poison_bite' || attackId === 'eye_lasers';
+}
+
 function bossAttackCooldownRemaining(boss, attackId) {
+  if (attackConsumesChargeWithoutCooldown(attackId)) return '';
   const until = cleanTimestamp(boss?.attackCooldowns?.[attackId]);
   if (!until) return '';
   return formatCountdown(toMillis(until) - Date.now());
@@ -1080,13 +1095,27 @@ function countUnlockedAchievements(state) {
   const speedTargets = [
     { bossId: 'rat', threshold: 3600 },
     { bossId: 'lizard', threshold: 3600 },
+    { bossId: 'swagusinitsa', threshold: 3600 },
     { bossId: 'sand_lizard', threshold: 3600 },
+    { bossId: 'sand_snake', threshold: 3600 },
+    { bossId: 'cave_centipede', threshold: 3600 },
+    { bossId: 'cave_bird', threshold: 3600 },
+    { bossId: 'cave_spider', threshold: 3600 },
+    { bossId: 'honey_badger', threshold: 3600 },
   ];
   const speedUnlocked = speedTargets.reduce((sum, target) => {
     const boss = bosses.find((item) => item && item.id === target.bossId);
     const bestClearSeconds = Math.max(0, Number(boss?.bestClearSeconds) || 0);
     return sum + (bestClearSeconds > 0 && bestClearSeconds <= target.threshold ? 1 : 0);
   }, 0);
+
+  const bossPassUnlocked = bosses.reduce((sum, boss) => {
+    const killsTotal = Math.max(0, Number(boss?.killsTotal) || 0);
+    return sum + BOSS_PASS_ACHIEVEMENT_THRESHOLDS.filter((threshold) => killsTotal >= threshold).length;
+  }, 0);
+
+  const talentPointsSpent = Math.max(0, Number(state?.player?.talentPointsSpent) || 0);
+  const talentSpentUnlocked = TALENT_POINTS_SPENT_ACHIEVEMENT_THRESHOLDS.filter((threshold) => talentPointsSpent >= threshold).length;
 
   const totals = state?.economyTotals || {};
   const economyUnlocked = ECONOMY_ACHIEVEMENTS.reduce((sum, resource) => {
@@ -1095,7 +1124,7 @@ function countUnlockedAchievements(state) {
     return sum + unlocked;
   }, 0);
 
-  return battleDamageUnlocked + speedUnlocked + economyUnlocked;
+  return battleDamageUnlocked + speedUnlocked + bossPassUnlocked + talentSpentUnlocked + economyUnlocked;
 }
 
 function renderProfileSummary(profile) {

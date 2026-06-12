@@ -88,6 +88,7 @@ type Player struct {
 	Appearance           Appearance        `json:"appearance"`
 	TalentClass          string            `json:"talentClass"`
 	TalentPoints         int               `json:"talentPoints"`
+	TalentPointsSpent    int               `json:"talentPointsSpent"`
 	TalentDamageProgress int               `json:"talentDamageProgress"`
 	TalentNextThreshold  int               `json:"talentNextThreshold"`
 	Talents              map[string]int    `json:"talents"`

@@ -112,18 +112,18 @@
   // Чтобы сдвинуть любой скилл, меняй только top/left в процентах.
   const skillPositions = {
     martial_arts: [
-      { top: '12.7%', left: '50.0%' },
-      { top: '22.5%', left: '50.0%' },
+      { top: '16.4%', left: '49.9%' },
+      { top: '26.4%', left: '49.9%' },
     ],
     authority: [
-      { top: '12.7%', left: '45.0%' },
-      { top: '22.0%', left: '45.0%' },
-      { top: '31.0%', left: '45.0%' },
+      { top: '16.4%', left: '49.9%' },
+      { top: '26.4%', left: '49.9%' },
+      { top: '35.0%', left: '49.9%' },
     ],
     berserk: [
-      { top: '12.7%', left: '44.8%' },
-      { top: '22.5%', left: '44.5%' },
-      { top: '31.0%', left: '45.0%' },
+      { top: '16.4%', left: '49.9%' },
+      { top: '26.4%', left: '49.9%' },
+      { top: '35.0%', left: '49.9%' },
     ],
   };
 
@@ -173,6 +173,7 @@
     }
 
     player.talentPoints = Math.max(0, Number(player.talentPoints) || 0);
+    player.talentPointsSpent = Math.max(0, Number(player.talentPointsSpent) || 0);
     player.talentDamageProgress = Math.max(0, Number(player.talentDamageProgress) || 0);
     player.talentNextThreshold = Math.max(70, Number(player.talentNextThreshold) || 70);
     return state;

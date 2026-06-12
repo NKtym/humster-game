@@ -1372,6 +1372,9 @@ func normalizeGameState(state *GameState) {
 	if state.Player.TalentPoints < 0 {
 		state.Player.TalentPoints = 0
 	}
+	if state.Player.TalentPointsSpent < 0 {
+		state.Player.TalentPointsSpent = 0
+	}
 	if state.Player.TalentDamageProgress < 0 {
 		state.Player.TalentDamageProgress = 0
 	}
@@ -1715,11 +1718,11 @@ func (s *Server) attackBoss(gs *GameState, attackType string, userID string) err
 
 	baseDamage, label, cost, ok := attackConfig(attackType)
 	damage := baseDamage + attackBonusDamage(gs, attackType)
-	reusable := attackReusable(attackType)
+	chargeAttack := attackConsumesChargeWithoutCooldown(attackType)
 	if !ok {
 		return fmt.Errorf("неизвестный удар")
 	}
-	if cost > 0 && !reusable && gs.Player.Inventory[attackType] <= 0 {
+	if cost > 0 && gs.Player.Inventory[attackType] <= 0 {
 		return fmt.Errorf("сначала купи эту атаку")
 	}
 
@@ -1742,7 +1745,7 @@ func (s *Server) attackBoss(gs *GameState, attackType string, userID string) err
 		boss.AttackCooldowns = map[string]time.Time{}
 	}
 	refreshBossKillLimit(boss)
-	if !reusable {
+	if !chargeAttack {
 		if until, ok := boss.AttackCooldowns[attackType]; ok && now.Before(until) {
 			return fmt.Errorf("удар %s ещё перезаряжается", label)
 		}
@@ -1758,13 +1761,13 @@ func (s *Server) attackBoss(gs *GameState, attackType string, userID string) err
 	talentDamageProgress(gs, actualDamage)
 	s.recordLeaderboardDamage(context.Background(), userID, actualDamage, now)
 	gs.Bosses[idx].HP = max(0, boss.HP-damage)
-	if cost > 0 && !reusable {
+	if cost > 0 {
 		if gs.Player.Inventory == nil {
 			gs.Player.Inventory = map[string]int{}
 		}
 		gs.Player.Inventory[attackType] = max(0, gs.Player.Inventory[attackType]-1)
 	}
-	if reusable {
+	if chargeAttack {
 		delete(gs.Bosses[idx].AttackCooldowns, attackType)
 	} else {
 		gs.Bosses[idx].AttackCooldowns[attackType] = now.Add(bossAttackCooldown)
@@ -2183,6 +2186,7 @@ func buyTalentRank(gs *GameState, skillID string) error {
 	}
 	gs.Player.Talents[skillID] = talentRank(gs, skillID) + 1
 	gs.Player.TalentPoints--
+	gs.Player.TalentPointsSpent++
 	switch skillID {
 	case "martial_energy":
 		gs.Player.MaxEnergy++
@@ -2291,6 +2295,7 @@ func (s *Server) buyTalentRank(gs *GameState, skillID string) error {
 	}
 	gs.Player.Talents[skillID] = talentRank(gs, skillID) + 1
 	gs.Player.TalentPoints--
+	gs.Player.TalentPointsSpent++
 	switch skillID {
 	case "martial_energy":
 		if gs.Player.MaxEnergy <= 0 {
@@ -2326,7 +2331,7 @@ func attackConfig(attackType string) (int, string, int, bool) {
 	}
 }
 
-func attackReusable(attackType string) bool {
+func attackConsumesChargeWithoutCooldown(attackType string) bool {
 	switch attackType {
 	case "iron_claw", "poison_bite", "eye_lasers":
 		return true
@@ -2467,6 +2472,7 @@ func newGameState() GameState {
 			},
 			TalentClass:          "",
 			TalentPoints:         0,
+			TalentPointsSpent:    0,
 			TalentDamageProgress: 0,
 			TalentNextThreshold:  70,
 			Talents:              map[string]int{},
@@ -2541,6 +2547,66 @@ func newGameState() GameState {
 				Attack:           24,
 				Reward:           map[Currency]int{Seeds: 2000, Wheat: 10, Carrot: 10, Cucumber: 4},
 				XP:               500,
+				Defeated:         false,
+				AttackCooldowns:  map[string]time.Time{},
+				KillsToday:       0,
+				KillsDay:         bossKillDayKey(),
+				KillsTotal:       0,
+				BestClearSeconds: 0,
+			},
+			{
+				ID:               "cave_centipede",
+				Name:             "Пещерная многоножка",
+				HP:               1200,
+				MaxHP:            1200,
+				Attack:           14,
+				Reward:           map[Currency]int{Seeds: 400, Wheat: 0, Carrot: 2, Cucumber: 1},
+				XP:               100,
+				Defeated:         false,
+				AttackCooldowns:  map[string]time.Time{},
+				KillsToday:       0,
+				KillsDay:         bossKillDayKey(),
+				KillsTotal:       0,
+				BestClearSeconds: 0,
+			},
+			{
+				ID:               "cave_bird",
+				Name:             "Пещерная птица",
+				HP:               3400,
+				MaxHP:            3400,
+				Attack:           18,
+				Reward:           map[Currency]int{Seeds: 500, Wheat: 0, Carrot: 3, Cucumber: 2},
+				XP:               200,
+				Defeated:         false,
+				AttackCooldowns:  map[string]time.Time{},
+				KillsToday:       0,
+				KillsDay:         bossKillDayKey(),
+				KillsTotal:       0,
+				BestClearSeconds: 0,
+			},
+			{
+				ID:               "cave_spider",
+				Name:             "Пещерный паук",
+				HP:               24000,
+				MaxHP:            24000,
+				Attack:           32,
+				Reward:           map[Currency]int{Seeds: 2000, Wheat: 0, Carrot: 8, Cucumber: 2, Apple: 1},
+				XP:               800,
+				Defeated:         false,
+				AttackCooldowns:  map[string]time.Time{},
+				KillsToday:       0,
+				KillsDay:         bossKillDayKey(),
+				KillsTotal:       0,
+				BestClearSeconds: 0,
+			},
+			{
+				ID:               "honey_badger",
+				Name:             "Медоед",
+				HP:               1000000,
+				MaxHP:            1000000,
+				Attack:           40,
+				Reward:           map[Currency]int{Seeds: 25000, Wheat: 25, Carrot: 30, Cucumber: 10, Apple: 2},
+				XP:               15000,
 				Defeated:         false,
 				AttackCooldowns:  map[string]time.Time{},
 				KillsToday:       0,
@@ -2805,6 +2871,10 @@ func normalizeBosses(gs *GameState) {
 		{id: "swagusinitsa", name: "Свагусиница", hp: 600, attack: 12, xp: 50, reward: map[Currency]int{Seeds: 200, Wheat: 0, Carrot: 2, Cucumber: 1}},
 		{id: "sand_lizard", name: "Песчаная ящерица", hp: 7000, attack: 16, xp: 300, reward: map[Currency]int{Seeds: 1000, Wheat: 0, Carrot: 5, Cucumber: 2}},
 		{id: "sand_snake", name: "Песчаная змея", hp: 15000, attack: 24, xp: 500, reward: map[Currency]int{Seeds: 2000, Wheat: 10, Carrot: 10, Cucumber: 4}},
+		{id: "cave_centipede", name: "Пещерная многоножка", hp: 1200, attack: 14, xp: 100, reward: map[Currency]int{Seeds: 400, Wheat: 0, Carrot: 2, Cucumber: 1}},
+		{id: "cave_bird", name: "Пещерная птица", hp: 3400, attack: 18, xp: 200, reward: map[Currency]int{Seeds: 500, Wheat: 0, Carrot: 3, Cucumber: 2}},
+		{id: "cave_spider", name: "Пещерный паук", hp: 24000, attack: 32, xp: 800, reward: map[Currency]int{Seeds: 2000, Wheat: 0, Carrot: 8, Cucumber: 2, Apple: 1}},
+		{id: "honey_badger", name: "Медоед", hp: 1000000, attack: 40, xp: 15000, reward: map[Currency]int{Seeds: 25000, Wheat: 25, Carrot: 30, Cucumber: 10, Apple: 2}},
 	}
 	byID := map[string]Boss{}
 	for i := range gs.Bosses {
@@ -2979,7 +3049,7 @@ func currentBoss(gs *GameState, id string) (*Boss, int, bool) {
 
 func bossUnlockPasses(bossID string) int {
 	switch strings.TrimSpace(bossID) {
-	case "sand_lizard", "sand_snake":
+	case "sand_lizard", "sand_snake", "cave_centipede", "cave_bird", "cave_spider", "honey_badger":
 		return 1
 	default:
 		return 0

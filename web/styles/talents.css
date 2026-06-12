@@ -513,11 +513,12 @@
 }
 
 .talent-tree-map__node:hover:not(:disabled) {
-  transform: translate(-50%, -50%) scale(1.04);
+  transform: translate(-50%, -50%);
 }
 
 .talent-tree-map__node:disabled {
   cursor: not-allowed;
+  transform: translate(-50%, -50%);
 }
 
 .talent-tree-map__node img {

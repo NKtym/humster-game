@@ -328,6 +328,24 @@ function renderLeaderboardSection(period, entries) {
       </div>
     `).join('')
     : '<div class="social-note">Пока никто не попал в этот топ.</div>';
+
+  const talentSpent = Math.max(0, Number(currentState?.player?.talentPointsSpent) || 0);
+  const talentSpentRows = TALENT_POINTS_SPENT_ACHIEVEMENT_THRESHOLDS.map((threshold) => {
+    const unlocked = talentSpent >= threshold;
+    const progress = Math.min(threshold, talentSpent);
+    const percent = Math.max(0, Math.min(100, (progress / threshold) * 100));
+    return `
+      <div class="achievement-step ${unlocked ? 'is-done' : ''}">
+        <div class="achievement-step__head">
+          <strong>Потратьте ${formatAchievementNumber(threshold)} очков талантов</strong>
+          <span>${unlocked ? 'Выполнено' : `${formatAchievementNumber(Math.max(0, threshold - talentSpent))} осталось`}</span>
+        </div>
+        <div class="achievement-step__bar"><div style="width: ${percent}%"></div></div>
+        <div class="achievement-step__state">${unlocked ? `Потрачено очков талантов: ${formatAchievementNumber(talentSpent)}` : `Сейчас потрачено: ${formatAchievementNumber(talentSpent)}`}</div>
+      </div>
+    `;
+  }).join('');
+
   return `
     <section class="leaderboard-card">
       <div class="profile-section__head">
@@ -485,137 +503,202 @@ function bindLeaderboardEvents() {
 }
 
 function renderBattleAchievements() {
-  const best = Math.max(0, Number(currentState?.bossBattleDamageBest) || 0);
-  const current = Math.max(0, Number(currentState?.bossBattleDamageCurrent) || 0);
-  const rows = BATTLE_DAMAGE_ACHIEVEMENTS.map((threshold) => {
-    const unlocked = best >= threshold;
-    const progress = Math.min(threshold, best);
-    const percent = Math.max(0, Math.min(100, (progress / threshold) * 100));
-    return `
-      <div class="achievement-step ${unlocked ? 'is-done' : ''}">
-        <div class="achievement-step__head">
-          <strong>Нанесите ${formatAchievementNumber(threshold)} урона за одну битву</strong>
-          <span>${unlocked ? 'Выполнено' : `${formatAchievementNumber(Math.max(0, threshold - best))} осталось`}</span>
-        </div>
-        <div class="achievement-step__bar"><div style="width: ${percent}%"></div></div>
-        <div class="achievement-step__state">${unlocked ? `Лучший результат: ${formatAchievementNumber(best)}` : `Текущий лучший результат: ${formatAchievementNumber(best)}`}</div>
-      </div>
-    `;
-  }).join('');
+  try {
+      const best = Math.max(0, Number(currentState?.bossBattleDamageBest) || 0);
+      const current = Math.max(0, Number(currentState?.bossBattleDamageCurrent) || 0);
+      const rows = BATTLE_DAMAGE_ACHIEVEMENTS.map((threshold) => {
+        const unlocked = best >= threshold;
+        const progress = Math.min(threshold, best);
+        const percent = Math.max(0, Math.min(100, (progress / threshold) * 100));
+        return `
+          <div class="achievement-step ${unlocked ? 'is-done' : ''}">
+            <div class="achievement-step__head">
+              <strong>Нанесите ${formatAchievementNumber(threshold)} урона за одну битву</strong>
+              <span>${unlocked ? 'Выполнено' : `${formatAchievementNumber(Math.max(0, threshold - best))} осталось`}</span>
+            </div>
+            <div class="achievement-step__bar"><div style="width: ${percent}%"></div></div>
+            <div class="achievement-step__state">${unlocked ? `Лучший результат: ${formatAchievementNumber(best)}` : `Текущий лучший результат: ${formatAchievementNumber(best)}`}</div>
+          </div>
+        `;
+      }).join('');
 
-  const speedTargets = [
-    { bossId: 'rat', label: 'Крыса', threshold: 3600 },
-    { bossId: 'lizard', label: 'Ящерица', threshold: 3600 },
-    { bossId: 'swagusinitsa', label: 'Свагусиница', threshold: 3600 },
-    { bossId: 'sand_lizard', label: 'Песчаная ящерица', threshold: 3600 },
-    { bossId: 'sand_snake', label: 'Песчаная змея', threshold: 3600 },
-  ];
-  const speedRows = speedTargets.map((target) => {
-    const boss = Array.isArray(currentState?.bosses) ? currentState.bosses.find((item) => item.id === target.bossId) : null;
-    const bestClear = Math.max(0, Number(boss?.bestClearSeconds) || 0);
-    const unlocked = bestClear > 0 && bestClear <= target.threshold;
-    const progress = unlocked ? target.threshold : Math.min(target.threshold, bestClear || 0);
-    const percent = Math.max(0, Math.min(100, (progress / target.threshold) * 100));
-    return `
-      <div class="achievement-step ${unlocked ? 'is-done' : ''}">
-        <div class="achievement-step__head">
-          <strong>Победите ${target.label} за 1 час</strong>
-          <span>${unlocked ? `Выполнено • ${formatCountdown(bestClear * 1000)}` : (bestClear > 0 ? `Лучший результат: ${formatCountdown(bestClear * 1000)}` : 'Пока не выполнено')}</span>
-        </div>
-        <div class="achievement-step__bar"><div style="width: ${percent}%"></div></div>
-        <div class="achievement-step__state">${unlocked ? 'Награда открыта' : `Нужно уложиться в ${formatCountdown(target.threshold * 1000)}`}</div>
-      </div>
-    `;
-  }).join('');
+      const speedTargets = [
+        { bossId: 'rat', label: 'Крыса', threshold: 3600 },
+        { bossId: 'lizard', label: 'Ящерица', threshold: 3600 },
+        { bossId: 'swagusinitsa', label: 'Свагусиница', threshold: 3600 },
+        { bossId: 'sand_lizard', label: 'Песчаная ящерица', threshold: 3600 },
+        { bossId: 'sand_snake', label: 'Песчаная змея', threshold: 3600 },
+        { bossId: 'cave_centipede', label: 'Пещерная многоножка', threshold: 3600 },
+        { bossId: 'cave_bird', label: 'Пещерная птица', threshold: 3600 },
+        { bossId: 'cave_spider', label: 'Пещерный паук', threshold: 3600 },
+        { bossId: 'honey_badger', label: 'Медоед', threshold: 3600 },
+      ];
+      const speedRows = speedTargets.map((target) => {
+        const boss = Array.isArray(currentState?.bosses) ? currentState.bosses.find((item) => item.id === target.bossId) : null;
+        const bestClear = Math.max(0, Number(boss?.bestClearSeconds) || 0);
+        const unlocked = bestClear > 0 && bestClear <= target.threshold;
+        const progress = unlocked ? target.threshold : Math.min(target.threshold, bestClear || 0);
+        const percent = Math.max(0, Math.min(100, (progress / target.threshold) * 100));
+        return `
+          <div class="achievement-step ${unlocked ? 'is-done' : ''}">
+            <div class="achievement-step__head">
+              <strong>Победите ${target.label} за 1 час</strong>
+              <span>${unlocked ? `Выполнено • ${formatCountdown(bestClear * 1000)}` : (bestClear > 0 ? `Лучший результат: ${formatCountdown(bestClear * 1000)}` : 'Пока не выполнено')}</span>
+            </div>
+            <div class="achievement-step__bar"><div style="width: ${percent}%"></div></div>
+            <div class="achievement-step__state">${unlocked ? 'Награда открыта' : `Нужно уложиться в ${formatCountdown(target.threshold * 1000)}`}</div>
+          </div>
+        `;
+      }).join('');
 
-  return `
-    <div class="achievement-summary">
-      <div class="profile-card">
-        <span>Лучший урон за одну битву</span>
-        <strong>${formatAchievementNumber(best)}</strong>
-      </div>
-      <div class="profile-card">
-        <span>Текущий урон в бою</span>
-        <strong>${formatAchievementNumber(current)}</strong>
-      </div>
-    </div>
-    <details class="achievement-accordion" data-achievement-key="battle" ${achievementsAccordionState.battle === false ? "" : "open"}>
-      <summary>
-        <div>
-          <strong>Битвы</strong>
-          <span>Нажми, чтобы свернуть или раскрыть список достижений</span>
+      const bossPassRows = (CATALOG.bosses || []).map((boss) => {
+        const stateBoss = Array.isArray(currentState?.bosses) ? currentState.bosses.find((item) => item.id === boss.id) : null;
+        const killsTotal = Math.max(0, Number(stateBoss?.killsTotal) || 0);
+        const unlockedCount = BOSS_PASS_ACHIEVEMENT_THRESHOLDS.filter((threshold) => killsTotal >= threshold).length;
+        const rows = BOSS_PASS_ACHIEVEMENT_THRESHOLDS.map((threshold) => {
+          const unlocked = killsTotal >= threshold;
+          const progress = Math.min(threshold, killsTotal);
+          const percent = Math.max(0, Math.min(100, (progress / threshold) * 100));
+          return `
+            <div class="achievement-step ${unlocked ? 'is-done' : ''}">
+              <div class="achievement-step__head">
+                <strong>${threshold} прохождений: ${boss.name}</strong>
+                <span>${unlocked ? 'Выполнено' : `${formatAchievementNumber(Math.max(0, threshold - killsTotal))} осталось`}</span>
+              </div>
+              <div class="achievement-step__bar"><div style="width: ${percent}%"></div></div>
+              <div class="achievement-step__state">${unlocked ? `Всего прохождений: ${formatAchievementNumber(killsTotal)}` : `Сейчас прохождений: ${formatAchievementNumber(killsTotal)}`}</div>
+            </div>
+          `;
+        }).join('');
+
+        return `
+          <section class="achievement-speed">
+            <div class="profile-section__head">
+              <strong>${boss.name}</strong>
+              <span>${formatAchievementNumber(killsTotal)} прохождений • ${unlockedCount}/${BOSS_PASS_ACHIEVEMENT_THRESHOLDS.length} целей</span>
+            </div>
+            <div class="achievement-speed__list">
+              ${rows}
+            </div>
+          </section>
+        `;
+      }).join('');
+
+      return `
+        <div class="achievement-summary">
+          <div class="profile-card">
+            <span>Лучший урон за одну битву</span>
+            <strong>${formatAchievementNumber(best)}</strong>
+          </div>
+          <div class="profile-card">
+            <span>Текущий урон в бою</span>
+            <strong>${formatAchievementNumber(current)}</strong>
+          </div>
         </div>
-        <span class="achievement-accordion__hint">${BATTLE_DAMAGE_ACHIEVEMENTS.length} целей</span>
-      </summary>
-      <div class="achievement-accordion__content">
-        ${rows}
-      </div>
-    </details>
-    <section class="achievement-speed">
-      <div class="profile-section__head">
-        <strong>Скорость прохождения боссов</strong>
-        <span>Победи каждого босса за 1 час</span>
-      </div>
-      <div class="achievement-speed__list">
-        ${speedRows}
-      </div>
-    </section>
-  `;
+        <details class="achievement-accordion" data-achievement-key="battle" ${achievementsAccordionState.battle === false ? "" : "open"}>
+          <summary>
+            <div>
+              <strong>Битвы</strong>
+              <span>Нажми, чтобы свернуть или раскрыть список достижений</span>
+            </div>
+            <span class="achievement-accordion__hint">${BATTLE_DAMAGE_ACHIEVEMENTS.length} целей</span>
+          </summary>
+          <div class="achievement-accordion__content">
+            ${rows}
+          </div>
+        </details>
+        <section class="achievement-speed">
+          <div class="profile-section__head">
+            <strong>Скорость прохождения боссов</strong>
+            <span>Победи каждого босса за 1 час</span>
+          </div>
+          <div class="achievement-speed__list">
+            ${speedRows}
+          </div>
+        </section>
+        <section class="achievement-speed">
+          <div class="profile-section__head">
+            <strong>Прохождения боссов</strong>
+            <span>1, 5, 10, 25, 50 и 100 раз для каждого босса</span>
+          </div>
+          <div class="achievement-speed__list">
+            ${bossPassRows}
+          </div>
+        </section>
+        <section class="achievement-speed">
+          <div class="profile-section__head">
+            <strong>Прокачка талантов</strong>
+            <span>1, 10, 25, 50, 100, 150 и 200 очков</span>
+          </div>
+          <div class="achievement-speed__list">
+            ${talentSpentRows}
+          </div>
+        </section>
+      `;
+  } catch (error) {
+    console.error('Не удалось отрендерить renderBattleAchievements', error);
+    return '<div class="social-note">Достижения временно недоступны. Попробуй открыть их ещё раз.</div>';
+  }
 }
 
 function renderEconomyAchievements() {
-  const totals = currentState?.economyTotals || {};
-  const resourceCards = ECONOMY_ACHIEVEMENTS.map((resource) => {
-    const total = Math.max(0, Number(totals?.[resource.key]) || 0);
-    return `
-      <div class="profile-card">
-        <span>${resource.label}</span>
-        <strong>${formatAchievementNumber(total)}</strong>
-      </div>
-    `;
-  }).join('');
+  try {
+      const totals = currentState?.economyTotals || {};
+      const resourceCards = ECONOMY_ACHIEVEMENTS.map((resource) => {
+        const total = Math.max(0, Number(totals?.[resource.key]) || 0);
+        return `
+          <div class="profile-card">
+            <span>${resource.label}</span>
+            <strong>${formatAchievementNumber(total)}</strong>
+          </div>
+        `;
+      }).join('');
 
-  const sections = ECONOMY_ACHIEVEMENTS.map((resource) => {
-    const total = Math.max(0, Number(totals?.[resource.key]) || 0);
-    const isOpen = Object.prototype.hasOwnProperty.call(achievementsAccordionState.economy || {}, resource.key)
-      ? Boolean(achievementsAccordionState.economy[resource.key])
-      : resource.key === 'seeds';
-    const rows = ECONOMY_ACHIEVEMENT_THRESHOLDS.map((threshold) => {
-      const unlocked = total >= threshold;
-      const percent = Math.max(0, Math.min(100, (Math.min(threshold, total) / threshold) * 100));
+      const sections = ECONOMY_ACHIEVEMENTS.map((resource) => {
+        const total = Math.max(0, Number(totals?.[resource.key]) || 0);
+        const isOpen = Object.prototype.hasOwnProperty.call(achievementsAccordionState.economy || {}, resource.key)
+          ? Boolean(achievementsAccordionState.economy[resource.key])
+          : resource.key === 'seeds';
+        const rows = ECONOMY_ACHIEVEMENT_THRESHOLDS.map((threshold) => {
+          const unlocked = total >= threshold;
+          const percent = Math.max(0, Math.min(100, (Math.min(threshold, total) / threshold) * 100));
+          return `
+            <div class="achievement-step ${unlocked ? 'is-done' : ''}">
+              <div class="achievement-step__head">
+                <strong>Накопите ${formatAchievementNumber(threshold)} ${resource.form}</strong>
+                <span>${unlocked ? 'Выполнено' : `${formatAchievementNumber(Math.max(0, threshold - total))} осталось`}</span>
+              </div>
+              <div class="achievement-step__bar"><div style="width: ${percent}%"></div></div>
+              <div class="achievement-step__state">${unlocked ? `Всего накоплено: ${formatAchievementNumber(total)}` : `Сейчас накоплено: ${formatAchievementNumber(total)}`}</div>
+            </div>
+          `;
+        }).join('');
+        return `
+          <section class="achievement-panel ${isOpen ? 'is-open' : ''}" data-achievement-key="${resource.key}">
+            <button type="button" class="achievement-panel__summary" data-economy-toggle="${resource.key}" aria-expanded="${isOpen}">
+              <div>
+                <strong>${resource.label}</strong>
+                <span>${formatAchievementNumber(total)} накоплено</span>
+              </div>
+              <span class="achievement-accordion__hint">${ECONOMY_ACHIEVEMENT_THRESHOLDS.length} целей</span>
+            </button>
+            <div class="achievement-panel__content" ${isOpen ? '' : 'hidden'}>
+              ${rows}
+            </div>
+          </section>
+        `;
+      }).join('');
+
       return `
-        <div class="achievement-step ${unlocked ? 'is-done' : ''}">
-          <div class="achievement-step__head">
-            <strong>Накопите ${formatAchievementNumber(threshold)} ${resource.form}</strong>
-            <span>${unlocked ? 'Выполнено' : `${formatAchievementNumber(Math.max(0, threshold - total))} осталось`}</span>
-          </div>
-          <div class="achievement-step__bar"><div style="width: ${percent}%"></div></div>
-          <div class="achievement-step__state">${unlocked ? `Всего накоплено: ${formatAchievementNumber(total)}` : `Сейчас накоплено: ${formatAchievementNumber(total)}`}</div>
+        <div class="achievement-summary">
+          ${resourceCards}
         </div>
+        ${sections}
       `;
-    }).join('');
-    return `
-      <section class="achievement-panel ${isOpen ? 'is-open' : ''}" data-achievement-key="${resource.key}">
-        <button type="button" class="achievement-panel__summary" data-economy-toggle="${resource.key}" aria-expanded="${isOpen}">
-          <div>
-            <strong>${resource.label}</strong>
-            <span>${formatAchievementNumber(total)} накоплено</span>
-          </div>
-          <span class="achievement-accordion__hint">${ECONOMY_ACHIEVEMENT_THRESHOLDS.length} целей</span>
-        </button>
-        <div class="achievement-panel__content" ${isOpen ? '' : 'hidden'}>
-          ${rows}
-        </div>
-      </section>
-    `;
-  }).join('');
-
-  return `
-    <div class="achievement-summary">
-      ${resourceCards}
-    </div>
-    ${sections}
-  `;
+  } catch (error) {
+    console.error('Не удалось отрендерить renderEconomyAchievements', error);
+    return '<div class="social-note">Достижения временно недоступны. Попробуй открыть их ещё раз.</div>';
+  }
 }
 
 function bindAchievementsModalEvents() {
@@ -660,28 +743,35 @@ function renderAchievementsModal() {
   if (!modal) return;
   const body = document.getElementById('achievements-modal-body');
   const title = document.getElementById('achievements-title');
-  if (body) {
-    captureAchievementsAccordionState();
-  }
-  const titles = { battle: 'Битвы', economy: 'Экономика' };
-  if (title) {
-    title.textContent = titles[achievementsModalTab] || 'Достижения';
-  }
-  const tabs = document.querySelectorAll('[data-achievements-tab]');
-  tabs.forEach((tab) => {
-    const active = (tab.getAttribute('data-achievements-tab') || '') === achievementsModalTab;
-    tab.classList.toggle('is-active', active);
-  });
-  if (body) {
-    if (achievementsModalTab === 'battle') {
-      body.innerHTML = renderBattleAchievements();
-    } else if (achievementsModalTab === 'economy') {
-      body.innerHTML = renderEconomyAchievements();
-    } else {
-      body.innerHTML = '<div class="social-note">Раздел в разработке.</div>';
+  try {
+    if (body) {
+      captureAchievementsAccordionState();
+    }
+    const titles = { battle: 'Битвы', economy: 'Экономика' };
+    if (title) {
+      title.textContent = titles[achievementsModalTab] || 'Достижения';
+    }
+    const tabs = document.querySelectorAll('[data-achievements-tab]');
+    tabs.forEach((tab) => {
+      const active = (tab.getAttribute('data-achievements-tab') || '') === achievementsModalTab;
+      tab.classList.toggle('is-active', active);
+    });
+    if (body) {
+      if (achievementsModalTab === 'battle') {
+        body.innerHTML = renderBattleAchievements();
+      } else if (achievementsModalTab === 'economy') {
+        body.innerHTML = renderEconomyAchievements();
+      } else {
+        body.innerHTML = '<div class="social-note">Раздел в разработке.</div>';
+      }
+    }
+    bindAchievementsModalEvents();
+  } catch (error) {
+    console.error('Не удалось отрендерить достижения', error);
+    if (body) {
+      body.innerHTML = '<div class="social-note">Достижения временно недоступны. Попробуй открыть их ещё раз.</div>';
     }
   }
-  bindAchievementsModalEvents();
 }
 
 function openAchievementsModal() {
@@ -695,3 +785,5 @@ function closeAchievementsModal() {
   const modal = document.getElementById('achievements-modal');
   if (modal) modal.hidden = true;
 }
+window.openAchievementsModal = openAchievementsModal;
+window.renderAchievementsModal = renderAchievementsModal;

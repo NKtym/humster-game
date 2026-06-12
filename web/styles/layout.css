@@ -177,8 +177,13 @@
   opacity: 0.52;
 }
 
+.adventure-node:hover:not(:disabled),
+.adventure-node:disabled {
+  transform: translate(-50%, -50%);
+}
+
 .adventure-node.is-active:not(.is-locked) .adventure-node__ring {
-  animation: node-pulse 1.8s ease-in-out infinite;
+  animation: none !important;
 }
 
 .adventure-node.is-complete .adventure-node__ring {
@@ -186,7 +191,7 @@
 }
 
 .adventure-node.is-shaking {
-  animation: node-shake 0.35s ease-in-out 1;
+  animation: none !important;
 }
 
 .adventure-panel {

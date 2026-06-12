@@ -220,6 +220,10 @@ function hasAttackCharge(state, attackType) {
   return cost <= 0 || attackOwnedCount(state, attackType) > 0;
 }
 
+function attackConsumesChargeWithoutCooldown(attackType) {
+  return attackType === 'iron_claw' || attackType === 'poison_bite' || attackType === 'eye_lasers';
+}
+
 function applyLocalAction(action, payload = {}) {
   const state = currentState;
   advanceLocalBusiness(state);
@@ -292,6 +296,7 @@ function applyLocalAction(action, payload = {}) {
       if (!boss) return;
       const dmg = attackDamage(state, payload.attackType);
       const cost = attackCostWheat(payload.attackType);
+      const specialChargeAttack = attackConsumesChargeWithoutCooldown(payload.attackType);
       const now = Date.now();
       if (cost > 0 && attackOwnedCount(state, payload.attackType) <= 0) {
         return;
@@ -318,7 +323,7 @@ function applyLocalAction(action, payload = {}) {
         return;
       }
       boss.attackCooldowns = boss.attackCooldowns || {};
-      const cooldownUntil = toMillis(boss.attackCooldowns[payload.attackType]);
+      const cooldownUntil = specialChargeAttack ? 0 : toMillis(boss.attackCooldowns[payload.attackType]);
       if (cooldownUntil && now < cooldownUntil) return;
       const killsToday = boss.killsDay === bossKillDayKey() ? (boss.killsToday || 0) : 0;
       if (boss.hp - dmg <= 0 && killsToday >= BOSS_KILL_LIMIT) return;
@@ -326,7 +331,11 @@ function applyLocalAction(action, payload = {}) {
       if (cost > 0) {
         state.player.inventory[payload.attackType] = Math.max(0, attackOwnedCount(state, payload.attackType) - 1);
       }
-      boss.attackCooldowns[payload.attackType] = new Date(now + (6 * 60 * 60 * 1000)).toISOString();
+      if (specialChargeAttack) {
+        delete boss.attackCooldowns[payload.attackType];
+      } else {
+        boss.attackCooldowns[payload.attackType] = new Date(now + (6 * 60 * 60 * 1000)).toISOString();
+      }
       if (boss.hp === 0) {
         boss.defeated = true;
         boss.battleStartedAt = '';
@@ -442,6 +451,7 @@ function applyLocalAction(action, payload = {}) {
       if (currentState.player.talentPoints <= 0 || currentRank >= 10) return;
       currentState.player.talents[skillId] = currentRank + 1;
       currentState.player.talentPoints -= 1;
+      currentState.player.talentPointsSpent = Math.max(0, Number(currentState.player.talentPointsSpent) || 0) + 1;
       if (skillId === 'martial_energy') {
         currentState.player.maxEnergy = Math.max(40, Number(currentState.player.maxEnergy) || 40) + 1;
         currentState.player.energy = Math.min(currentState.player.maxEnergy, (Number(currentState.player.energy) || 0) + 1);
@@ -484,6 +494,10 @@ function bossUnlockPasses(bossId) {
   switch ((bossId || '').trim()) {
     case 'sand_lizard':
     case 'sand_snake':
+    case 'cave_centipede':
+    case 'cave_bird':
+    case 'cave_spider':
+    case 'honey_badger':
       return 1;
     default:
       return 0;
@@ -573,15 +587,15 @@ function renderAdventureMapSelectScreen() {
       <div class="adventure-select__map">
         <img class="adventure-select__bg" src="/assets/maps/adventure-select/map_choice.png" alt="Выбор карты">
         <div class="adventure-select__overlay"></div>
-        <button type="button" class="adventure-select__node ${activeMap.id === 'field' ? 'is-active' : ''}" data-adventure-map="field" style="left: 24%; top: 61%;">
+        <button type="button" class="adventure-select__node ${activeMap.id === 'field' ? 'is-active' : ''}" data-adventure-map="field" style="left: 50%; top: 58%;">
           <img src="/assets/maps/adventure-select/field.png" alt="Поле">
           <span>Поле</span>
         </button>
-        <button type="button" class="adventure-select__node ${activeMap.id === 'desert' ? 'is-active' : ''}" data-adventure-map="desert" style="left: 56%; top: 30%;">
+        <button type="button" class="adventure-select__node ${activeMap.id === 'desert' ? 'is-active' : ''}" data-adventure-map="desert" style="left: 68%; top: 40%;">
           <img src="/assets/maps/adventure-select/desert.png" alt="Пустыня">
           <span>Пустыня</span>
         </button>
-        <button type="button" class="adventure-select__node ${activeMap.id === 'cave' ? 'is-active' : ''}" data-adventure-map="cave" style="left: 86%; top: 18%;">
+        <button type="button" class="adventure-select__node ${activeMap.id === 'cave' ? 'is-active' : ''}" data-adventure-map="cave" style="left: 28%; top: 35%;">
           <img src="/assets/maps/adventure-select/cave.png" alt="Пещера">
           <span>Пещера</span>
         </button>
@@ -714,12 +728,13 @@ function renderBattleScreen() {
 
     <div class="attack-panel">
       ${ATTACKS.map((attack) => {
-        const cd = bossAttackCooldownRemaining(activeBoss, attack.id);
-        const cooldownUntil = cleanTimestamp(activeBoss.attackCooldowns?.[attack.id]);
+        const specialChargeAttack = attackConsumesChargeWithoutCooldown(attack.id);
+        const cd = specialChargeAttack ? '' : bossAttackCooldownRemaining(activeBoss, attack.id);
+        const cooldownUntil = specialChargeAttack ? '' : cleanTimestamp(activeBoss.attackCooldowns?.[attack.id]);
         const owned = attackOwnedCount(currentState, attack.id);
         const canBuy = (attack.costWheat || 0) > 0 && (currentState.player.currency?.wheat || 0) >= (attack.costWheat || 0);
         const lockedByCost = (attack.costWheat || 0) > 0 && owned <= 0 && !canBuy;
-        const disabled = activeBoss.defeated || (cooldownUntil && toMillis(cooldownUntil) > Date.now()) || lockedByCost;
+        const disabled = activeBoss.defeated || (!specialChargeAttack && cooldownUntil && toMillis(cooldownUntil) > Date.now()) || lockedByCost;
         const actualDamage = attackDamage(currentState, attack.id);
         const subtitle = attack.costWheat > 0
           ? (owned > 0 ? `Зарядов: ${owned}${cd ? ` • ${cd}` : ''}` : `Купить за ${attack.costWheat} пшеницы${cd ? ` • ${cd}` : ''}`)
