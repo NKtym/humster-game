@@ -70,11 +70,11 @@ const VIEW_KEY = 'humster_view';
 
 function getSavedView() {
   const saved = localStorage.getItem(VIEW_KEY);
-  return ['main', 'battle', 'adventure', 'adventure-select', 'business', 'edit', 'talents'].includes(saved) ? saved : 'main';
+  return ['main', 'battle', 'adventure', 'adventure-select', 'business', 'exchange', 'edit', 'talents'].includes(saved) ? saved : 'main';
 }
 
 function setView(nextView) {
-  view = ['main', 'battle', 'adventure', 'adventure-select', 'business', 'edit', 'talents'].includes(nextView) ? nextView : 'main';
+  view = ['main', 'battle', 'adventure', 'adventure-select', 'business', 'exchange', 'edit', 'talents'].includes(nextView) ? nextView : 'main';
   localStorage.setItem(VIEW_KEY, view);
 }
 

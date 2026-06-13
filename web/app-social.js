@@ -304,18 +304,24 @@ function captureAchievementsAccordionState() {
   const body = document.getElementById('achievements-modal-body');
   if (!body) return;
   const next = {
-    battle: achievementsAccordionState.battle !== false,
+    battle: { ...(achievementsAccordionState.battle || {}) },
     economy: { ...(achievementsAccordionState.economy || {}) },
   };
-  body.querySelectorAll('details[data-achievement-key]').forEach((details) => {
+  body.querySelectorAll('details[data-achievement-scope][data-achievement-key]').forEach((details) => {
+    const scope = details.getAttribute('data-achievement-scope') || '';
     const key = details.getAttribute('data-achievement-key') || '';
-    if (!key) return;
-    const scope = achievementsModalTab === 'battle' ? 'battle' : achievementsModalTab === 'economy' ? 'economy' : null;
-    if (scope === 'battle' && key === 'battle') {
-      next.battle = details.open;
-    }
+    if (!scope || !key || !Object.prototype.hasOwnProperty.call(next, scope)) return;
+    next[scope] = {
+      ...(next[scope] || {}),
+      [key]: details.open,
+    };
   });
   achievementsAccordionState = next;
+}
+
+function getAchievementAccordionOpen(scope, key) {
+  const state = achievementsAccordionState?.[scope] || {};
+  return Object.prototype.hasOwnProperty.call(state, key) ? Boolean(state[key]) : false;
 }
 
 function renderLeaderboardSection(period, entries) {
@@ -551,14 +557,29 @@ function renderBattleAchievements() {
         `;
       }).join('');
 
+      const talentSpent = Math.max(0, Number(currentState?.player?.talentPointsSpent) || 0);
+      const talentSpentRows = TALENT_POINTS_SPENT_ACHIEVEMENT_THRESHOLDS.map((threshold) => {
+        const unlocked = talentSpent >= threshold;
+        const progress = Math.min(threshold, talentSpent);
+        const percent = Math.max(0, Math.min(100, (progress / threshold) * 100));
+        return `
+          <div class="achievement-step ${unlocked ? 'is-done' : ''}">
+            <div class="achievement-step__head">
+              <strong>Потратьте ${formatAchievementNumber(threshold)} очков талантов</strong>
+              <span>${unlocked ? 'Выполнено' : `${formatAchievementNumber(Math.max(0, threshold - talentSpent))} осталось`}</span>
+            </div>
+            <div class="achievement-step__bar"><div style="width: ${percent}%"></div></div>
+            <div class="achievement-step__state">${unlocked ? `Потрачено очков талантов: ${formatAchievementNumber(talentSpent)}` : `Сейчас потрачено: ${formatAchievementNumber(talentSpent)}`}</div>
+          </div>
+        `;
+      }).join('');
+
       const bossPassRows = (CATALOG.bosses || []).map((boss) => {
-        const stateBoss = Array.isArray(currentState?.bosses) ? currentState.bosses.find((item) => item.id === boss.id) : null;
-        const killsTotal = Math.max(0, Number(stateBoss?.killsTotal) || 0);
+        const killsTotal = Math.max(0, Number(currentState?.bosses?.find((item) => item.id === boss.id)?.killsTotal) || 0);
         const unlockedCount = BOSS_PASS_ACHIEVEMENT_THRESHOLDS.filter((threshold) => killsTotal >= threshold).length;
         const rows = BOSS_PASS_ACHIEVEMENT_THRESHOLDS.map((threshold) => {
           const unlocked = killsTotal >= threshold;
-          const progress = Math.min(threshold, killsTotal);
-          const percent = Math.max(0, Math.min(100, (progress / threshold) * 100));
+          const percent = Math.max(0, Math.min(100, (Math.min(threshold, killsTotal) / threshold) * 100));
           return `
             <div class="achievement-step ${unlocked ? 'is-done' : ''}">
               <div class="achievement-step__head">
@@ -595,10 +616,10 @@ function renderBattleAchievements() {
             <strong>${formatAchievementNumber(current)}</strong>
           </div>
         </div>
-        <details class="achievement-accordion" data-achievement-key="battle" ${achievementsAccordionState.battle === false ? "" : "open"}>
+        <details class="achievement-accordion" data-achievement-scope="battle" data-achievement-key="damage" ${getAchievementAccordionOpen('battle', 'damage') ? 'open' : ''}>
           <summary>
             <div>
-              <strong>Битвы</strong>
+              <strong>Урон за одну битву</strong>
               <span>Нажми, чтобы свернуть или раскрыть список достижений</span>
             </div>
             <span class="achievement-accordion__hint">${BATTLE_DAMAGE_ACHIEVEMENTS.length} целей</span>
@@ -607,33 +628,42 @@ function renderBattleAchievements() {
             ${rows}
           </div>
         </details>
-        <section class="achievement-speed">
-          <div class="profile-section__head">
-            <strong>Скорость прохождения боссов</strong>
-            <span>Победи каждого босса за 1 час</span>
-          </div>
-          <div class="achievement-speed__list">
+        <details class="achievement-accordion" data-achievement-scope="battle" data-achievement-key="speed" ${getAchievementAccordionOpen('battle', 'speed') ? 'open' : ''}>
+          <summary>
+            <div>
+              <strong>Скорость прохождения боссов</strong>
+              <span>Победи каждого босса за 1 час</span>
+            </div>
+            <span class="achievement-accordion__hint">${speedTargets.length} боссов</span>
+          </summary>
+          <div class="achievement-accordion__content">
             ${speedRows}
           </div>
-        </section>
-        <section class="achievement-speed">
-          <div class="profile-section__head">
-            <strong>Прохождения боссов</strong>
-            <span>1, 5, 10, 25, 50 и 100 раз для каждого босса</span>
-          </div>
-          <div class="achievement-speed__list">
+        </details>
+        <details class="achievement-accordion" data-achievement-scope="battle" data-achievement-key="bosses" ${getAchievementAccordionOpen('battle', 'bosses') ? 'open' : ''}>
+          <summary>
+            <div>
+              <strong>Прохождения боссов</strong>
+              <span>1, 5, 10, 25, 50 и 100 раз для каждого босса</span>
+            </div>
+            <span class="achievement-accordion__hint">${(CATALOG.bosses || []).length} боссов</span>
+          </summary>
+          <div class="achievement-accordion__content">
             ${bossPassRows}
           </div>
-        </section>
-        <section class="achievement-speed">
-          <div class="profile-section__head">
-            <strong>Прокачка талантов</strong>
-            <span>1, 10, 25, 50, 100, 150 и 200 очков</span>
-          </div>
-          <div class="achievement-speed__list">
+        </details>
+        <details class="achievement-accordion" data-achievement-scope="battle" data-achievement-key="talents" ${getAchievementAccordionOpen('battle', 'talents') ? 'open' : ''}>
+          <summary>
+            <div>
+              <strong>Прокачка талантов</strong>
+              <span>1, 10, 25, 50, 100, 150 и 200 очков</span>
+            </div>
+            <span class="achievement-accordion__hint">${TALENT_POINTS_SPENT_ACHIEVEMENT_THRESHOLDS.length} целей</span>
+          </summary>
+          <div class="achievement-accordion__content">
             ${talentSpentRows}
           </div>
-        </section>
+        </details>
       `;
   } catch (error) {
     console.error('Не удалось отрендерить renderBattleAchievements', error);
@@ -656,9 +686,7 @@ function renderEconomyAchievements() {
 
       const sections = ECONOMY_ACHIEVEMENTS.map((resource) => {
         const total = Math.max(0, Number(totals?.[resource.key]) || 0);
-        const isOpen = Object.prototype.hasOwnProperty.call(achievementsAccordionState.economy || {}, resource.key)
-          ? Boolean(achievementsAccordionState.economy[resource.key])
-          : resource.key === 'seeds';
+        const isOpen = getAchievementAccordionOpen('economy', resource.key);
         const rows = ECONOMY_ACHIEVEMENT_THRESHOLDS.map((threshold) => {
           const unlocked = total >= threshold;
           const percent = Math.max(0, Math.min(100, (Math.min(threshold, total) / threshold) * 100));
@@ -674,18 +702,18 @@ function renderEconomyAchievements() {
           `;
         }).join('');
         return `
-          <section class="achievement-panel ${isOpen ? 'is-open' : ''}" data-achievement-key="${resource.key}">
-            <button type="button" class="achievement-panel__summary" data-economy-toggle="${resource.key}" aria-expanded="${isOpen}">
+          <details class="achievement-panel" data-achievement-scope="economy" data-achievement-key="${resource.key}" ${isOpen ? 'open' : ''}>
+            <summary class="achievement-panel__summary">
               <div>
                 <strong>${resource.label}</strong>
                 <span>${formatAchievementNumber(total)} накоплено</span>
               </div>
               <span class="achievement-accordion__hint">${ECONOMY_ACHIEVEMENT_THRESHOLDS.length} целей</span>
-            </button>
-            <div class="achievement-panel__content" ${isOpen ? '' : 'hidden'}>
+            </summary>
+            <div class="achievement-panel__content">
               ${rows}
             </div>
-          </section>
+          </details>
         `;
       }).join('');
 
@@ -717,23 +745,9 @@ function bindAchievementsModalEvents() {
       if (login) openProfileModal(login);
     };
   });
-  document.querySelectorAll('details[data-achievement-key]').forEach((details) => {
+  document.querySelectorAll('details[data-achievement-scope][data-achievement-key]').forEach((details) => {
     details.ontoggle = () => {
       captureAchievementsAccordionState();
-    };
-  });
-  document.querySelectorAll('[data-economy-toggle]').forEach((btn) => {
-    btn.onclick = () => {
-      const key = btn.getAttribute('data-economy-toggle') || '';
-      if (!key) return;
-      const next = { ...(achievementsAccordionState.economy || {}) };
-      const current = Object.prototype.hasOwnProperty.call(next, key) ? Boolean(next[key]) : key === 'seeds';
-      next[key] = !current;
-      achievementsAccordionState = {
-        ...achievementsAccordionState,
-        economy: next,
-      };
-      renderAchievementsModal();
     };
   });
 }

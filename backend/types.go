@@ -142,6 +142,8 @@ type ActionRequest struct {
 	AttackType string `json:"attackType,omitempty"`
 	Slot       string `json:"slot,omitempty"`
 	Value      string `json:"value,omitempty"`
+	From       string `json:"from,omitempty"`
+	To         string `json:"to,omitempty"`
 }
 
 type ActionResponse struct {

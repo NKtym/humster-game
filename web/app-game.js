@@ -36,6 +36,17 @@ const BUSINESS_DEFS = {
   },
 };
 
+const EXCHANGE_DEFS = [
+  { id: 'wheat_to_seeds', from: 'wheat', to: 'seeds', rate: 100, action: 'exchange_wheat_to_seeds' },
+  { id: 'carrot_to_wheat', from: 'carrot', to: 'wheat', rate: 2, action: 'exchange_carrot_to_wheat' },
+  { id: 'cucumber_to_carrot', from: 'cucumber', to: 'carrot', rate: 2, action: 'exchange_cucumber_to_carrot' },
+  { id: 'apple_to_cucumber', from: 'apple', to: 'cucumber', rate: 2, action: 'exchange_apple_to_cucumber' },
+  { id: 'kormik_to_apple', from: 'kormik', to: 'apple', rate: 12, action: 'exchange_kormik_to_apple' },
+];
+
+const EXCHANGE_MENU_IMAGE = '/assets/business/exchange_menu.png';
+const EXCHANGE_MASCOT_IMAGE = '/assets/business/exchange_hamster.png';
+
 const ADVENTURE_MAP_KEY = 'humster_adventure_map';
 const ADVENTURE_MAPS = {
   field: { id: 'field', label: 'Поле', image: '/assets/maps/adventure-select/field.png', note: 'Текущая карта.' },
@@ -370,6 +381,26 @@ function applyLocalAction(action, payload = {}) {
       if (currentLevel <= 0) {
         state.business[timeKey] = new Date().toISOString();
       }
+      return;
+    }
+    case 'exchange_wheat_to_seeds':
+    case 'exchange_carrot_to_wheat':
+    case 'exchange_cucumber_to_carrot':
+    case 'exchange_apple_to_cucumber':
+    case 'exchange_kormik_to_apple': {
+      const exchanges = {
+        exchange_wheat_to_seeds: { from: 'wheat', to: 'seeds', rate: 100 },
+        exchange_carrot_to_wheat: { from: 'carrot', to: 'wheat', rate: 2 },
+        exchange_cucumber_to_carrot: { from: 'cucumber', to: 'carrot', rate: 2 },
+        exchange_apple_to_cucumber: { from: 'apple', to: 'cucumber', rate: 2 },
+        exchange_kormik_to_apple: { from: 'kormik', to: 'apple', rate: 12 },
+      };
+      const def = exchanges[action];
+      if (!def) return;
+      const currentAmount = Math.max(0, Number(state.player.currency?.[def.from]) || 0);
+      if (currentAmount < 1) return;
+      state.player.currency[def.from] = currentAmount - 1;
+      state.player.currency[def.to] = Math.max(0, Number(state.player.currency?.[def.to]) || 0) + def.rate;
       return;
     }
     case 'select_adventure': {
@@ -1048,6 +1079,63 @@ function renderBusinessScreen() {
   });
 }
 
+function renderExchangeScreen() {
+  const body = $('#exchange-screen-body');
+  if (!body) return;
+
+  const latestLog = Array.isArray(currentState.log) && currentState.log.length > 0 ? currentState.log[0] : '';
+  const cards = EXCHANGE_DEFS.map((def) => {
+    const available = Math.max(0, Number(currentState?.player?.currency?.[def.from]) || 0) >= 1;
+    const fromLabel = CURRENCY_LABELS[def.from] || def.from;
+    const toLabel = CURRENCY_LABELS[def.to] || def.to;
+    return `
+      <button type="button" class="exchange-card ${available ? '' : 'is-locked'}" data-exchange-action="${def.action}" ${available ? '' : 'disabled aria-disabled="true" title="Недостаточно ресурсов"'}>
+        <div class="exchange-card__icons" aria-hidden="true">
+          <span class="exchange-card__icon-wrap">
+            <img class="exchange-card__icon" src="${CURRENCY_ICONS[def.from]}" alt="" />
+          </span>
+          <span class="exchange-card__arrow">→</span>
+          <span class="exchange-card__icon-wrap">
+            <img class="exchange-card__icon" src="${CURRENCY_ICONS[def.to]}" alt="" />
+          </span>
+        </div>
+        <div class="exchange-card__text">
+          <strong>1 ${fromLabel.toLowerCase()} = ${def.rate} ${toLabel.toLowerCase()}</strong>
+          <span>Обмен по фиксированному курсу</span>
+        </div>
+      </button>
+    `;
+  }).join('');
+
+  body.innerHTML = `
+    ${latestLog ? `<div class="business-note-banner">${latestLog}</div>` : ''}
+    <div class="exchange-layout">
+      <div class="exchange-panel">
+        <div class="eyebrow">Обмен валют</div>
+        <h3>Выбери нужный размен</h3>
+        <p>Здесь показаны только курсы. Текущие запасы не дублируются, чтобы экран оставался чистым.</p>
+        <div class="exchange-grid">
+          ${cards}
+        </div>
+      </div>
+      <div class="exchange-mascot">
+        <img class="exchange-mascot__img" src="${EXCHANGE_MASCOT_IMAGE}" alt="Хомяк предлагает обмен" />
+      </div>
+    </div>
+  `;
+
+  document.querySelectorAll('[data-exchange-action]').forEach((btn) => {
+    btn.onclick = async () => {
+      const action = btn.dataset.exchangeAction;
+      if (!action) return;
+      btn.disabled = true;
+      await syncAction(action, {});
+      setView('exchange');
+      render();
+    };
+  });
+}
+
 function renderAppearanceOptionButton(option, slot) {
   const selected = (currentState.player.appearance?.[slot] || (slot === 'background' ? currentState.player.wallpaper : 'none')) === option.id;
   const thumbStyle = option.color ? `style="--chip-color: ${option.color};"` : '';
@@ -1167,6 +1255,10 @@ function render() {
       ? `Откроется с ${BUSINESS_UNLOCK_LEVEL} уровня`
       : 'Открыть бизнес';
   }
+  const exchangePanelButton = $('#btn-exchange-panel');
+  if (exchangePanelButton) {
+    exchangePanelButton.title = 'Открыть обменник';
+  }
   updateScene(currentState);
   updateFriendsBadge();
   if (isAuthenticated) {
@@ -1203,6 +1295,7 @@ function render() {
   const adventureSelect = $('#adventure-select-screen');
   const adventure = $('#adventure-screen');
   const business = $('#business-screen');
+  const exchange = $('#exchange-screen');
   const edit = $('#edit-screen');
   const talents = $('#talents-screen');
 
@@ -1212,6 +1305,8 @@ function render() {
     battle.hidden = true;
     adventureSelect.hidden = true;
     adventure.hidden = true;
+    business.hidden = true;
+    exchange.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
     return;
@@ -1222,6 +1317,7 @@ function render() {
     adventureSelect.hidden = true;
     adventure.hidden = true;
     business.hidden = true;
+    exchange.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
     battle.hidden = false;
@@ -1232,6 +1328,7 @@ function render() {
     adventureSelect.hidden = true;
     adventure.hidden = true;
     business.hidden = true;
+    exchange.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
     adventureSelect.hidden = false;
@@ -1241,6 +1338,7 @@ function render() {
     battle.hidden = true;
     adventureSelect.hidden = true;
     business.hidden = true;
+    exchange.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
     adventure.hidden = false;
@@ -1250,15 +1348,27 @@ function render() {
     battle.hidden = true;
     adventureSelect.hidden = true;
     adventure.hidden = true;
+    exchange.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
     business.hidden = false;
     renderBusinessScreen();
+  } else if (view === 'exchange') {
+    main.hidden = true;
+    battle.hidden = true;
+    adventureSelect.hidden = true;
+    adventure.hidden = true;
+    business.hidden = true;
+    edit.hidden = true;
+    if (talents) talents.hidden = true;
+    exchange.hidden = false;
+    renderExchangeScreen();
   } else if (view === 'edit') {
     main.hidden = true;
     battle.hidden = true;
     adventure.hidden = true;
     business.hidden = true;
+    exchange.hidden = true;
     if (talents) talents.hidden = true;
     edit.hidden = false;
     renderEditScreen();
@@ -1267,6 +1377,7 @@ function render() {
     battle.hidden = true;
     adventure.hidden = true;
     business.hidden = true;
+    exchange.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = false;
     renderTalentsScreen();
@@ -1275,6 +1386,7 @@ function render() {
     adventureSelect.hidden = true;
     adventure.hidden = true;
     business.hidden = true;
+    exchange.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
     main.hidden = false;
@@ -1380,6 +1492,14 @@ function initTopButtons() {
     };
   }
 
+  const exchangeBackButton = $('#btn-exchange-back');
+  if (exchangeBackButton) {
+    exchangeBackButton.onclick = () => {
+      setView('main');
+      render();
+    };
+  }
+
   const talentsBackButton = $('#btn-talents-back');
   if (talentsBackButton) {
     talentsBackButton.onclick = () => {
@@ -1394,6 +1514,14 @@ function initTopButtons() {
     businessPanelButton.onclick = () => {
       if (businessPanelButton.disabled) return;
       setView('business');
+      render();
+    };
+  }
+
+  const exchangePanelButton = $('#btn-exchange-panel');
+  if (exchangePanelButton) {
+    exchangePanelButton.onclick = () => {
+      setView('exchange');
       render();
     };
   }

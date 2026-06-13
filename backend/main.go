@@ -264,6 +264,8 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		err = s.selectTalentClass(lease.state, req.Value)
 	case "buy_talent":
 		err = s.buyTalentRank(lease.state, req.Slot)
+	case "exchange_currency":
+		err = s.exchangeCurrency(lease.state, req.From, req.To)
 	default:
 		err = fmt.Errorf("неизвестное действие")
 	}
@@ -3229,6 +3231,39 @@ func (s *Server) buyBusiness(gs *GameState, item string) error {
 	default:
 		return fmt.Errorf("неизвестный объект бизнеса")
 	}
+}
+
+func (s *Server) exchangeCurrency(gs *GameState, from, to string) error {
+	if gs == nil {
+		return fmt.Errorf("игровое состояние недоступно")
+	}
+	type exchangeDef struct {
+		from string
+		to   string
+		rate int
+	}
+	exchanges := map[string]exchangeDef{
+		"wheat|seeds":     {from: "wheat", to: "seeds", rate: 100},
+		"carrot|wheat":    {from: "carrot", to: "wheat", rate: 2},
+		"cucumber|carrot": {from: "cucumber", to: "carrot", rate: 2},
+		"apple|cucumber":  {from: "apple", to: "cucumber", rate: 2},
+		"kormik|apple":    {from: "kormik", to: "apple", rate: 12},
+	}
+	key := strings.TrimSpace(from) + "|" + strings.TrimSpace(to)
+	def, ok := exchanges[key]
+	if !ok {
+		return fmt.Errorf("неизвестный обмен")
+	}
+	if gs.Player.Currency == nil {
+		gs.Player.Currency = map[Currency]int{}
+	}
+	if gs.Player.Currency[Currency(def.from)] < 1 {
+		return fmt.Errorf("недостаточно ресурса для обмена")
+	}
+	gs.Player.Currency[Currency(def.from)]--
+	gs.Player.Currency[Currency(def.to)] += def.rate
+	appendLog(gs, fmt.Sprintf("Обмен: 1 %s на %d %s.", def.from, def.rate, def.to))
+	return nil
 }
 
 func (s *Server) getSession(sessionID string) *Session {

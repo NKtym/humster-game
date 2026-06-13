@@ -537,6 +537,7 @@
 .achievement-panel__summary {
   width: 100%;
   display: flex;
+  cursor: pointer;
   justify-content: space-between;
   gap: 12px;
   align-items: center;
@@ -551,6 +552,10 @@
 .achievement-panel__summary strong {
   display: block;
   font-size: 18px;
+}
+
+.achievement-panel__summary::-webkit-details-marker {
+  display: none;
 }
 
 .achievement-panel__summary span {
