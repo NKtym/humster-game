@@ -173,6 +173,34 @@ const ADVENTURE_REWARDS = [
   { xp: 3, seeds: 10 },
 ];
 
+const ADVENTURE_ROUTE_DEFS = {
+  field: [
+    { id: 'stage5', label: 'Бежать по полю', image: '/assets/maps/adventure/stage5.png', x: 33.5, y: 24.8, energyCost: 1, requiredPasses: 4 },
+    { id: 'stage4', label: 'Собирать пшеницу', image: '/assets/maps/adventure/stage4.png', x: 67.6, y: 26.8, energyCost: 2, requiredPasses: 4 },
+    { id: 'stage3', label: 'Собирать орешки для белочки', image: '/assets/maps/adventure/stage3.png', x: 86.1, y: 53.3, energyCost: 3, requiredPasses: 5 },
+    { id: 'stage2', label: 'Делать домик', image: '/assets/maps/adventure/stage2.png', x: 52.3, y: 80.1, energyCost: 3, requiredPasses: 6 },
+    { id: 'stage1', label: 'Строить мост через ручей', image: '/assets/maps/adventure/stage1.png', x: 26.7, y: 50.8, energyCost: 4, requiredPasses: 6 },
+  ],
+  desert: [
+    { id: 'sand_bath', label: 'Помыться в песочке', image: '/assets/maps/adventure/desert/sand_bath.png', x: 7.0, y: 55.0, energyCost: 2, requiredPasses: 4 },
+    { id: 'water', label: 'Искупаться в водоёме', image: '/assets/maps/adventure/desert/water.png', x: 31.0, y: 45.0, energyCost: 3, requiredPasses: 4 },
+    { id: 'cave', label: 'Обыскать пещеру', image: '/assets/maps/adventure/desert/cave.png', x: 52.0, y: 31.0, energyCost: 4, requiredPasses: 5 },
+    { id: 'jerboa', label: 'Помочь тушканчику', image: '/assets/maps/adventure/desert/jerboa.png', x: 77.0, y: 45.0, energyCost: 4, requiredPasses: 6 },
+    { id: 'city', label: 'Обойти город', image: '/assets/maps/adventure/desert/city.png', x: 91.0, y: 58.0, energyCost: 5, requiredPasses: 7 },
+  ],
+};
+
+const ADVENTURE_REWARD_MAPS = {
+  field: ADVENTURE_REWARDS,
+  desert: [
+    { xp: 3, seeds: 0 },
+    { xp: 6, seeds: 0 },
+    { xp: 8, seeds: 8 },
+    { xp: 9, seeds: 10 },
+    { xp: 12, seeds: 14 },
+  ],
+};
+
 const telegram = window.Telegram?.WebApp || null;
 if (telegram) {
   telegram.ready();
@@ -389,7 +417,26 @@ const DEFAULT_STATE = {
     progress: 0,
     completed: false,
   })),
+  adventureMaps: {
+    field: ADVENTURE_ROUTE_DEFS.field.map((node) => ({
+      id: node.id,
+      name: node.label,
+      energyCost: node.energyCost,
+      requiredPasses: node.requiredPasses,
+      progress: 0,
+      completed: false,
+    })),
+    desert: ADVENTURE_ROUTE_DEFS.desert.map((node) => ({
+      id: node.id,
+      name: node.label,
+      energyCost: node.energyCost,
+      requiredPasses: node.requiredPasses,
+      progress: 0,
+      completed: false,
+    })),
+  },
   activeAdventureId: 'stage5',
+  activeAdventureMapId: 'field',
   business: {
     shopLevel: 0,
     shopLastClaimAt: '',
@@ -514,14 +561,14 @@ function clampNumber(value, min, max) {
   return Math.max(min, Math.min(max, n));
 }
 
-function mergeAdventure(stateAdventure = []) {
+function mergeAdventure(stateAdventure = [], defs = ADVENTURE_DEFS) {
   const map = new Map();
   for (const node of stateAdventure) {
     if (node && typeof node === 'object' && node.id) {
       map.set(node.id, node);
     }
   }
-  return ADVENTURE_DEFS.map((def) => {
+  return defs.map((def) => {
     const existing = map.get(def.id) || {};
     const progress = clampNumber(existing.progress ?? 0, 0, def.requiredPasses);
     return {
@@ -682,7 +729,14 @@ function normalizeState(state) {
     wheelLastClaimAt: cleanTimestamp(state?.business?.wheelLastClaimAt || next.business?.wheelLastClaimAt || ''),
   };
 
-  next.adventure = mergeAdventure(state.adventure);
+  const rawAdventureMaps = state?.adventureMaps && typeof state.adventureMaps === 'object' ? state.adventureMaps : {};
+  next.adventureMaps = {
+    field: mergeAdventure(rawAdventureMaps.field || state.adventure || [], ADVENTURE_ROUTE_DEFS.field),
+    desert: mergeAdventure(rawAdventureMaps.desert || [], ADVENTURE_ROUTE_DEFS.desert),
+  };
+  const normalizedAdventureMapId = next.adventureMaps[state.activeAdventureMapId] ? state.activeAdventureMapId : (state.activeAdventureMapId === 'desert' ? 'desert' : 'field');
+  next.activeAdventureMapId = normalizedAdventureMapId;
+  next.adventure = next.adventureMaps[normalizedAdventureMapId] || next.adventureMaps.field;
   next.activeAdventureId = state.activeAdventureId && next.adventure.some((node) => node.id === state.activeAdventureId)
     ? state.activeAdventureId
     : next.adventure.find((node) => !node.completed)?.id || next.adventure[0]?.id || '';

@@ -251,6 +251,8 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		err = s.equipItem(lease.state, req.ItemID)
 	case "rest":
 		err = rest(lease.state)
+	case "select_adventure_map":
+		err = s.selectAdventureMap(lease.state, req.MapID, req.Value)
 	case "select_adventure":
 		err = s.selectAdventure(lease.state, req.NodeID)
 	case "adventure_step":
@@ -1389,19 +1391,26 @@ func normalizeGameState(state *GameState) {
 	if state.LocationPasses < 0 {
 		state.LocationPasses = 0
 	}
+	if state.LocationPasses < 1 && hasDesertUnlockHistory(state) {
+		state.LocationPasses = 1
+	}
 	normalizeBossDamageStats(state)
 	if len(state.Bosses) == 0 {
 		state.Bosses = newGameState().Bosses
 	}
 	normalizeBosses(state)
+	ensureAdventureMaps(state)
 	if len(state.Adventure) == 0 {
-		state.Adventure = defaultAdventureNodes()
+		state.Adventure = defaultAdventureNodesForMap(activeAdventureMapID(state))
 	}
 	if adventureFinished(state) {
 		resetAdventureLoop(state)
 	}
 	if state.ActiveAdventureID == "" {
 		state.ActiveAdventureID = defaults.ActiveAdventureID
+	}
+	if state.ActiveAdventureMapID == "" {
+		state.ActiveAdventureMapID = defaults.ActiveAdventureMapID
 	}
 	if state.Log == nil || len(state.Log) == 0 {
 		state.Log = defaults.Log
@@ -1845,26 +1854,44 @@ func (s *Server) mirrorBossDamageToFriends(ctx context.Context, attackerID, boss
 	}
 }
 
-func (s *Server) selectAdventure(gs *GameState, nodeID string) error {
+func (s *Server) selectAdventureMap(gs *GameState, mapID, fallback string) error {
+	chosen := normalizeAdventureMapID(mapID)
+	if chosen == "field" && strings.TrimSpace(fallback) != "" {
+		chosen = normalizeAdventureMapID(fallback)
+	}
+	if chosen == "desert" && !desertUnlocked(gs) {
+		return fmt.Errorf("пустыня откроется после прохождения поля")
+	}
+	if gs == nil {
+		return fmt.Errorf("состояние игры не найдено")
+	}
+	ensureAdventureMaps(gs)
+	gs.ActiveAdventureMapID = chosen
+	syncAdventureView(gs)
+	appendLog(gs, fmt.Sprintf("Выбрана карта: %s.", mapAdventureLabel(chosen)))
+	return nil
+}
 
+func (s *Server) selectAdventure(gs *GameState, nodeID string) error {
 	if nodeID == "" {
 		return fmt.Errorf("точка не найдена")
 	}
-
-	idx, ok := adventureIndex(gs, nodeID)
+	mapID := activeAdventureMapID(gs)
+	idx, ok := adventureIndexForMap(gs, mapID, nodeID)
 	if !ok {
 		return fmt.Errorf("точка не найдена")
 	}
-	if !adventureSelectable(gs, idx) {
+	if !adventureSelectableForMap(gs, mapID, idx) {
 		return fmt.Errorf("следующая точка пока недоступна")
 	}
-
 	gs.ActiveAdventureID = nodeID
+	syncAdventureView(gs)
 	appendLog(gs, fmt.Sprintf("Выбрана %s.", gs.Adventure[idx].Name))
 	return nil
 }
 
 func (s *Server) adventureStep(gs *GameState, nodeID string) error {
+	mapID := activeAdventureMapID(gs)
 	activeID := strings.TrimSpace(nodeID)
 	if activeID == "" {
 		activeID = gs.ActiveAdventureID
@@ -1873,15 +1900,16 @@ func (s *Server) adventureStep(gs *GameState, nodeID string) error {
 		return fmt.Errorf("сначала выбери точку")
 	}
 
-	idx, ok := adventureIndex(gs, activeID)
+	idx, ok := adventureIndexForMap(gs, mapID, activeID)
 	if !ok {
 		return fmt.Errorf("точка не найдена")
 	}
-	if !adventureSelectable(gs, idx) {
+	if !adventureSelectableForMap(gs, mapID, idx) {
 		return fmt.Errorf("следующая точка пока недоступна")
 	}
 
-	node := gs.Adventure[idx]
+	nodes := adventureNodesForMap(gs, mapID)
+	node := nodes[idx]
 	if node.Completed {
 		return fmt.Errorf("эта точка уже пройдена")
 	}
@@ -1890,31 +1918,46 @@ func (s *Server) adventureStep(gs *GameState, nodeID string) error {
 	}
 
 	gs.Player.Energy -= node.EnergyCost
-	gs.Adventure[idx].Progress++
-	xpGain, seedGain := adventureRewardForIndex(idx)
+	nodes[idx].Progress++
+	xpGain, seedGain := adventureRewardForMap(mapID, idx)
 	if xpGain > 0 || seedGain > 0 {
 		gs.Player.XP += xpGain
 		addCurrencyGain(gs, Seeds, seedGain)
 		appendLog(gs, fmt.Sprintf("Награда за действие: +%d опыта и +%d семечек.", xpGain, seedGain))
 		recalcLevel(gs)
 	}
-	appendLog(gs, fmt.Sprintf("%s пройден на %d/%d.", node.Name, gs.Adventure[idx].Progress, node.RequiredPasses))
+	appendLog(gs, fmt.Sprintf("%s пройден на %d/%d.", node.Name, nodes[idx].Progress, node.RequiredPasses))
 
-	if gs.Adventure[idx].Progress >= node.RequiredPasses {
-		gs.Adventure[idx].Completed = true
+	if nodes[idx].Progress >= node.RequiredPasses {
+		nodes[idx].Completed = true
 		appendLog(gs, fmt.Sprintf("%s полностью пройдена!", node.Name))
-		if adventureFinished(gs) {
+		allDone := true
+		for i := range nodes {
+			if !nodes[i].Completed {
+				allDone = false
+				break
+			}
+		}
+		if allDone {
 			gs.LocationPasses++
-			resetAdventureLoop(gs)
+			for i := range nodes {
+				nodes[i].Progress = 0
+				nodes[i].Completed = false
+			}
 			appendLog(gs, fmt.Sprintf("Локация пройдена полностью! Всего проходок локации: %d. Путь начинается заново.", gs.LocationPasses))
 		} else {
-			next := firstIncompleteAdventureIndex(gs)
+			next := firstIncompleteAdventureIndexForMap(gs, mapID)
 			if next >= 0 {
-				gs.ActiveAdventureID = gs.Adventure[next].ID
-				appendLog(gs, fmt.Sprintf("Открыта %s.", gs.Adventure[next].Name))
+				gs.ActiveAdventureID = nodes[next].ID
+				appendLog(gs, fmt.Sprintf("Открыта %s.", nodes[next].Name))
 			}
 		}
 	}
+	if gs.AdventureMaps == nil {
+		gs.AdventureMaps = map[string][]AdventureNode{}
+	}
+	gs.AdventureMaps[mapID] = nodes
+	syncAdventureView(gs)
 	return nil
 }
 
@@ -2617,8 +2660,13 @@ func newGameState() GameState {
 				BestClearSeconds: 0,
 			},
 		},
-		Adventure:               defaultAdventureNodes(),
+		Adventure: defaultAdventureNodesForMap("field"),
+		AdventureMaps: map[string][]AdventureNode{
+			"field":  defaultAdventureNodesForMap("field"),
+			"desert": defaultAdventureNodesForMap("desert"),
+		},
 		ActiveAdventureID:       adventureBlueprints[0].ID,
+		ActiveAdventureMapID:    "field",
 		ActiveBossID:            "",
 		Business:                Business{},
 		BossKillsToday:          0,
@@ -2639,55 +2687,205 @@ func newGameState() GameState {
 	}
 }
 
-func defaultAdventureNodes() []AdventureNode {
-	nodes := make([]AdventureNode, len(adventureBlueprints))
-	copy(nodes, adventureBlueprints)
+func defaultAdventureNodesForMap(mapID string) []AdventureNode {
+	blueprints, ok := adventureMapBlueprints[normalizeAdventureMapID(mapID)]
+	if !ok {
+		blueprints = adventureBlueprints
+	}
+	nodes := make([]AdventureNode, len(blueprints))
+	copy(nodes, blueprints)
 	return nodes
 }
 
-func adventureIndex(gs *GameState, id string) (int, bool) {
-	for i := range gs.Adventure {
-		if gs.Adventure[i].ID == id {
+func ensureAdventureMaps(gs *GameState) {
+	if gs == nil {
+		return
+	}
+	if gs.AdventureMaps == nil {
+		gs.AdventureMaps = map[string][]AdventureNode{}
+	}
+	if len(gs.AdventureMaps["field"]) == 0 {
+		gs.AdventureMaps["field"] = defaultAdventureNodesForMap("field")
+	}
+	if len(gs.AdventureMaps["desert"]) == 0 {
+		gs.AdventureMaps["desert"] = defaultAdventureNodesForMap("desert")
+	}
+	if normalizeAdventureMapID(gs.ActiveAdventureMapID) == "" {
+		gs.ActiveAdventureMapID = "field"
+	}
+	if _, ok := gs.AdventureMaps[gs.ActiveAdventureMapID]; !ok {
+		gs.ActiveAdventureMapID = "field"
+	}
+	if len(gs.Adventure) == 0 {
+		gs.Adventure = defaultAdventureNodesForMap(gs.ActiveAdventureMapID)
+	}
+}
+
+func normalizeAdventureMapID(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "desert":
+		return "desert"
+	default:
+		return "field"
+	}
+}
+
+func hasDesertUnlockHistory(gs *GameState) bool {
+	if gs == nil || len(gs.Log) == 0 {
+		return false
+	}
+	for _, line := range gs.Log {
+		if strings.Contains(line, "Локация пройдена полностью") {
+			return true
+		}
+	}
+	return false
+}
+
+func desertUnlocked(gs *GameState) bool {
+	if gs == nil {
+		return false
+	}
+	if gs.LocationPasses > 0 {
+		return true
+	}
+	return hasDesertUnlockHistory(gs)
+}
+
+func activeAdventureMapID(gs *GameState) string {
+	if gs == nil {
+		return "field"
+	}
+	mapID := normalizeAdventureMapID(gs.ActiveAdventureMapID)
+	if mapID == "" {
+		return "field"
+	}
+	return mapID
+}
+
+func mapAdventureLabel(mapID string) string {
+	switch normalizeAdventureMapID(mapID) {
+	case "desert":
+		return "Пустыня"
+	default:
+		return "Поле"
+	}
+}
+
+func adventureNodesForMap(gs *GameState, mapID string) []AdventureNode {
+	if gs == nil {
+		return defaultAdventureNodesForMap(mapID)
+	}
+	ensureAdventureMaps(gs)
+	id := normalizeAdventureMapID(mapID)
+	nodes, ok := gs.AdventureMaps[id]
+	if !ok || len(nodes) == 0 {
+		return defaultAdventureNodesForMap(id)
+	}
+	out := make([]AdventureNode, len(nodes))
+	copy(out, nodes)
+	return out
+}
+
+func adventureIndexForMap(gs *GameState, mapID, id string) (int, bool) {
+	nodes := adventureNodesForMap(gs, mapID)
+	for i := range nodes {
+		if nodes[i].ID == id {
 			return i, true
 		}
 	}
 	return -1, false
 }
 
-func firstIncompleteAdventureIndex(gs *GameState) int {
-	for i := range gs.Adventure {
-		if !gs.Adventure[i].Completed {
+func firstIncompleteAdventureIndexForMap(gs *GameState, mapID string) int {
+	nodes := adventureNodesForMap(gs, mapID)
+	for i := range nodes {
+		if !nodes[i].Completed {
 			return i
 		}
 	}
 	return -1
 }
 
-func adventureSelectable(gs *GameState, idx int) bool {
-	if idx < 0 || idx >= len(gs.Adventure) {
+func adventureSelectableForMap(gs *GameState, mapID string, idx int) bool {
+	nodes := adventureNodesForMap(gs, mapID)
+	if idx < 0 || idx >= len(nodes) {
 		return false
 	}
-	unlocked := firstIncompleteAdventureIndex(gs)
+	unlocked := firstIncompleteAdventureIndexForMap(gs, mapID)
 	if unlocked < 0 {
 		return true
 	}
 	return idx <= unlocked
 }
 
-func adventureRewardForIndex(idx int) (int, int) {
-	switch idx {
-	case 0:
-		return 1, 2
-	case 1:
-		return 2, 3
-	case 2:
-		return 3, 5
-	case 3:
-		return 3, 6
-	case 4:
-		return 3, 10
+func adventureRewardForMap(mapID string, idx int) (int, int) {
+	switch normalizeAdventureMapID(mapID) {
+	case "desert":
+		switch idx {
+		case 0:
+			return 3, 0
+		case 1:
+			return 6, 0
+		case 2:
+			return 8, 8
+		case 3:
+			return 9, 10
+		case 4:
+			return 12, 14
+		default:
+			return 0, 0
+		}
 	default:
-		return 0, 0
+		switch idx {
+		case 0:
+			return 1, 2
+		case 1:
+			return 2, 3
+		case 2:
+			return 3, 5
+		case 3:
+			return 3, 6
+		case 4:
+			return 3, 10
+		default:
+			return 0, 0
+		}
+	}
+}
+
+func adventureFinishedForMap(gs *GameState, mapID string) bool {
+	nodes := adventureNodesForMap(gs, mapID)
+	if len(nodes) == 0 {
+		return false
+	}
+	for i := range nodes {
+		if !nodes[i].Completed {
+			return false
+		}
+	}
+	return true
+}
+
+func syncAdventureView(gs *GameState) {
+	if gs == nil {
+		return
+	}
+	mapID := activeAdventureMapID(gs)
+	gs.ActiveAdventureMapID = mapID
+	gs.Adventure = adventureNodesForMap(gs, mapID)
+	if gs.ActiveAdventureID == "" {
+		if next := firstIncompleteAdventureIndexForMap(gs, mapID); next >= 0 {
+			gs.ActiveAdventureID = gs.Adventure[next].ID
+		} else if len(gs.Adventure) > 0 {
+			gs.ActiveAdventureID = gs.Adventure[0].ID
+		}
+	} else if _, ok := adventureIndexForMap(gs, mapID, gs.ActiveAdventureID); !ok {
+		if next := firstIncompleteAdventureIndexForMap(gs, mapID); next >= 0 {
+			gs.ActiveAdventureID = gs.Adventure[next].ID
+		} else if len(gs.Adventure) > 0 {
+			gs.ActiveAdventureID = gs.Adventure[0].ID
+		}
 	}
 }
 
@@ -2814,25 +3012,24 @@ func resetAdventureLoop(gs *GameState) {
 	if gs == nil {
 		return
 	}
-	for i := range gs.Adventure {
-		gs.Adventure[i].Progress = 0
-		gs.Adventure[i].Completed = false
+	mapID := activeAdventureMapID(gs)
+	nodes := adventureNodesForMap(gs, mapID)
+	for i := range nodes {
+		nodes[i].Progress = 0
+		nodes[i].Completed = false
 	}
-	if len(gs.Adventure) > 0 {
-		gs.ActiveAdventureID = gs.Adventure[0].ID
+	if gs.AdventureMaps == nil {
+		gs.AdventureMaps = map[string][]AdventureNode{}
+	}
+	gs.AdventureMaps[mapID] = nodes
+	gs.Adventure = nodes
+	if len(nodes) > 0 {
+		gs.ActiveAdventureID = nodes[0].ID
 	}
 }
 
 func adventureFinished(gs *GameState) bool {
-	if gs == nil || len(gs.Adventure) == 0 {
-		return false
-	}
-	for i := range gs.Adventure {
-		if !gs.Adventure[i].Completed {
-			return false
-		}
-	}
-	return true
+	return adventureFinishedForMap(gs, activeAdventureMapID(gs))
 }
 
 func refreshBossKillLimit(boss *Boss) {

@@ -95,29 +95,31 @@ type Player struct {
 }
 
 type GameState struct {
-	Player                  Player           `json:"player"`
-	Location                string           `json:"location"`
-	Bosses                  []Boss           `json:"bosses"`
-	ActiveBossID            string           `json:"activeBossId"`
-	Adventure               []AdventureNode  `json:"adventure"`
-	ActiveAdventureID       string           `json:"activeAdventureId"`
-	Business                Business         `json:"business"`
-	BossKillsToday          int              `json:"bossKillsToday"`
-	BossKillsDay            string           `json:"bossKillsDay"`
-	LocationPasses          int              `json:"locationPasses"`
-	BossDamageDay           int              `json:"bossDamageDay"`
-	BossDamageDayKey        string           `json:"bossDamageDayKey"`
-	BossDamageWeek          int              `json:"bossDamageWeek"`
-	BossDamageWeekKey       string           `json:"bossDamageWeekKey"`
-	BossDamageMonth         int              `json:"bossDamageMonth"`
-	BossDamageMonthKey      string           `json:"bossDamageMonthKey"`
-	BossDamageAllTime       int              `json:"bossDamageAllTime"`
-	BossBattleDamageCurrent int              `json:"bossBattleDamageCurrent"`
-	BossBattleDamageBest    int              `json:"bossBattleDamageBest"`
-	EconomyTotals           map[Currency]int `json:"economyTotals"`
-	Log                     []string         `json:"log"`
-	UpdatedAt               time.Time        `json:"updatedAt"`
-	LastEnergyRegenAt       time.Time        `json:"lastEnergyRegenAt"`
+	Player                  Player                     `json:"player"`
+	Location                string                     `json:"location"`
+	Bosses                  []Boss                     `json:"bosses"`
+	ActiveBossID            string                     `json:"activeBossId"`
+	Adventure               []AdventureNode            `json:"adventure"`
+	AdventureMaps           map[string][]AdventureNode `json:"adventureMaps,omitempty"`
+	ActiveAdventureID       string                     `json:"activeAdventureId"`
+	ActiveAdventureMapID    string                     `json:"activeAdventureMapId"`
+	Business                Business                   `json:"business"`
+	BossKillsToday          int                        `json:"bossKillsToday"`
+	BossKillsDay            string                     `json:"bossKillsDay"`
+	LocationPasses          int                        `json:"locationPasses"`
+	BossDamageDay           int                        `json:"bossDamageDay"`
+	BossDamageDayKey        string                     `json:"bossDamageDayKey"`
+	BossDamageWeek          int                        `json:"bossDamageWeek"`
+	BossDamageWeekKey       string                     `json:"bossDamageWeekKey"`
+	BossDamageMonth         int                        `json:"bossDamageMonth"`
+	BossDamageMonthKey      string                     `json:"bossDamageMonthKey"`
+	BossDamageAllTime       int                        `json:"bossDamageAllTime"`
+	BossBattleDamageCurrent int                        `json:"bossBattleDamageCurrent"`
+	BossBattleDamageBest    int                        `json:"bossBattleDamageBest"`
+	EconomyTotals           map[Currency]int           `json:"economyTotals"`
+	Log                     []string                   `json:"log"`
+	UpdatedAt               time.Time                  `json:"updatedAt"`
+	LastEnergyRegenAt       time.Time                  `json:"lastEnergyRegenAt"`
 }
 
 type Session struct {
@@ -139,6 +141,7 @@ type ActionRequest struct {
 	Name       string `json:"name,omitempty"`
 	BossID     string `json:"bossId,omitempty"`
 	NodeID     string `json:"nodeId,omitempty"`
+	MapID      string `json:"mapId,omitempty"`
 	AttackType string `json:"attackType,omitempty"`
 	Slot       string `json:"slot,omitempty"`
 	Value      string `json:"value,omitempty"`
@@ -254,4 +257,17 @@ var adventureBlueprints = []AdventureNode{
 	{ID: "stage3", Name: "Собирать орешки для белочки", EnergyCost: 3, RequiredPasses: 5},
 	{ID: "stage2", Name: "Делать домик", EnergyCost: 3, RequiredPasses: 6},
 	{ID: "stage1", Name: "Строить мост через ручей", EnergyCost: 4, RequiredPasses: 6},
+}
+
+var adventureMapBlueprints = map[string][]AdventureNode{
+	"field":  adventureBlueprints,
+	"desert": desertAdventureBlueprints,
+}
+
+var desertAdventureBlueprints = []AdventureNode{
+	{ID: "sand_bath", Name: "Помыться в песочке", EnergyCost: 2, RequiredPasses: 4},
+	{ID: "water", Name: "Искупаться в водоёме", EnergyCost: 3, RequiredPasses: 4},
+	{ID: "cave", Name: "Обыскать пещеру", EnergyCost: 4, RequiredPasses: 5},
+	{ID: "jerboa", Name: "Помочь тушканчику", EnergyCost: 4, RequiredPasses: 6},
+	{ID: "city", Name: "Обойти город", EnergyCost: 5, RequiredPasses: 7},
 }
