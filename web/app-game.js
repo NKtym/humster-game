@@ -553,9 +553,24 @@ function bossUnlockPasses(bossId) {
   }
 }
 
+function desertBossIds() {
+  return new Set(['desert_owl', 'desert_fox']);
+}
+
+function adventureMapCompleted(state, mapId) {
+  const maps = state?.adventureMaps || {};
+  const nodes = maps?.[mapId];
+  if (!Array.isArray(nodes) || nodes.length === 0) return false;
+  return nodes.every((node) => node && node.completed);
+}
+
 function bossIsLocked(state, bossId) {
+  const id = (bossId || '').trim();
+  if (desertBossIds().has(id)) {
+    return !adventureMapCompleted(state, 'desert');
+  }
   const passes = Math.max(0, Number(state?.locationPasses) || 0);
-  return passes < bossUnlockPasses(bossId);
+  return passes < bossUnlockPasses(id);
 }
 
 function renderBossSelection() {
@@ -571,10 +586,14 @@ function renderBossSelection() {
         const battleTimer = !boss.defeated && boss.battleEndsAt ? bossBattleCountdown(boss) : '';
         const remainingKills = bossDailyRemaining(boss);
         const bossLocked = bossIsLocked(currentState, boss.id);
+        const isDesertBoss = desertBossIds().has(boss.id);
         const anotherBossActive = !!(currentState.activeBossId && currentState.activeBossId !== boss.id);
         const disabled = bossLocked || anotherBossActive;
+        const unlockText = isDesertBoss
+          ? 'Откроется после прохождения пустыни'
+          : 'Откроется после 1 полного прохождения поля';
         const buttonLabel = bossLocked
-          ? 'Откроется после 1 полного прохождения поля'
+          ? unlockText
           : (anotherBossActive
             ? 'Бой уже выбран'
             : (boss.defeated ? (remainingKills > 0 ? 'Пройти ещё раз' : 'Лимит исчерпан') : 'Выбрать и начать бой'));
@@ -590,7 +609,7 @@ function renderBossSelection() {
               <div class="boss-card__xp">Опыт: ${boss.xp || 0}</div>
               <div class="boss-card__limit">Осталось сегодня: ${remainingKills}/${BOSS_KILL_LIMIT}</div>
               ${battleTimer ? `<div class="boss-card__timer">До конца битвы: ${battleTimer}</div>` : ''}
-              ${bossLocked ? '<div class="boss-card__lock">Откроется после 1 полного прохождения поля.</div>' : ''}
+              ${bossLocked ? `<div class="boss-card__lock">${isDesertBoss ? 'Откроется после прохождения пустыни.' : 'Откроется после 1 полного прохождения поля.'}</div>` : ''}
               ${anotherBossActive ? `<div class="boss-card__lock">Сначала заверши текущую битву с ${bossById(currentState, currentState.activeBossId)?.name || 'другим боссом'}.</div>` : ''}
               <button class="primary boss-select" data-boss="${boss.id}" type="button" ${disabled ? 'disabled' : ''}>
                 ${buttonLabel}
@@ -620,15 +639,9 @@ function getAdventureMapChoice() {
   return ADVENTURE_MAPS[mapId] || ADVENTURE_MAPS.field;
 }
 
-function hasAdventureUnlockHistory(state) {
-  const log = Array.isArray(state?.log) ? state.log : [];
-  return log.some((line) => String(line || '').includes('Локация пройдена полностью'));
-}
-
 function isAdventureMapUnlocked(mapId) {
   if (mapId === 'field') return true;
-  const passes = Math.max(0, Number(currentState?.locationPasses) || 0);
-  return passes > 0 || hasAdventureUnlockHistory(currentState);
+  return Math.max(0, Number(currentState?.locationPasses) || 0) > 0;
 }
 
 async function setAdventureMapChoice(mapId) {

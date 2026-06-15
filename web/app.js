@@ -104,6 +104,8 @@ const CATALOG = {
     { id: 'swagusinitsa', name: 'Свагусиница', img: '/assets/characters/bosses/swagusinitsa.png' },
     { id: 'sand_lizard', name: 'Песчаная ящерица', img: '/assets/characters/bosses/sand_lizard.png' },
     { id: 'sand_snake', name: 'Песчаная змея', img: '/assets/characters/bosses/sand_snake.png' },
+    { id: 'desert_owl', name: 'Сова', img: '/assets/characters/bosses/desert_owl.png' },
+    { id: 'desert_fox', name: 'Лиса', img: '/assets/characters/bosses/desert_fox.png' },
     { id: 'cave_centipede', name: 'Пещерная многоножка', img: '/assets/characters/bosses/cave_centipede.png' },
     { id: 'cave_bird', name: 'Пещерная птица', img: '/assets/characters/bosses/cave_bird.png' },
     { id: 'cave_spider', name: 'Пещерный паук', img: '/assets/characters/bosses/cave_spider.png' },

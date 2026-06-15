@@ -1391,9 +1391,6 @@ func normalizeGameState(state *GameState) {
 	if state.LocationPasses < 0 {
 		state.LocationPasses = 0
 	}
-	if state.LocationPasses < 1 && hasDesertUnlockHistory(state) {
-		state.LocationPasses = 1
-	}
 	normalizeBossDamageStats(state)
 	if len(state.Bosses) == 0 {
 		state.Bosses = newGameState().Bosses
@@ -1576,8 +1573,8 @@ func (s *Server) selectBoss(gs *GameState, bossID string) error {
 	if !ok {
 		return fmt.Errorf("босс не найден")
 	}
-	if bossLockedByProgress(gs, bossID) {
-		return fmt.Errorf("этот босс откроется после 1 полного прохождения поля")
+	if hint := bossUnlockHint(gs, bossID); hint != "" {
+		return fmt.Errorf(hint)
 	}
 
 	now := time.Now()
@@ -1859,7 +1856,7 @@ func (s *Server) selectAdventureMap(gs *GameState, mapID, fallback string) error
 	if chosen == "field" && strings.TrimSpace(fallback) != "" {
 		chosen = normalizeAdventureMapID(fallback)
 	}
-	if chosen == "desert" && !desertUnlocked(gs) {
+	if chosen == "desert" && (gs == nil || gs.LocationPasses < 1) {
 		return fmt.Errorf("пустыня откроется после прохождения поля")
 	}
 	if gs == nil {
@@ -2730,28 +2727,6 @@ func normalizeAdventureMapID(value string) string {
 	}
 }
 
-func hasDesertUnlockHistory(gs *GameState) bool {
-	if gs == nil || len(gs.Log) == 0 {
-		return false
-	}
-	for _, line := range gs.Log {
-		if strings.Contains(line, "Локация пройдена полностью") {
-			return true
-		}
-	}
-	return false
-}
-
-func desertUnlocked(gs *GameState) bool {
-	if gs == nil {
-		return false
-	}
-	if gs.LocationPasses > 0 {
-		return true
-	}
-	return hasDesertUnlockHistory(gs)
-}
-
 func activeAdventureMapID(gs *GameState) string {
 	if gs == nil {
 		return "field"
@@ -3070,6 +3045,8 @@ func normalizeBosses(gs *GameState) {
 		{id: "swagusinitsa", name: "Свагусиница", hp: 600, attack: 12, xp: 50, reward: map[Currency]int{Seeds: 200, Wheat: 0, Carrot: 2, Cucumber: 1}},
 		{id: "sand_lizard", name: "Песчаная ящерица", hp: 7000, attack: 16, xp: 300, reward: map[Currency]int{Seeds: 1000, Wheat: 0, Carrot: 5, Cucumber: 2}},
 		{id: "sand_snake", name: "Песчаная змея", hp: 15000, attack: 24, xp: 500, reward: map[Currency]int{Seeds: 2000, Wheat: 10, Carrot: 10, Cucumber: 4}},
+		{id: "desert_owl", name: "Сова", hp: 50000, attack: 36, xp: 1500, reward: map[Currency]int{Seeds: 4500, Wheat: 0, Carrot: 10, Cucumber: 6}},
+		{id: "desert_fox", name: "Лиса", hp: 100000, attack: 44, xp: 3600, reward: map[Currency]int{Seeds: 9000, Wheat: 0, Carrot: 12, Cucumber: 4, Apple: 1}},
 		{id: "cave_centipede", name: "Пещерная многоножка", hp: 1200, attack: 14, xp: 100, reward: map[Currency]int{Seeds: 400, Wheat: 0, Carrot: 2, Cucumber: 1}},
 		{id: "cave_bird", name: "Пещерная птица", hp: 3400, attack: 18, xp: 200, reward: map[Currency]int{Seeds: 500, Wheat: 0, Carrot: 3, Cucumber: 2}},
 		{id: "cave_spider", name: "Пещерный паук", hp: 24000, attack: 32, xp: 800, reward: map[Currency]int{Seeds: 2000, Wheat: 0, Carrot: 8, Cucumber: 2, Apple: 1}},
@@ -3259,7 +3236,26 @@ func bossLockedByProgress(gs *GameState, bossID string) bool {
 	if gs == nil {
 		return false
 	}
-	return gs.LocationPasses < bossUnlockPasses(bossID)
+	switch strings.TrimSpace(bossID) {
+	case "desert_owl", "desert_fox":
+		return !adventureFinishedForMap(gs, "desert")
+	default:
+		return gs.LocationPasses < bossUnlockPasses(bossID)
+	}
+}
+
+func bossUnlockHint(gs *GameState, bossID string) string {
+	switch strings.TrimSpace(bossID) {
+	case "desert_owl", "desert_fox":
+		if gs == nil || !adventureFinishedForMap(gs, "desert") {
+			return "этот босс откроется после прохождения пустыни"
+		}
+	case "sand_lizard", "sand_snake", "cave_centipede", "cave_bird", "cave_spider", "honey_badger":
+		if gs == nil || gs.LocationPasses < 1 {
+			return "этот босс откроется после 1 полного прохождения поля"
+		}
+	}
+	return ""
 }
 
 func allBossesDefeated(gs *GameState) bool {
