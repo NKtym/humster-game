@@ -104,8 +104,8 @@ const CATALOG = {
     { id: 'swagusinitsa', name: 'Свагусиница', img: '/assets/characters/bosses/swagusinitsa.png' },
     { id: 'sand_lizard', name: 'Песчаная ящерица', img: '/assets/characters/bosses/sand_lizard.png' },
     { id: 'sand_snake', name: 'Песчаная змея', img: '/assets/characters/bosses/sand_snake.png' },
-    { id: 'desert_owl', name: 'Сова', img: '/assets/characters/bosses/desert_owl.png' },
-    { id: 'desert_fox', name: 'Лиса', img: '/assets/characters/bosses/desert_fox.png' },
+    { id: 'desert_owl', name: 'Сова', img: '/assets/characters/bosses/desert_fox.png' },
+    { id: 'desert_fox', name: 'Лиса', img: '/assets/characters/bosses/desert_owl.png' },
     { id: 'cave_centipede', name: 'Пещерная многоножка', img: '/assets/characters/bosses/cave_centipede.png' },
     { id: 'cave_bird', name: 'Пещерная птица', img: '/assets/characters/bosses/cave_bird.png' },
     { id: 'cave_spider', name: 'Пещерный паук', img: '/assets/characters/bosses/cave_spider.png' },
@@ -190,6 +190,14 @@ const ADVENTURE_ROUTE_DEFS = {
     { id: 'jerboa', label: 'Помочь тушканчику', image: '/assets/maps/adventure/desert/jerboa.png', x: 77.0, y: 45.0, energyCost: 4, requiredPasses: 6 },
     { id: 'city', label: 'Обойти город', image: '/assets/maps/adventure/desert/city.png', x: 91.0, y: 58.0, energyCost: 5, requiredPasses: 7 },
   ],
+  cave: [
+    { id: 'cave_walk', label: 'Идти по пещере', image: '/assets/maps/adventure/cave/cave_walk.png', x: 10.0, y: 56.0, energyCost: 3, requiredPasses: 4 },
+    { id: 'cave_ore_view', label: 'Посмотреть на руду', image: '/assets/maps/adventure/cave/cave_ore_view.png', x: 25.0, y: 50.0, energyCost: 2, requiredPasses: 5 },
+    { id: 'cave_structure', label: 'Изучить подземное сооружение', image: '/assets/maps/adventure/cave/cave_structure.png', x: 41.0, y: 45.0, energyCost: 4, requiredPasses: 6 },
+    { id: 'cave_mine', label: 'Добывать руду', image: '/assets/maps/adventure/cave/cave_mine.png', x: 58.0, y: 55.0, energyCost: 5, requiredPasses: 6 },
+    { id: 'cave_water', label: 'Изучить водоём', image: '/assets/maps/adventure/cave/cave_water.png', x: 75.0, y: 47.0, energyCost: 4, requiredPasses: 7 },
+    { id: 'cave_bat', label: 'Спасти летучую мышь', image: '/assets/maps/adventure/cave/cave_bat.png', x: 90.0, y: 53.0, energyCost: 6, requiredPasses: 7 },
+  ],
 };
 
 const ADVENTURE_REWARD_MAPS = {
@@ -200,6 +208,14 @@ const ADVENTURE_REWARD_MAPS = {
     { xp: 8, seeds: 8 },
     { xp: 9, seeds: 10 },
     { xp: 12, seeds: 14 },
+  ],
+  cave: [
+    { xp: 6, seeds: 0 },
+    { xp: 5, seeds: 0 },
+    { xp: 12, seeds: 3 },
+    { xp: 12, seeds: 20 },
+    { xp: 12, seeds: 10 },
+    { xp: 24, seeds: 10 },
   ],
 };
 
@@ -235,6 +251,8 @@ const BOSS_BLUEPRINTS = {
   swagusinitsa: { name: 'Свагусиница', hp: 600, attack: 12, xp: 50, reward: { seeds: 200, wheat: 0, carrot: 2, cucumber: 1 } },
   sand_lizard: { name: 'Песчаная ящерица', hp: 7000, attack: 16, xp: 300, reward: { seeds: 1000, wheat: 0, carrot: 5, cucumber: 2 } },
   sand_snake: { name: 'Песчаная змея', hp: 15000, attack: 24, xp: 500, reward: { seeds: 2000, wheat: 10, carrot: 10, cucumber: 4 } },
+  desert_owl: { name: 'Сова', hp: 50000, attack: 36, xp: 1500, reward: { seeds: 4500, wheat: 0, carrot: 10, cucumber: 6, apple: 0 } },
+  desert_fox: { name: 'Лиса', hp: 100000, attack: 44, xp: 3600, reward: { seeds: 9000, wheat: 0, carrot: 12, cucumber: 4, apple: 1 } },
   cave_centipede: { name: 'Пещерная многоножка', hp: 1200, attack: 14, xp: 100, reward: { seeds: 400, wheat: 0, carrot: 2, cucumber: 1 } },
   cave_bird: { name: 'Пещерная птица', hp: 3400, attack: 18, xp: 200, reward: { seeds: 500, wheat: 0, carrot: 3, cucumber: 2 } },
   cave_spider: { name: 'Пещерный паук', hp: 24000, attack: 32, xp: 800, reward: { seeds: 2000, wheat: 0, carrot: 8, cucumber: 2, apple: 1 } },
@@ -398,9 +416,17 @@ const DEFAULT_STATE = {
     { id: 'rat', name: 'Крыса', hp: 70, maxHp: 70, attack: 4, reward: { seeds: 20, wheat: 2, carrot: 1, cucumber: 0 }, xp: 10, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
     { id: 'lizard', name: 'Ящерица', hp: 150, maxHp: 150, attack: 8, reward: { seeds: 50, wheat: 3, carrot: 0, cucumber: 1 }, xp: 20, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
     { id: 'sand_lizard', name: 'Песчаная ящерица', hp: 600, maxHp: 600, attack: 16, reward: { seeds: 200, wheat: 0, carrot: 3, cucumber: 1 }, xp: 50, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'sand_snake', name: 'Песчаная змея', hp: 1500, maxHp: 1500, attack: 22, reward: { seeds: 350, wheat: 0, carrot: 4, cucumber: 2 }, xp: 120, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'desert_owl', name: 'Сова', hp: 50000, maxHp: 50000, attack: 36, reward: { seeds: 4500, wheat: 0, carrot: 10, cucumber: 6, apple: 0 }, xp: 1500, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'desert_fox', name: 'Лиса', hp: 100000, maxHp: 100000, attack: 44, reward: { seeds: 9000, wheat: 0, carrot: 12, cucumber: 4, apple: 1 }, xp: 3600, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'cave_centipede', name: 'Пещерная многоножка', hp: 1200, maxHp: 1200, attack: 14, reward: { seeds: 400, wheat: 0, carrot: 2, cucumber: 1 }, xp: 100, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'cave_bird', name: 'Пещерная птица', hp: 3400, maxHp: 3400, attack: 18, reward: { seeds: 500, wheat: 0, carrot: 3, cucumber: 2 }, xp: 200, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'cave_spider', name: 'Пещерный паук', hp: 24000, maxHp: 24000, attack: 32, reward: { seeds: 2000, wheat: 0, carrot: 8, cucumber: 2, apple: 1 }, xp: 800, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'honey_badger', name: 'Медоед', hp: 1000000, maxHp: 1000000, attack: 40, reward: { seeds: 25000, wheat: 25, carrot: 30, cucumber: 10, apple: 2 }, xp: 15000, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
   ],
   activeBossId: '',
   locationPasses: 0,
+  desertPasses: 0,
   bossDamageDay: 0,
   bossDamageDayKey: damageDayKey(),
   bossDamageWeek: 0,
@@ -429,6 +455,14 @@ const DEFAULT_STATE = {
       completed: false,
     })),
     desert: ADVENTURE_ROUTE_DEFS.desert.map((node) => ({
+      id: node.id,
+      name: node.label,
+      energyCost: node.energyCost,
+      requiredPasses: node.requiredPasses,
+      progress: 0,
+      completed: false,
+    })),
+    cave: ADVENTURE_ROUTE_DEFS.cave.map((node) => ({
       id: node.id,
       name: node.label,
       energyCost: node.energyCost,
@@ -704,6 +738,10 @@ function normalizeState(state) {
 
   next.location = state.location || next.location;
   next.locationPasses = Math.max(0, Number(state.locationPasses ?? next.locationPasses) || 0);
+  next.desertPasses = Math.max(0, Number(state.desertPasses ?? next.desertPasses) || 0);
+  if (next.desertPasses === 0 && next.locationPasses > 1) {
+    next.desertPasses = next.locationPasses - 1;
+  }
   next.bossDamageDay = Math.max(0, Number(state.bossDamageDay ?? next.bossDamageDay) || 0);
   next.bossDamageDayKey = state.bossDamageDayKey || next.bossDamageDayKey || damageDayKey();
   next.bossDamageWeek = Math.max(0, Number(state.bossDamageWeek ?? next.bossDamageWeek) || 0);
@@ -735,6 +773,7 @@ function normalizeState(state) {
   next.adventureMaps = {
     field: mergeAdventure(rawAdventureMaps.field || state.adventure || [], ADVENTURE_ROUTE_DEFS.field),
     desert: mergeAdventure(rawAdventureMaps.desert || [], ADVENTURE_ROUTE_DEFS.desert),
+    cave: mergeAdventure(rawAdventureMaps.cave || [], ADVENTURE_ROUTE_DEFS.cave),
   };
   const normalizedAdventureMapId = next.adventureMaps[state.activeAdventureMapId] ? state.activeAdventureMapId : (state.activeAdventureMapId === 'desert' ? 'desert' : 'field');
   next.activeAdventureMapId = normalizedAdventureMapId;
@@ -1154,6 +1193,8 @@ function countUnlockedAchievements(state) {
     { bossId: 'swagusinitsa', threshold: 3600 },
     { bossId: 'sand_lizard', threshold: 3600 },
     { bossId: 'sand_snake', threshold: 3600 },
+    { bossId: 'desert_owl', threshold: 3600 },
+    { bossId: 'desert_fox', threshold: 3600 },
     { bossId: 'cave_centipede', threshold: 3600 },
     { bossId: 'cave_bird', threshold: 3600 },
     { bossId: 'cave_spider', threshold: 3600 },

@@ -51,7 +51,7 @@ const ADVENTURE_MAP_KEY = 'humster_adventure_map';
 const ADVENTURE_MAPS = {
   field: { id: 'field', label: 'Поле', image: '/assets/maps/adventure-select/field.png', note: 'Текущая карта.' },
   desert: { id: 'desert', label: 'Пустыня', image: '/assets/maps/adventure-select/desert.png', note: 'Доступ откроется после поля.' },
-  cave: { id: 'cave', label: 'Пещера', image: '/assets/maps/adventure-select/cave.png', note: 'Пока используется то же поле.' },
+  cave: { id: 'cave', label: 'Пещера', image: '/assets/maps/adventure-select/cave.png', note: 'Доступ откроется после поля.' },
 };
 
 function businessState(state) {
@@ -405,11 +405,11 @@ function applyLocalAction(action, payload = {}) {
     }
     case 'select_adventure_map': {
       const mapId = String(payload.mapId ?? payload.value ?? '').trim();
-      if (mapId === 'desert') {
+      if (mapId !== 'field') {
         const fieldPasses = Math.max(0, Number(currentState.locationPasses) || 0);
         if (fieldPasses < 1) return;
       }
-      if (mapId === 'desert' || mapId === 'field') {
+      if (mapId === 'desert' || mapId === 'field' || mapId === 'cave') {
         currentState.activeAdventureMapId = mapId;
         const mapAdventure = currentState.adventureMaps?.[mapId];
         if (Array.isArray(mapAdventure) && mapAdventure.length) {
@@ -417,7 +417,7 @@ function applyLocalAction(action, payload = {}) {
           const firstOpen = mapAdventure.find((node) => !node.completed);
           currentState.activeAdventureId = firstOpen ? firstOpen.id : mapAdventure[0].id;
         }
-        currentState.location = mapId === 'desert' ? 'Пустыня' : 'Поле';
+        currentState.location = mapAdventureLabel(mapId);
       }
       return;
     }
@@ -567,7 +567,8 @@ function adventureMapCompleted(state, mapId) {
 function bossIsLocked(state, bossId) {
   const id = (bossId || '').trim();
   if (desertBossIds().has(id)) {
-    return !adventureMapCompleted(state, 'desert');
+    const desertPasses = Math.max(0, Number(state?.desertPasses) || 0);
+    return desertPasses < 1;
   }
   const passes = Math.max(0, Number(state?.locationPasses) || 0);
   return passes < bossUnlockPasses(id);
@@ -664,7 +665,9 @@ function adventureRewardMapForMap(mapId) {
 }
 
 function mapAdventureLabel(mapId) {
-  return mapId === 'desert' ? 'Пустыня' : 'Поле';
+  if (mapId === 'desert') return 'Пустыня';
+  if (mapId === 'cave') return 'Пещера';
+  return 'Поле';
 }
 
 function renderAdventureMapSelectScreen() {
@@ -684,7 +687,7 @@ function renderAdventureMapSelectScreen() {
           <img src="/assets/maps/adventure-select/desert.png" alt="Пустыня">
           <span>Пустыня</span>
         </button>
-        <button type="button" class="adventure-select__node ${activeMap.id === 'cave' ? 'is-active' : ''}" data-adventure-map="cave" style="left: 28%; top: 35%;">
+        <button type="button" class="adventure-select__node ${activeMap.id === 'cave' ? 'is-active' : ''} ${isAdventureMapUnlocked('cave') ? '' : 'is-locked'}" data-adventure-map="cave" style="left: 28%; top: 35%;" ${isAdventureMapUnlocked('cave') ? '' : 'disabled'}>
           <img src="/assets/maps/adventure-select/cave.png" alt="Пещера">
           <span>Пещера</span>
         </button>
@@ -904,7 +907,7 @@ function renderAdventureScreen() {
     <div class="adventure-layout">
       <div class="adventure-map-shell">
         <div class="adventure-map">
-          <img class="adventure-map__bg" src="${mapId === 'desert' ? '/assets/maps/adventure/desert.png' : '/assets/maps/adventure/map.png'}" alt="Карта приключений">
+          <img class="adventure-map__bg" src="${mapId === 'desert' ? '/assets/maps/adventure/desert.png' : mapId === 'cave' ? '/assets/maps/adventure/cave.png' : '/assets/maps/adventure/map.png'}" alt="Карта приключений">
           <div class="adventure-map__overlay"></div>
 
           ${currentState.adventure.map((node) => {

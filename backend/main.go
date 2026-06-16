@@ -1391,6 +1391,14 @@ func normalizeGameState(state *GameState) {
 	if state.LocationPasses < 0 {
 		state.LocationPasses = 0
 	}
+	if state.DesertPasses < 0 {
+		state.DesertPasses = 0
+	}
+	if state.DesertPasses == 0 && state.LocationPasses > 1 {
+		// Миграция старых сохранений: до этого пустыня не сохранялась отдельно,
+		// поэтому считаем, что каждая проходка сверх первой — это проходка пустыни.
+		state.DesertPasses = state.LocationPasses - 1
+	}
 	normalizeBossDamageStats(state)
 	if len(state.Bosses) == 0 {
 		state.Bosses = newGameState().Bosses
@@ -1856,8 +1864,8 @@ func (s *Server) selectAdventureMap(gs *GameState, mapID, fallback string) error
 	if chosen == "field" && strings.TrimSpace(fallback) != "" {
 		chosen = normalizeAdventureMapID(fallback)
 	}
-	if chosen == "desert" && (gs == nil || gs.LocationPasses < 1) {
-		return fmt.Errorf("пустыня откроется после прохождения поля")
+	if chosen != "field" && (gs == nil || gs.LocationPasses < 1) {
+		return fmt.Errorf("эта локация откроется после прохождения поля")
 	}
 	if gs == nil {
 		return fmt.Errorf("состояние игры не найдено")
@@ -1937,11 +1945,18 @@ func (s *Server) adventureStep(gs *GameState, nodeID string) error {
 		}
 		if allDone {
 			gs.LocationPasses++
+			if mapID == "desert" {
+				gs.DesertPasses++
+			}
 			for i := range nodes {
 				nodes[i].Progress = 0
 				nodes[i].Completed = false
 			}
-			appendLog(gs, fmt.Sprintf("Локация пройдена полностью! Всего проходок локации: %d. Путь начинается заново.", gs.LocationPasses))
+			if mapID == "desert" {
+				appendLog(gs, fmt.Sprintf("Пустыня пройдена полностью! Всего проходок пустыни: %d. Путь начинается заново.", gs.DesertPasses))
+			} else {
+				appendLog(gs, fmt.Sprintf("Локация пройдена полностью! Всего проходок локации: %d. Путь начинается заново.", gs.LocationPasses))
+			}
 		} else {
 			next := firstIncompleteAdventureIndexForMap(gs, mapID)
 			if next >= 0 {
@@ -2661,6 +2676,7 @@ func newGameState() GameState {
 		AdventureMaps: map[string][]AdventureNode{
 			"field":  defaultAdventureNodesForMap("field"),
 			"desert": defaultAdventureNodesForMap("desert"),
+			"cave":   defaultAdventureNodesForMap("cave"),
 		},
 		ActiveAdventureID:       adventureBlueprints[0].ID,
 		ActiveAdventureMapID:    "field",
@@ -2669,6 +2685,7 @@ func newGameState() GameState {
 		BossKillsToday:          0,
 		BossKillsDay:            bossKillDayKey(),
 		LocationPasses:          0,
+		DesertPasses:            0,
 		BossDamageDay:           0,
 		BossDamageDayKey:        damageDayKey(time.Now()),
 		BossDamageWeek:          0,
@@ -2707,6 +2724,9 @@ func ensureAdventureMaps(gs *GameState) {
 	if len(gs.AdventureMaps["desert"]) == 0 {
 		gs.AdventureMaps["desert"] = defaultAdventureNodesForMap("desert")
 	}
+	if len(gs.AdventureMaps["cave"]) == 0 {
+		gs.AdventureMaps["cave"] = defaultAdventureNodesForMap("cave")
+	}
 	if normalizeAdventureMapID(gs.ActiveAdventureMapID) == "" {
 		gs.ActiveAdventureMapID = "field"
 	}
@@ -2722,6 +2742,8 @@ func normalizeAdventureMapID(value string) string {
 	switch strings.TrimSpace(strings.ToLower(value)) {
 	case "desert":
 		return "desert"
+	case "cave":
+		return "cave"
 	default:
 		return "field"
 	}
@@ -2742,6 +2764,8 @@ func mapAdventureLabel(mapID string) string {
 	switch normalizeAdventureMapID(mapID) {
 	case "desert":
 		return "Пустыня"
+	case "cave":
+		return "Пещера"
 	default:
 		return "Поле"
 	}
@@ -2808,6 +2832,23 @@ func adventureRewardForMap(mapID string, idx int) (int, int) {
 			return 9, 10
 		case 4:
 			return 12, 14
+		default:
+			return 0, 0
+		}
+	case "cave":
+		switch idx {
+		case 0:
+			return 6, 0
+		case 1:
+			return 5, 0
+		case 2:
+			return 12, 3
+		case 3:
+			return 12, 20
+		case 4:
+			return 12, 10
+		case 5:
+			return 24, 10
 		default:
 			return 0, 0
 		}
@@ -3238,7 +3279,7 @@ func bossLockedByProgress(gs *GameState, bossID string) bool {
 	}
 	switch strings.TrimSpace(bossID) {
 	case "desert_owl", "desert_fox":
-		return !adventureFinishedForMap(gs, "desert")
+		return gs.DesertPasses < 1
 	default:
 		return gs.LocationPasses < bossUnlockPasses(bossID)
 	}
@@ -3247,7 +3288,7 @@ func bossLockedByProgress(gs *GameState, bossID string) bool {
 func bossUnlockHint(gs *GameState, bossID string) string {
 	switch strings.TrimSpace(bossID) {
 	case "desert_owl", "desert_fox":
-		if gs == nil || !adventureFinishedForMap(gs, "desert") {
+		if gs == nil || gs.DesertPasses < 1 {
 			return "этот босс откроется после прохождения пустыни"
 		}
 	case "sand_lizard", "sand_snake", "cave_centipede", "cave_bird", "cave_spider", "honey_badger":

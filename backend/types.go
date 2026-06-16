@@ -107,6 +107,7 @@ type GameState struct {
 	BossKillsToday          int                        `json:"bossKillsToday"`
 	BossKillsDay            string                     `json:"bossKillsDay"`
 	LocationPasses          int                        `json:"locationPasses"`
+	DesertPasses            int                        `json:"desertPasses"`
 	BossDamageDay           int                        `json:"bossDamageDay"`
 	BossDamageDayKey        string                     `json:"bossDamageDayKey"`
 	BossDamageWeek          int                        `json:"bossDamageWeek"`
@@ -262,6 +263,7 @@ var adventureBlueprints = []AdventureNode{
 var adventureMapBlueprints = map[string][]AdventureNode{
 	"field":  adventureBlueprints,
 	"desert": desertAdventureBlueprints,
+	"cave":   caveAdventureBlueprints,
 }
 
 var desertAdventureBlueprints = []AdventureNode{
@@ -270,4 +272,13 @@ var desertAdventureBlueprints = []AdventureNode{
 	{ID: "cave", Name: "Обыскать пещеру", EnergyCost: 4, RequiredPasses: 5},
 	{ID: "jerboa", Name: "Помочь тушканчику", EnergyCost: 4, RequiredPasses: 6},
 	{ID: "city", Name: "Обойти город", EnergyCost: 5, RequiredPasses: 7},
+}
+
+var caveAdventureBlueprints = []AdventureNode{
+	{ID: "cave_walk", Name: "Идти по пещере", EnergyCost: 3, RequiredPasses: 4},
+	{ID: "cave_ore_view", Name: "Посмотреть на руду", EnergyCost: 2, RequiredPasses: 5},
+	{ID: "cave_structure", Name: "Изучить подземное сооружение", EnergyCost: 4, RequiredPasses: 6},
+	{ID: "cave_mine", Name: "Добывать руду", EnergyCost: 5, RequiredPasses: 6},
+	{ID: "cave_water", Name: "Изучить водоём", EnergyCost: 4, RequiredPasses: 7},
+	{ID: "cave_bat", Name: "Спасти летучую мышь", EnergyCost: 6, RequiredPasses: 7},
 }
