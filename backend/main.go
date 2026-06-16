@@ -25,6 +25,9 @@ import (
 const (
 	businessUnlockLevel = 12
 	businessCycle       = 12 * time.Hour
+	coinGameUnlockLevel = 6
+	coinGameCostCarrots = 1
+	coinGameXPToLevel   = 10
 )
 
 func main() {
@@ -268,6 +271,8 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		err = s.buyTalentRank(lease.state, req.Slot)
 	case "exchange_currency":
 		err = s.exchangeCurrency(lease.state, req.From, req.To)
+	case "play_coin_game":
+		err = s.playCoinGame(lease.state, req.Value)
 	default:
 		err = fmt.Errorf("неизвестное действие")
 	}
@@ -1391,14 +1396,6 @@ func normalizeGameState(state *GameState) {
 	if state.LocationPasses < 0 {
 		state.LocationPasses = 0
 	}
-	if state.DesertPasses < 0 {
-		state.DesertPasses = 0
-	}
-	if state.DesertPasses == 0 && state.LocationPasses > 1 {
-		// Миграция старых сохранений: до этого пустыня не сохранялась отдельно,
-		// поэтому считаем, что каждая проходка сверх первой — это проходка пустыни.
-		state.DesertPasses = state.LocationPasses - 1
-	}
 	normalizeBossDamageStats(state)
 	if len(state.Bosses) == 0 {
 		state.Bosses = newGameState().Bosses
@@ -1864,8 +1861,8 @@ func (s *Server) selectAdventureMap(gs *GameState, mapID, fallback string) error
 	if chosen == "field" && strings.TrimSpace(fallback) != "" {
 		chosen = normalizeAdventureMapID(fallback)
 	}
-	if chosen != "field" && (gs == nil || gs.LocationPasses < 1) {
-		return fmt.Errorf("эта локация откроется после прохождения поля")
+	if chosen == "desert" && (gs == nil || gs.LocationPasses < 1) {
+		return fmt.Errorf("пустыня откроется после прохождения поля")
 	}
 	if gs == nil {
 		return fmt.Errorf("состояние игры не найдено")
@@ -1945,18 +1942,11 @@ func (s *Server) adventureStep(gs *GameState, nodeID string) error {
 		}
 		if allDone {
 			gs.LocationPasses++
-			if mapID == "desert" {
-				gs.DesertPasses++
-			}
 			for i := range nodes {
 				nodes[i].Progress = 0
 				nodes[i].Completed = false
 			}
-			if mapID == "desert" {
-				appendLog(gs, fmt.Sprintf("Пустыня пройдена полностью! Всего проходок пустыни: %d. Путь начинается заново.", gs.DesertPasses))
-			} else {
-				appendLog(gs, fmt.Sprintf("Локация пройдена полностью! Всего проходок локации: %d. Путь начинается заново.", gs.LocationPasses))
-			}
+			appendLog(gs, fmt.Sprintf("Локация пройдена полностью! Всего проходок локации: %d. Путь начинается заново.", gs.LocationPasses))
 		} else {
 			next := firstIncompleteAdventureIndexForMap(gs, mapID)
 			if next >= 0 {
@@ -2533,6 +2523,12 @@ func newGameState() GameState {
 			TalentDamageProgress: 0,
 			TalentNextThreshold:  70,
 			Talents:              map[string]int{},
+			CoinLevel:            1,
+			CoinXP:               0,
+			CoinLastChoice:       "",
+			CoinLastRolled:       "",
+			CoinLastWon:          false,
+			CoinLastMessage:      "",
 		},
 		Location: "Поле",
 		Bosses: []Boss{
@@ -2676,7 +2672,6 @@ func newGameState() GameState {
 		AdventureMaps: map[string][]AdventureNode{
 			"field":  defaultAdventureNodesForMap("field"),
 			"desert": defaultAdventureNodesForMap("desert"),
-			"cave":   defaultAdventureNodesForMap("cave"),
 		},
 		ActiveAdventureID:       adventureBlueprints[0].ID,
 		ActiveAdventureMapID:    "field",
@@ -2685,7 +2680,6 @@ func newGameState() GameState {
 		BossKillsToday:          0,
 		BossKillsDay:            bossKillDayKey(),
 		LocationPasses:          0,
-		DesertPasses:            0,
 		BossDamageDay:           0,
 		BossDamageDayKey:        damageDayKey(time.Now()),
 		BossDamageWeek:          0,
@@ -2724,9 +2718,6 @@ func ensureAdventureMaps(gs *GameState) {
 	if len(gs.AdventureMaps["desert"]) == 0 {
 		gs.AdventureMaps["desert"] = defaultAdventureNodesForMap("desert")
 	}
-	if len(gs.AdventureMaps["cave"]) == 0 {
-		gs.AdventureMaps["cave"] = defaultAdventureNodesForMap("cave")
-	}
 	if normalizeAdventureMapID(gs.ActiveAdventureMapID) == "" {
 		gs.ActiveAdventureMapID = "field"
 	}
@@ -2742,8 +2733,6 @@ func normalizeAdventureMapID(value string) string {
 	switch strings.TrimSpace(strings.ToLower(value)) {
 	case "desert":
 		return "desert"
-	case "cave":
-		return "cave"
 	default:
 		return "field"
 	}
@@ -2764,8 +2753,6 @@ func mapAdventureLabel(mapID string) string {
 	switch normalizeAdventureMapID(mapID) {
 	case "desert":
 		return "Пустыня"
-	case "cave":
-		return "Пещера"
 	default:
 		return "Поле"
 	}
@@ -2832,23 +2819,6 @@ func adventureRewardForMap(mapID string, idx int) (int, int) {
 			return 9, 10
 		case 4:
 			return 12, 14
-		default:
-			return 0, 0
-		}
-	case "cave":
-		switch idx {
-		case 0:
-			return 6, 0
-		case 1:
-			return 5, 0
-		case 2:
-			return 12, 3
-		case 3:
-			return 12, 20
-		case 4:
-			return 12, 10
-		case 5:
-			return 24, 10
 		default:
 			return 0, 0
 		}
@@ -3279,7 +3249,7 @@ func bossLockedByProgress(gs *GameState, bossID string) bool {
 	}
 	switch strings.TrimSpace(bossID) {
 	case "desert_owl", "desert_fox":
-		return gs.DesertPasses < 1
+		return !adventureFinishedForMap(gs, "desert")
 	default:
 		return gs.LocationPasses < bossUnlockPasses(bossID)
 	}
@@ -3288,7 +3258,7 @@ func bossLockedByProgress(gs *GameState, bossID string) bool {
 func bossUnlockHint(gs *GameState, bossID string) string {
 	switch strings.TrimSpace(bossID) {
 	case "desert_owl", "desert_fox":
-		if gs == nil || gs.DesertPasses < 1 {
+		if gs == nil || !adventureFinishedForMap(gs, "desert") {
 			return "этот босс откроется после прохождения пустыни"
 		}
 	case "sand_lizard", "sand_snake", "cave_centipede", "cave_bird", "cave_spider", "honey_badger":
@@ -3497,6 +3467,60 @@ func (s *Server) exchangeCurrency(gs *GameState, from, to string) error {
 	gs.Player.Currency[Currency(def.from)]--
 	gs.Player.Currency[Currency(def.to)] += def.rate
 	appendLog(gs, fmt.Sprintf("Обмен: 1 %s на %d %s.", def.from, def.rate, def.to))
+	return nil
+}
+
+func (s *Server) playCoinGame(gs *GameState, choice string) error {
+	if gs == nil {
+		return fmt.Errorf("игровое состояние недоступно")
+	}
+	if gs.Player.Level < coinGameUnlockLevel {
+		return fmt.Errorf("монетка открывается с %d уровня", coinGameUnlockLevel)
+	}
+	if gs.Player.Currency == nil {
+		gs.Player.Currency = map[Currency]int{}
+	}
+	if gs.Player.Currency[Carrot] < coinGameCostCarrots {
+		return fmt.Errorf("для игры нужна 1 морковка")
+	}
+	choice = strings.TrimSpace(choice)
+	if choice != "hamster" && choice != "mouse" {
+		return fmt.Errorf("нужно выбрать номинал: хомяк или мышь")
+	}
+	gs.Player.Currency[Carrot] -= coinGameCostCarrots
+
+	roll, err := rand.Int(rand.Reader, big.NewInt(2))
+	if err != nil {
+		return fmt.Errorf("не удалось определить исход игры")
+	}
+	rolled := "hamster"
+	if roll.Int64() == 1 {
+		rolled = "mouse"
+	}
+	win := rolled == choice
+
+	gs.Player.CoinLastChoice = choice
+	gs.Player.CoinLastRolled = rolled
+	gs.Player.CoinLastWon = win
+
+	if win {
+		gs.Player.XP += 150
+		gs.Player.Currency[Seeds] += 300
+		gs.Player.Currency[Wheat] += 3
+		gs.Player.CoinXP += 2
+		gs.Player.CoinLastMessage = "Победа: +150 опыта хомяка, +300 семечек и +3 пшеницы."
+		appendLog(gs, fmt.Sprintf("Монетка: выпал %s, выбор %s. Победа!", rolled, choice))
+		recalcLevel(gs)
+	} else {
+		gs.Player.CoinXP++
+		gs.Player.CoinLastMessage = "Поражение: +1 опыта монетки."
+		appendLog(gs, fmt.Sprintf("Монетка: выпал %s, выбор %s. Поражение.", rolled, choice))
+	}
+
+	for gs.Player.CoinXP >= coinGameXPToLevel {
+		gs.Player.CoinXP -= coinGameXPToLevel
+		gs.Player.CoinLevel++
+	}
 	return nil
 }
 

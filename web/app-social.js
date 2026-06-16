@@ -674,6 +674,21 @@ function renderBattleAchievements() {
 function renderEconomyAchievements() {
   try {
       const totals = currentState?.economyTotals || {};
+      const playerLevel = Math.max(1, Number(currentState?.player?.level) || 1);
+      const levelRows = LEVEL_ACHIEVEMENT_THRESHOLDS.map((threshold) => {
+        const unlocked = playerLevel >= threshold;
+        const percent = Math.max(0, Math.min(100, (Math.min(threshold, playerLevel) / threshold) * 100));
+        return `
+          <div class="achievement-step ${unlocked ? 'is-done' : ''}">
+            <div class="achievement-step__head">
+              <strong>Накопите уровень ${threshold}</strong>
+              <span>${unlocked ? 'Выполнено' : `${Math.max(0, threshold - playerLevel)} осталось`}</span>
+            </div>
+            <div class="achievement-step__bar"><div style="width: ${percent}%"></div></div>
+            <div class="achievement-step__state">Текущий уровень: ${playerLevel}</div>
+          </div>
+        `;
+      }).join('');
       const resourceCards = ECONOMY_ACHIEVEMENTS.map((resource) => {
         const total = Math.max(0, Number(totals?.[resource.key]) || 0);
         return `
@@ -721,6 +736,18 @@ function renderEconomyAchievements() {
         <div class="achievement-summary">
           ${resourceCards}
         </div>
+        <details class="achievement-panel" data-achievement-scope="economy" data-achievement-key="level" ${getAchievementAccordionOpen('economy', 'level') ? 'open' : ''}>
+          <summary class="achievement-panel__summary">
+            <div>
+              <strong>Уровень</strong>
+              <span>${playerLevel} текущий уровень</span>
+            </div>
+            <span class="achievement-accordion__hint">${LEVEL_ACHIEVEMENT_THRESHOLDS.length} целей</span>
+          </summary>
+          <div class="achievement-panel__content">
+            ${levelRows}
+          </div>
+        </details>
         ${sections}
       `;
   } catch (error) {

@@ -47,11 +47,31 @@ const EXCHANGE_DEFS = [
 const EXCHANGE_MENU_IMAGE = '/assets/business/exchange_menu.png';
 const EXCHANGE_MASCOT_IMAGE = '/assets/business/exchange_hamster.png';
 
+const COIN_GAME_UNLOCK_LEVEL = 6;
+const COIN_GAME_COST_CARROTS = 1;
+const COIN_GAME_XP_TO_LEVEL = 10;
+const COIN_GAME_ART = {
+  intro: '/assets/coin/coin_main.png',
+  hamster: '/assets/coin/coin_hamster.png',
+  mouse: '/assets/coin/coin_mouse.png',
+  video: '/assets/coin/coin_intro.mp4',
+};
+
+let coinGameUI = {
+  phase: 'ready',
+  choice: '',
+  pendingChoice: '',
+  result: null,
+  message: '',
+  videoToken: 0,
+  videoFallback: null,
+};
+
 const ADVENTURE_MAP_KEY = 'humster_adventure_map';
 const ADVENTURE_MAPS = {
   field: { id: 'field', label: 'Поле', image: '/assets/maps/adventure-select/field.png', note: 'Текущая карта.' },
   desert: { id: 'desert', label: 'Пустыня', image: '/assets/maps/adventure-select/desert.png', note: 'Доступ откроется после поля.' },
-  cave: { id: 'cave', label: 'Пещера', image: '/assets/maps/adventure-select/cave.png', note: 'Доступ откроется после поля.' },
+  cave: { id: 'cave', label: 'Пещера', image: '/assets/maps/adventure-select/cave.png', note: 'Пока используется то же поле.' },
 };
 
 function businessState(state) {
@@ -403,13 +423,45 @@ function applyLocalAction(action, payload = {}) {
       state.player.currency[def.to] = Math.max(0, Number(state.player.currency?.[def.to]) || 0) + def.rate;
       return;
     }
+    case 'play_coin_game': {
+      const choice = String(payload.value || payload.choice || '').trim();
+      if (state.player.level < COIN_GAME_UNLOCK_LEVEL) return;
+      if (choice !== 'hamster' && choice !== 'mouse') return;
+      if (Math.max(0, Number(state.player.currency?.carrot) || 0) < COIN_GAME_COST_CARROTS) {
+        return;
+      }
+      state.player.currency.carrot = Math.max(0, Number(state.player.currency?.carrot) || 0) - COIN_GAME_COST_CARROTS;
+      const roll = Math.random() < 0.5 ? 'hamster' : 'mouse';
+      const win = roll === choice;
+      state.player.coinLastChoice = choice;
+      state.player.coinLastRolled = roll;
+      state.player.coinLastWon = win;
+      if (win) {
+        state.player.xp = Math.max(0, Number(state.player.xp) || 0) + 150;
+        state.player.currency.seeds = Math.max(0, Number(state.player.currency?.seeds) || 0) + 300;
+        state.player.currency.wheat = Math.max(0, Number(state.player.currency?.wheat) || 0) + 3;
+        state.player.coinXP = Math.max(0, Number(state.player.coinXP) || 0) + 2;
+        state.player.coinLastMessage = 'Победа: +150 опыта хомяка, +300 семечек и +3 пшеницы.';
+        appendLog(state, `Монетка: выигрыш по номиналу ${choice}.`);
+        recalcLevel(state);
+      } else {
+        state.player.coinXP = Math.max(0, Number(state.player.coinXP) || 0) + 1;
+        state.player.coinLastMessage = 'Поражение: +1 опыта монетки.';
+        appendLog(state, `Монетка: проигрыш, выпало ${roll}.`);
+      }
+      while (state.player.coinXP >= COIN_GAME_XP_TO_LEVEL) {
+        state.player.coinXP -= COIN_GAME_XP_TO_LEVEL;
+        state.player.coinLevel = Math.max(1, Number(state.player.coinLevel) || 1) + 1;
+      }
+      return;
+    }
     case 'select_adventure_map': {
       const mapId = String(payload.mapId ?? payload.value ?? '').trim();
-      if (mapId !== 'field') {
+      if (mapId === 'desert') {
         const fieldPasses = Math.max(0, Number(currentState.locationPasses) || 0);
         if (fieldPasses < 1) return;
       }
-      if (mapId === 'desert' || mapId === 'field' || mapId === 'cave') {
+      if (mapId === 'desert' || mapId === 'field') {
         currentState.activeAdventureMapId = mapId;
         const mapAdventure = currentState.adventureMaps?.[mapId];
         if (Array.isArray(mapAdventure) && mapAdventure.length) {
@@ -417,7 +469,7 @@ function applyLocalAction(action, payload = {}) {
           const firstOpen = mapAdventure.find((node) => !node.completed);
           currentState.activeAdventureId = firstOpen ? firstOpen.id : mapAdventure[0].id;
         }
-        currentState.location = mapAdventureLabel(mapId);
+        currentState.location = mapId === 'desert' ? 'Пустыня' : 'Поле';
       }
       return;
     }
@@ -567,8 +619,7 @@ function adventureMapCompleted(state, mapId) {
 function bossIsLocked(state, bossId) {
   const id = (bossId || '').trim();
   if (desertBossIds().has(id)) {
-    const desertPasses = Math.max(0, Number(state?.desertPasses) || 0);
-    return desertPasses < 1;
+    return !adventureMapCompleted(state, 'desert');
   }
   const passes = Math.max(0, Number(state?.locationPasses) || 0);
   return passes < bossUnlockPasses(id);
@@ -665,9 +716,7 @@ function adventureRewardMapForMap(mapId) {
 }
 
 function mapAdventureLabel(mapId) {
-  if (mapId === 'desert') return 'Пустыня';
-  if (mapId === 'cave') return 'Пещера';
-  return 'Поле';
+  return mapId === 'desert' ? 'Пустыня' : 'Поле';
 }
 
 function renderAdventureMapSelectScreen() {
@@ -687,7 +736,7 @@ function renderAdventureMapSelectScreen() {
           <img src="/assets/maps/adventure-select/desert.png" alt="Пустыня">
           <span>Пустыня</span>
         </button>
-        <button type="button" class="adventure-select__node ${activeMap.id === 'cave' ? 'is-active' : ''} ${isAdventureMapUnlocked('cave') ? '' : 'is-locked'}" data-adventure-map="cave" style="left: 28%; top: 35%;" ${isAdventureMapUnlocked('cave') ? '' : 'disabled'}>
+        <button type="button" class="adventure-select__node ${activeMap.id === 'cave' ? 'is-active' : ''}" data-adventure-map="cave" style="left: 28%; top: 35%;">
           <img src="/assets/maps/adventure-select/cave.png" alt="Пещера">
           <span>Пещера</span>
         </button>
@@ -907,7 +956,7 @@ function renderAdventureScreen() {
     <div class="adventure-layout">
       <div class="adventure-map-shell">
         <div class="adventure-map">
-          <img class="adventure-map__bg" src="${mapId === 'desert' ? '/assets/maps/adventure/desert.png' : mapId === 'cave' ? '/assets/maps/adventure/cave.png' : '/assets/maps/adventure/map.png'}" alt="Карта приключений">
+          <img class="adventure-map__bg" src="${mapId === 'desert' ? '/assets/maps/adventure/desert.png' : '/assets/maps/adventure/map.png'}" alt="Карта приключений">
           <div class="adventure-map__overlay"></div>
 
           ${currentState.adventure.map((node) => {
@@ -1321,6 +1370,15 @@ function render() {
   if (exchangePanelButton) {
     exchangePanelButton.title = 'Открыть обменник';
   }
+  const coinPanelButton = $('#btn-coin-panel');
+  if (coinPanelButton) {
+    const playerLevel = Math.max(1, Number(currentState?.player?.level) || 1);
+    coinPanelButton.hidden = !isAuthenticated;
+    coinPanelButton.disabled = playerLevel < COIN_GAME_UNLOCK_LEVEL;
+    coinPanelButton.title = coinPanelButton.disabled
+      ? `Откроется с ${COIN_GAME_UNLOCK_LEVEL} уровня`
+      : 'Открыть монетку';
+  }
   updateScene(currentState);
   updateFriendsBadge();
   if (isAuthenticated) {
@@ -1358,6 +1416,7 @@ function render() {
   const adventure = $('#adventure-screen');
   const business = $('#business-screen');
   const exchange = $('#exchange-screen');
+  const coin = $('#coin-screen');
   const edit = $('#edit-screen');
   const talents = $('#talents-screen');
 
@@ -1369,6 +1428,9 @@ function render() {
     adventure.hidden = true;
     business.hidden = true;
     exchange.hidden = true;
+    if (coin) coin.hidden = true;
+    const coinPanelButton = $('#btn-coin-panel');
+    if (coinPanelButton) coinPanelButton.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
     return;
@@ -1380,6 +1442,7 @@ function render() {
     adventure.hidden = true;
     business.hidden = true;
     exchange.hidden = true;
+    if (coin) coin.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
     battle.hidden = false;
@@ -1391,6 +1454,7 @@ function render() {
     adventure.hidden = true;
     business.hidden = true;
     exchange.hidden = true;
+    if (coin) coin.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
     adventureSelect.hidden = false;
@@ -1399,8 +1463,10 @@ function render() {
     main.hidden = true;
     battle.hidden = true;
     adventureSelect.hidden = true;
+    adventure.hidden = true;
     business.hidden = true;
     exchange.hidden = true;
+    if (coin) coin.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
     adventure.hidden = false;
@@ -1411,6 +1477,7 @@ function render() {
     adventureSelect.hidden = true;
     adventure.hidden = true;
     exchange.hidden = true;
+    if (coin) coin.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
     business.hidden = false;
@@ -1421,16 +1488,29 @@ function render() {
     adventureSelect.hidden = true;
     adventure.hidden = true;
     business.hidden = true;
+    if (coin) coin.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
     exchange.hidden = false;
     renderExchangeScreen();
+  } else if (view === 'coin') {
+    main.hidden = true;
+    battle.hidden = true;
+    adventureSelect.hidden = true;
+    adventure.hidden = true;
+    business.hidden = true;
+    exchange.hidden = true;
+    edit.hidden = true;
+    if (talents) talents.hidden = true;
+    coin.hidden = false;
+    renderCoinScreen();
   } else if (view === 'edit') {
     main.hidden = true;
     battle.hidden = true;
     adventure.hidden = true;
     business.hidden = true;
     exchange.hidden = true;
+    if (coin) coin.hidden = true;
     if (talents) talents.hidden = true;
     edit.hidden = false;
     renderEditScreen();
@@ -1440,6 +1520,7 @@ function render() {
     adventure.hidden = true;
     business.hidden = true;
     exchange.hidden = true;
+    if (coin) coin.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = false;
     renderTalentsScreen();
@@ -1449,6 +1530,7 @@ function render() {
     adventure.hidden = true;
     business.hidden = true;
     exchange.hidden = true;
+    if (coin) coin.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
     main.hidden = false;
@@ -1562,6 +1644,14 @@ function initTopButtons() {
     };
   }
 
+  const coinBackButton = $('#btn-coin-back');
+  if (coinBackButton) {
+    coinBackButton.onclick = () => {
+      setView('main');
+      render();
+    };
+  }
+
   const talentsBackButton = $('#btn-talents-back');
   if (talentsBackButton) {
     talentsBackButton.onclick = () => {
@@ -1584,6 +1674,15 @@ function initTopButtons() {
   if (exchangePanelButton) {
     exchangePanelButton.onclick = () => {
       setView('exchange');
+      render();
+    };
+  }
+
+  const coinPanelButton = $('#btn-coin-panel');
+  if (coinPanelButton) {
+    coinPanelButton.onclick = () => {
+      if (coinPanelButton.disabled) return;
+      setView('coin');
       render();
     };
   }
@@ -1638,6 +1737,269 @@ function initEditButtons() {
   }
 }
 
+
+
+function coinGameAccessAllowed() {
+  return Math.max(1, Number(currentState?.player?.level) || 1) >= COIN_GAME_UNLOCK_LEVEL;
+}
+
+function coinGameLevel() {
+  return Math.max(1, Number(currentState?.player?.coinLevel) || 1);
+}
+
+function coinGameXP() {
+  return Math.max(0, Number(currentState?.player?.coinXP) || 0);
+}
+
+function coinGameChoiceLabel(choice) {
+  return choice === 'mouse' ? 'мышь' : 'хомяк';
+}
+
+function coinGameOutcomeAsset(rolled) {
+  return rolled === 'mouse' ? COIN_GAME_ART.mouse : COIN_GAME_ART.hamster;
+}
+
+function resetCoinGameUI() {
+  if (coinGameUI.videoFallback) {
+    window.clearTimeout(coinGameUI.videoFallback);
+  }
+  coinGameUI = {
+    phase: 'ready',
+    choice: '',
+    pendingChoice: '',
+    result: null,
+    message: '',
+    videoToken: 0,
+    videoFallback: null,
+  };
+}
+
+function coinGameResultFromState() {
+  const player = currentState?.player || {};
+  if (!player.coinLastChoice && !player.coinLastRolled && !player.coinLastMessage) return null;
+  return {
+    choice: player.coinLastChoice || '',
+    rolled: player.coinLastRolled || '',
+    won: Boolean(player.coinLastWon),
+    message: player.coinLastMessage || '',
+  };
+}
+
+function renderCoinScreen() {
+  const title = $('#coin-screen .battle-screen__head h2');
+  const subtitle = $('#coin-screen .battle-screen__head p');
+  if (title) title.textContent = 'Монетка удачи';
+  if (subtitle) subtitle.textContent = 'Цена игры — 1 морковка. Выбирай номинал, смотри ролик и забирай награду.';
+  const body = $('#coin-screen-body');
+  if (!body) return;
+
+  const level = coinGameLevel();
+  const xp = coinGameXP();
+  const playerLevel = Math.max(1, Number(currentState?.player?.level) || 1);
+  const carrots = Math.max(0, Number(currentState?.player?.currency?.carrot) || 0);
+  const unlocked = coinGameAccessAllowed();
+  const canStart = unlocked && carrots >= COIN_GAME_COST_CARROTS;
+  const result = coinGameUI.result || coinGameResultFromState();
+
+  if (coinGameUI.phase === 'playing') {
+    body.innerHTML = `
+      <div class="coin-video">
+        <div class="coin-video__frame">
+          <video id="coin-game-video" src="${COIN_GAME_ART.video}" autoplay muted playsinline preload="auto" poster="${COIN_GAME_ART.intro}"></video>
+        </div>
+        <div class="coin-lock">Проверяем удачу и подводим итог...</div>
+      </div>
+    `;
+    const video = document.getElementById('coin-game-video');
+    if (video) {
+      const finish = () => {
+        if (coinGameUI.phase !== 'playing') return;
+        if (coinGameUI.videoFallback) {
+          window.clearTimeout(coinGameUI.videoFallback);
+          coinGameUI.videoFallback = null;
+        }
+        coinGameUI.phase = 'result';
+        render();
+      };
+      video.onended = finish;
+      video.onerror = finish;
+      video.onloadeddata = () => {
+        video.play().catch(() => {});
+      };
+      video.load();
+      video.play().catch(() => {});
+      if (coinGameUI.videoFallback) {
+        window.clearTimeout(coinGameUI.videoFallback);
+        coinGameUI.videoFallback = null;
+      }
+      coinGameUI.videoFallback = window.setTimeout(finish, 3000);
+    }
+    return;
+  }
+
+  if (coinGameUI.phase === 'choose') {
+    body.innerHTML = `
+      <div class="coin-choice">
+        <div class="profile-section__head">
+          <strong>Выбери номинал</strong>
+          <span>Шанс выпадения: 50% на 50%</span>
+        </div>
+        <div class="coin-choice-grid">
+          <button type="button" class="coin-choice__card" data-coin-choice="hamster">
+            <div class="coin-choice__image"><img src="${COIN_GAME_ART.hamster}" alt="Хомяк" /></div>
+            <strong>Хомяк</strong>
+            <span>Выбрать этот номинал</span>
+          </button>
+          <button type="button" class="coin-choice__card" data-coin-choice="mouse">
+            <div class="coin-choice__image"><img src="${COIN_GAME_ART.mouse}" alt="Мышь" /></div>
+            <strong>Мышь</strong>
+            <span>Выбрать этот номинал</span>
+          </button>
+        </div>
+        <div class="coin-actions">
+          <button id="btn-coin-cancel" class="ghost" type="button">Отмена</button>
+        </div>
+      </div>
+    `;
+    document.querySelectorAll('[data-coin-choice]').forEach((btn) => {
+      btn.onclick = () => startCoinRound(btn.dataset.coinChoice || 'hamster');
+    });
+    const cancelBtn = document.getElementById('btn-coin-cancel');
+    if (cancelBtn) {
+      cancelBtn.onclick = () => {
+        coinGameUI.phase = 'ready';
+        coinGameUI.message = '';
+        coinGameUI.pendingChoice = '';
+        coinGameUI.result = null;
+        render();
+      };
+    }
+    return;
+  }
+
+  if (coinGameUI.phase === 'result' && (result || coinGameUI.message)) {
+    const won = Boolean(result?.won);
+    const rolled = result?.rolled || 'hamster';
+    const choice = result?.choice || coinGameUI.pendingChoice || '';
+    const rewardText = won
+      ? 'Победа: +150 опыта хомяка, +300 семечек и +3 пшеницы. Монетка получает +2 опыта.'
+      : 'Поражение: +1 опыта монетки.';
+    body.innerHTML = `
+      <div class="coin-result ${won ? 'is-win' : 'is-lose'}">
+        <div class="coin-result__image">
+          <img src="${coinGameOutcomeAsset(rolled)}" alt="${coinGameChoiceLabel(rolled)}" />
+        </div>
+        <div class="coin-result__info">
+          <div class="profile-section__head">
+            <strong>${won ? 'Победа' : 'Поражение'}</strong>
+            <span>Выпало: ${coinGameChoiceLabel(rolled)}</span>
+          </div>
+          <p>Твой выбор: ${coinGameChoiceLabel(choice)}.</p>
+          <p>${rewardText}</p>
+          ${result?.message ? `<div class="coin-lock">${result.message}</div>` : ''}
+          <div class="coin-stats">
+            <div class="coin-stat"><span>Монетка</span><strong>ур. ${level} • ${xp}/10</strong></div>
+            <div class="coin-stat"><span>Хомяк</span><strong>ур. ${playerLevel}</strong></div>
+            <div class="coin-stat"><span>Морковь</span><strong>${carrots}</strong></div>
+          </div>
+          <div class="coin-result__actions">
+            <button id="btn-coin-again" class="primary" type="button" ${canStart ? '' : 'disabled'}>Сыграть ещё</button>
+            <button id="btn-coin-reset" class="ghost" type="button">К выбору</button>
+          </div>
+        </div>
+      </div>
+    `;
+    const again = document.getElementById('btn-coin-again');
+    if (again) {
+      again.onclick = () => {
+        coinGameUI.phase = 'choose';
+        coinGameUI.message = '';
+        coinGameUI.result = null;
+        coinGameUI.pendingChoice = '';
+        render();
+      };
+    }
+    const reset = document.getElementById('btn-coin-reset');
+    if (reset) {
+      reset.onclick = () => {
+        resetCoinGameUI();
+        render();
+      };
+    }
+    return;
+  }
+
+  body.innerHTML = `
+    <div class="coin-layout">
+      <section class="coin-hero">
+        <div class="coin-hero__image">
+          <img src="${COIN_GAME_ART.intro}" alt="Монетка удачи" />
+        </div>
+        <div class="coin-hero__meta">
+          <strong>Монетка</strong>
+          <p>Монетка с двумя номиналами: хомяк и мышь. Разыгрывай 1 морковку и получай награды за удачу.</p>
+        </div>
+      </section>
+      <section class="coin-panel">
+        <div class="coin-stats">
+          <div class="coin-stat"><span>Доступ</span><strong>${unlocked ? 'Открыто' : `С ${COIN_GAME_UNLOCK_LEVEL} уровня`}</strong></div>
+          <div class="coin-stat"><span>Цена игры</span><strong>1 морковь</strong></div>
+          <div class="coin-stat"><span>Монетка</span><strong>ур. ${level}</strong></div>
+          <div class="coin-stat"><span>Опыт монетки</span><strong>${xp}/10</strong></div>
+        </div>
+        <p>${unlocked ? (canStart ? 'Нажимай «Сыграть» и выбирай номинал.' : 'Нужна ещё 1 морковка, чтобы сыграть.') : 'Монетка открывается только с 6 уровня хомяка.'}</p>
+        ${coinGameUI.message ? `<div class="coin-lock">${coinGameUI.message}</div>` : ''}
+        <div class="coin-actions">
+          <button id="btn-coin-play" class="primary" type="button" ${canStart ? '' : 'disabled'}>Сыграть</button>
+          <button id="btn-coin-clear" class="ghost" type="button">Сбросить</button>
+        </div>
+      </section>
+    </div>
+  `;
+  const playBtn = document.getElementById('btn-coin-play');
+  if (playBtn) {
+    playBtn.onclick = () => {
+      if (!canStart) return;
+      coinGameUI.phase = 'choose';
+      coinGameUI.message = '';
+      coinGameUI.result = null;
+      coinGameUI.pendingChoice = '';
+      render();
+    };
+  }
+  const clearBtn = document.getElementById('btn-coin-clear');
+  if (clearBtn) {
+    clearBtn.onclick = () => {
+      resetCoinGameUI();
+      render();
+    };
+  }
+}
+
+async function startCoinRound(choice) {
+  if (!coinGameAccessAllowed()) {
+    coinGameUI.message = `Монетка открывается с ${COIN_GAME_UNLOCK_LEVEL} уровня.`;
+    coinGameUI.phase = 'ready';
+    render();
+    return;
+  }
+  coinGameUI.phase = 'playing';
+  coinGameUI.pendingChoice = choice === 'mouse' ? 'mouse' : 'hamster';
+  coinGameUI.result = null;
+  coinGameUI.message = '';
+  render();
+  const response = await syncAction('play_coin_game', { value: coinGameUI.pendingChoice });
+  if (!response?.ok && !response?.data?.state) {
+    coinGameUI.phase = 'choose';
+    coinGameUI.message = response?.data?.error || response?.error || 'Не удалось запустить игру.';
+    coinGameUI.result = null;
+    render();
+    return;
+  }
+  coinGameUI.result = coinGameResultFromState();
+  coinGameUI.phase = 'playing';
+  render();
+}
 
 async function submitAuth(mode) {
   const authError = $('#auth-error');

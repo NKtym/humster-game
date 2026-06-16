@@ -86,6 +86,31 @@
             </div>
           </div>
 
+          <aside class="side-panel side-panel--left" aria-label="Левая панель действий">
+            <div class="side-panel__inner">
+              <div class="side-panel__head">
+                <div class="eyebrow">Дополнительно</div>
+                <h3>Меню</h3>
+              </div>
+
+              <button id="btn-exchange-panel" class="panel-action panel-action--exchange" type="button">
+                <img class="panel-action__icon panel-action__icon--exchange" src="/assets/business/exchange_menu.png" alt="" />
+                <div>
+                  <strong>Обменник</strong>
+                  <span>Размен валют</span>
+                </div>
+              </button>
+
+              <button id="btn-coin-panel" class="panel-action panel-action--coin" type="button" title="Откроется с 6 уровня" hidden>
+                <img class="panel-action__icon panel-action__icon--coin" src="/assets/coin/coin_main.png" alt="" />
+                <div>
+                  <strong>Монетка</strong>
+                  <span>Игра с номиналами</span>
+                </div>
+              </button>
+            </div>
+          </aside>
+
           <aside class="side-panel" aria-label="Панель действий">
             <div class="side-panel__inner">
               <div class="side-panel__head">
@@ -114,14 +139,6 @@
                 <div>
                   <strong>Бизнес</strong>
                   <span>Пассивный доход</span>
-                </div>
-              </button>
-
-              <button id="btn-exchange-panel" class="panel-action panel-action--exchange" type="button">
-                <img class="panel-action__icon panel-action__icon--exchange" src="/assets/business/exchange_menu.png" alt="" />
-                <div>
-                  <strong>Обменник</strong>
-                  <span>Размен валют</span>
                 </div>
               </button>
 
@@ -217,6 +234,17 @@
         <button id="btn-exchange-back" class="ghost" type="button">Вернуться к сцене</button>
       </div>
       <div id="exchange-screen-body"></div>
+    </section>
+    <section id="coin-screen" class="card battle-screen coin-screen" hidden>
+      <div class="battle-screen__head">
+        <div>
+          <div class="eyebrow">Монетка</div>
+          <h2>Монетка удачи</h2>
+          <p>Цена игры — 1 морковка. Выбирай номинал, смотри ролик и забирай награду.</p>
+        </div>
+        <button id="btn-coin-back" class="ghost" type="button">Вернуться к сцене</button>
+      </div>
+      <div id="coin-screen-body"></div>
     </section>
 
     <section id="talents-screen" class="card battle-screen talents-screen" hidden>

@@ -489,7 +489,8 @@
     min-height: 500px;
   }
 
-  .side-panel {
+  .side-panel,
+  .side-panel--left {
     position: static;
     width: auto;
     margin-top: 14px;
@@ -529,6 +530,14 @@
   .panel-action img {
     width: 62px;
     height: 62px;
+  }
+
+  .coin-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .coin-result {
+    grid-template-columns: 1fr;
   }
 
   .battle-card__body,
