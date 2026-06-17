@@ -495,7 +495,8 @@ function applyLocalAction(action, payload = {}) {
       if (isAdventureLocked(currentState, idx) || node.completed || currentState.player.energy < node.energyCost) return;
       currentState.player.energy -= node.energyCost;
       currentState.adventure[idx].progress += 1;
-      const reward = ADVENTURE_REWARDS[idx] || { xp: 0, seeds: 0 };
+      const rewardDefs = adventureRewardMapForMap(currentState.activeAdventureMapId || 'field');
+      const reward = rewardDefs[idx] || ADVENTURE_REWARDS[idx] || { xp: 0, seeds: 0 };
       currentState.player.xp += reward.xp || 0;
       currentState.player.currency.seeds = (currentState.player.currency.seeds || 0) + (reward.seeds || 0);
       recalcLevel(currentState);
@@ -618,6 +619,10 @@ function caveBossIds() {
 }
 
 function adventureMapCompleted(state, mapId) {
+  const clears = state?.adventureClears || {};
+  if (clears?.[mapId]) return true;
+  const passes = Math.max(0, Number(state?.locationPasses) || 0);
+  if (mapId === 'field' && passes > 0) return true;
   const maps = state?.adventureMaps || {};
   const nodes = maps?.[mapId];
   if (!Array.isArray(nodes) || nodes.length === 0) return false;
@@ -716,12 +721,13 @@ function isAdventureMapUnlocked(mapId) {
 
 async function setAdventureMapChoice(mapId) {
   const next = ADVENTURE_MAPS[String(mapId || '').trim()] || ADVENTURE_MAPS.field;
-  localStorage.setItem(ADVENTURE_MAP_KEY, next.id);
-  if (currentState) {
-    currentState.location = next.label;
-    currentState.activeAdventureMapId = next.id;
+  if (!isAdventureMapUnlocked(next.id)) {
+    return next;
   }
-  await syncAction('select_adventure_map', { mapId: next.id });
+  const response = await syncAction('select_adventure_map', { mapId: next.id });
+  if (response.ok) {
+    localStorage.setItem(ADVENTURE_MAP_KEY, next.id);
+  }
   return next;
 }
 
@@ -959,10 +965,14 @@ function renderAdventureScreen() {
   const rewardDefs = adventureRewardMapForMap(mapId);
   const title = document.querySelector('#adventure-screen .battle-screen__head h2');
   if (title) title.textContent = mapAdventureLabel(mapId);
-  const selectedId = selectedAdventureId(currentState);
-  const selected = getAdventureNode(currentState, selectedId) || currentState.adventure[0];
-  const def = routeDefs.find((node) => node.id === (selected?.id || routeDefs[0].id)) || routeDefs[0];
-  const isSelectedLocked = selected ? isAdventureLocked(currentState, currentState.adventure.findIndex((n) => n.id === selected.id)) : false;
+  const mapNodes = (currentState.adventureMaps && currentState.adventureMaps[mapId])
+    ? currentState.adventureMaps[mapId]
+    : (Array.isArray(currentState.adventure) ? currentState.adventure : []);
+  const workingState = { ...currentState, adventure: mapNodes, activeAdventureMapId: mapId };
+  const selectedId = selectedAdventureId(workingState);
+  const selected = getAdventureNode(workingState, selectedId) || mapNodes[0] || null;
+  const selectedIndex = selected ? mapNodes.findIndex((n) => n.id === selected.id) : -1;
+  const isSelectedLocked = selected ? isAdventureLocked(workingState, selectedIndex) : false;
   const progress = selected ? `${selected.progress}/${selected.requiredPasses}` : '0/0';
   const energy = currentState.player.energy || 0;
   const maxEnergy = currentState.player.maxEnergy || 40;
@@ -979,10 +989,10 @@ function renderAdventureScreen() {
           <img class="adventure-map__bg" src="${mapId === 'desert' ? '/assets/maps/adventure/desert.png' : (mapId === 'cave' ? '/assets/maps/adventure/cave.png' : '/assets/maps/adventure/map.png')}" alt="Карта приключений">
           <div class="adventure-map__overlay"></div>
 
-          ${currentState.adventure.map((node) => {
+          ${mapNodes.map((node) => {
             const defNode = routeDefs.find((item) => item.id === node.id) || routeDefs[0];
-            const idx = currentState.adventure.findIndex((n) => n.id === node.id);
-            const locked = isAdventureLocked(currentState, idx);
+            const idx = mapNodes.findIndex((n) => n.id === node.id);
+            const locked = isAdventureLocked(workingState, idx);
             const classes = [
               'adventure-node',
               node.completed ? 'is-complete' : '',
@@ -1031,7 +1041,7 @@ function renderAdventureScreen() {
           </div>
           <div class="stat-box">
             <span>Награда за действие</span>
-            <strong>${(() => { const reward = rewardDefs[currentState.adventure.findIndex((n) => n.id === selected.id)] || { xp: 0, seeds: 0 }; return `+${reward.xp} опыта, +${reward.seeds} семечек`; })()}</strong>
+            <strong>${(() => { const reward = rewardDefs[selectedIndex >= 0 ? selectedIndex : 0] || { xp: 0, seeds: 0 }; return `+${reward.xp} опыта, +${reward.seeds} семечек`; })()}</strong>
           </div>
           <div class="stat-box">
             <span>Энергия</span>

@@ -269,8 +269,17 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		err = s.selectTalentClass(lease.state, req.Value)
 	case "buy_talent":
 		err = s.buyTalentRank(lease.state, req.Slot)
-	case "exchange_currency":
-		err = s.exchangeCurrency(lease.state, req.From, req.To)
+	case "exchange_currency", "exchange_wheat_to_seeds", "exchange_carrot_to_wheat", "exchange_cucumber_to_carrot", "exchange_apple_to_cucumber", "exchange_kormik_to_apple":
+		if req.Action == "exchange_currency" {
+			err = s.exchangeCurrency(lease.state, req.From, req.To)
+		} else {
+			from, to := exchangePairForAction(req.Action)
+			if from == "" || to == "" {
+				err = fmt.Errorf("неизвестный обмен")
+			} else {
+				err = s.exchangeCurrency(lease.state, from, to)
+			}
+		}
 	case "play_coin_game":
 		err = s.playCoinGame(lease.state, req.Value)
 	default:
@@ -1942,10 +1951,15 @@ func (s *Server) adventureStep(gs *GameState, nodeID string) error {
 		}
 		if allDone {
 			gs.LocationPasses++
+			if gs.AdventureClears == nil {
+				gs.AdventureClears = map[string]bool{}
+			}
+			gs.AdventureClears[mapID] = true
 			for i := range nodes {
 				nodes[i].Progress = 0
 				nodes[i].Completed = false
 			}
+			gs.ActiveAdventureID = ""
 			appendLog(gs, fmt.Sprintf("Локация пройдена полностью! Всего проходок локации: %d. Путь начинается заново.", gs.LocationPasses))
 		} else {
 			next := firstIncompleteAdventureIndexForMap(gs, mapID)
@@ -1957,6 +1971,9 @@ func (s *Server) adventureStep(gs *GameState, nodeID string) error {
 	}
 	if gs.AdventureMaps == nil {
 		gs.AdventureMaps = map[string][]AdventureNode{}
+	}
+	if gs.AdventureClears == nil {
+		gs.AdventureClears = map[string]bool{}
 	}
 	gs.AdventureMaps[mapID] = nodes
 	syncAdventureView(gs)
@@ -2683,6 +2700,7 @@ func newGameState() GameState {
 			"desert": defaultAdventureNodesForMap("desert"),
 			"cave":   defaultAdventureNodesForMap("cave"),
 		},
+		AdventureClears:         map[string]bool{},
 		ActiveAdventureID:       adventureBlueprints[0].ID,
 		ActiveAdventureMapID:    "field",
 		ActiveBossID:            "",
@@ -2875,7 +2893,18 @@ func adventureRewardForMap(mapID string, idx int) (int, int) {
 }
 
 func adventureFinishedForMap(gs *GameState, mapID string) bool {
-	nodes := adventureNodesForMap(gs, mapID)
+	if gs == nil {
+		return false
+	}
+	ensureAdventureMaps(gs)
+	id := normalizeAdventureMapID(mapID)
+	if gs.AdventureClears != nil && gs.AdventureClears[id] {
+		return true
+	}
+	if id == "field" && gs.LocationPasses > 0 {
+		return true
+	}
+	nodes := adventureNodesForMap(gs, id)
 	if len(nodes) == 0 {
 		return false
 	}
@@ -3481,6 +3510,23 @@ func (s *Server) buyBusiness(gs *GameState, item string) error {
 	}
 }
 
+func exchangePairForAction(action string) (string, string) {
+	switch action {
+	case "exchange_wheat_to_seeds":
+		return "wheat", "seeds"
+	case "exchange_carrot_to_wheat":
+		return "carrot", "wheat"
+	case "exchange_cucumber_to_carrot":
+		return "cucumber", "carrot"
+	case "exchange_apple_to_cucumber":
+		return "apple", "cucumber"
+	case "exchange_kormik_to_apple":
+		return "kormik", "apple"
+	default:
+		return "", ""
+	}
+}
+
 func (s *Server) exchangeCurrency(gs *GameState, from, to string) error {
 	if gs == nil {
 		return fmt.Errorf("игровое состояние недоступно")
@@ -3600,6 +3646,7 @@ func copyState(gs GameState) GameState {
 	cp.Player.Equipped = copyEquipped(gs.Player.Equipped)
 	cp.Bosses = copyBosses(gs.Bosses)
 	cp.Adventure = copyAdventure(gs.Adventure)
+	cp.AdventureClears = copyAdventureClears(gs.AdventureClears)
 	cp.Log = append([]string(nil), gs.Log...)
 	return cp
 }
@@ -3607,6 +3654,14 @@ func copyState(gs GameState) GameState {
 func copyAdventure(in []AdventureNode) []AdventureNode {
 	out := make([]AdventureNode, len(in))
 	copy(out, in)
+	return out
+}
+
+func copyAdventureClears(in map[string]bool) map[string]bool {
+	out := make(map[string]bool, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
 	return out
 }
 

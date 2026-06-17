@@ -469,6 +469,7 @@ const DEFAULT_STATE = {
   bossBattleDamageCurrent: 0,
   bossBattleDamageBest: 0,
   economyTotals: { seeds: 0, wheat: 0, carrot: 0, cucumber: 0, apple: 0, kormik: 0 },
+  adventureClears: {},
   adventure: ADVENTURE_DEFS.map((node) => ({
     id: node.id,
     name: node.label,
@@ -781,6 +782,7 @@ function normalizeState(state) {
   next.bossBattleDamageCurrent = Math.max(0, Number(state.bossBattleDamageCurrent ?? next.bossBattleDamageCurrent) || 0);
   next.bossBattleDamageBest = Math.max(0, Number(state.bossBattleDamageBest ?? next.bossBattleDamageBest) || 0);
   next.economyTotals = { ...DEFAULT_STATE.economyTotals, ...((state && state.economyTotals) || {}) };
+  next.adventureClears = { ...(state?.adventureClears || {}) };
   if (next.bossBattleDamageBest < next.bossBattleDamageCurrent) {
     next.bossBattleDamageBest = next.bossBattleDamageCurrent;
   }
@@ -934,13 +936,22 @@ function getAdventureDef(id) {
   return ADVENTURE_DEFS.find((node) => node.id === id) || ADVENTURE_DEFS[0];
 }
 
+function getAdventureNodesForState(state) {
+  const mapId = ['desert', 'cave'].includes(String(state?.activeAdventureMapId || '').trim()) ? String(state.activeAdventureMapId).trim() : 'field';
+  const maps = state?.adventureMaps;
+  const mapped = maps && Array.isArray(maps[mapId]) && maps[mapId].length ? maps[mapId] : null;
+  if (mapped) return mapped;
+  return Array.isArray(state?.adventure) ? state.adventure : [];
+}
+
 function getAdventureNode(state, id) {
-  return (state?.adventure || []).find((node) => node.id === id) || null;
+  return getAdventureNodesForState(state).find((node) => node.id === id) || null;
 }
 
 function selectedAdventureId(state) {
-  if (state.activeAdventureId && getAdventureNode(state, state.activeAdventureId)) return state.activeAdventureId;
-  return state.adventure.find((node) => !node.completed)?.id || state.adventure[0]?.id || '';
+  const nodes = getAdventureNodesForState(state);
+  if (state.activeAdventureId && nodes.some((node) => node.id === state.activeAdventureId)) return state.activeAdventureId;
+  return nodes.find((node) => !node.completed)?.id || nodes[0]?.id || '';
 }
 
 function activeAdventureNode(state) {
@@ -948,7 +959,7 @@ function activeAdventureNode(state) {
 }
 
 function firstIncompleteAdventureIndex(state) {
-  return (state.adventure || []).findIndex((node) => !node.completed);
+  return getAdventureNodesForState(state).findIndex((node) => !node.completed);
 }
 
 function isAdventureLocked(state, index) {

@@ -108,6 +108,7 @@ type GameState struct {
 	ActiveBossID            string                     `json:"activeBossId"`
 	Adventure               []AdventureNode            `json:"adventure"`
 	AdventureMaps           map[string][]AdventureNode `json:"adventureMaps,omitempty"`
+	AdventureClears         map[string]bool            `json:"adventureClears,omitempty"`
 	ActiveAdventureID       string                     `json:"activeAdventureId"`
 	ActiveAdventureMapID    string                     `json:"activeAdventureMapId"`
 	Business                Business                   `json:"business"`
