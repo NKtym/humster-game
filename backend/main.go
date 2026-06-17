@@ -1861,13 +1861,13 @@ func (s *Server) selectAdventureMap(gs *GameState, mapID, fallback string) error
 	if chosen == "field" && strings.TrimSpace(fallback) != "" {
 		chosen = normalizeAdventureMapID(fallback)
 	}
-	if chosen == "desert" && (gs == nil || gs.LocationPasses < 1) {
-		return fmt.Errorf("пустыня откроется после прохождения поля")
-	}
 	if gs == nil {
 		return fmt.Errorf("состояние игры не найдено")
 	}
 	ensureAdventureMaps(gs)
+	if chosen != "field" && !adventureFinishedForMap(gs, "field") {
+		return fmt.Errorf("эта карта откроется после полного прохождения поля")
+	}
 	gs.ActiveAdventureMapID = chosen
 	syncAdventureView(gs)
 	appendLog(gs, fmt.Sprintf("Выбрана карта: %s.", mapAdventureLabel(chosen)))
@@ -2040,6 +2040,13 @@ func (s *Server) setAppearance(gs *GameState, slot, value string) error {
 			return fmt.Errorf("сначала выбей этот скин")
 		}
 		gs.Player.Appearance.Color = value
+	case "size":
+		switch value {
+		case "small", "normal", "large":
+			gs.Player.Appearance.Size = value
+		default:
+			return fmt.Errorf("неизвестный размер")
+		}
 	case "heldItem":
 		gs.Player.Appearance.HeldItem = value
 	case "headwear":
@@ -2502,6 +2509,7 @@ func newGameState() GameState {
 			},
 			Inventory: map[string]int{
 				"wallpaper_day": 1,
+				"black":         1,
 			},
 			Equipped: map[string]string{
 				"wallpaper": "wallpaper_day",
@@ -2510,6 +2518,7 @@ func newGameState() GameState {
 			Appearance: Appearance{
 				Background: "wallpaper_day",
 				Color:      "default",
+				Size:       "normal",
 				HeldItem:   "none",
 				Headwear:   "none",
 				Glasses:    "none",
@@ -2672,6 +2681,7 @@ func newGameState() GameState {
 		AdventureMaps: map[string][]AdventureNode{
 			"field":  defaultAdventureNodesForMap("field"),
 			"desert": defaultAdventureNodesForMap("desert"),
+			"cave":   defaultAdventureNodesForMap("cave"),
 		},
 		ActiveAdventureID:       adventureBlueprints[0].ID,
 		ActiveAdventureMapID:    "field",
@@ -2718,6 +2728,9 @@ func ensureAdventureMaps(gs *GameState) {
 	if len(gs.AdventureMaps["desert"]) == 0 {
 		gs.AdventureMaps["desert"] = defaultAdventureNodesForMap("desert")
 	}
+	if len(gs.AdventureMaps["cave"]) == 0 {
+		gs.AdventureMaps["cave"] = defaultAdventureNodesForMap("cave")
+	}
 	if normalizeAdventureMapID(gs.ActiveAdventureMapID) == "" {
 		gs.ActiveAdventureMapID = "field"
 	}
@@ -2733,6 +2746,8 @@ func normalizeAdventureMapID(value string) string {
 	switch strings.TrimSpace(strings.ToLower(value)) {
 	case "desert":
 		return "desert"
+	case "cave":
+		return "cave"
 	default:
 		return "field"
 	}
@@ -2753,6 +2768,8 @@ func mapAdventureLabel(mapID string) string {
 	switch normalizeAdventureMapID(mapID) {
 	case "desert":
 		return "Пустыня"
+	case "cave":
+		return "Пещера"
 	default:
 		return "Поле"
 	}
@@ -2819,6 +2836,23 @@ func adventureRewardForMap(mapID string, idx int) (int, int) {
 			return 9, 10
 		case 4:
 			return 12, 14
+		default:
+			return 0, 0
+		}
+	case "cave":
+		switch idx {
+		case 0:
+			return 6, 0
+		case 1:
+			return 5, 0
+		case 2:
+			return 12, 3
+		case 3:
+			return 12, 20
+		case 4:
+			return 12, 10
+		case 5:
+			return 24, 10
 		default:
 			return 0, 0
 		}
@@ -3058,6 +3092,10 @@ func normalizeBosses(gs *GameState) {
 		{id: "sand_snake", name: "Песчаная змея", hp: 15000, attack: 24, xp: 500, reward: map[Currency]int{Seeds: 2000, Wheat: 10, Carrot: 10, Cucumber: 4}},
 		{id: "desert_owl", name: "Сова", hp: 50000, attack: 36, xp: 1500, reward: map[Currency]int{Seeds: 4500, Wheat: 0, Carrot: 10, Cucumber: 6}},
 		{id: "desert_fox", name: "Лиса", hp: 100000, attack: 44, xp: 3600, reward: map[Currency]int{Seeds: 9000, Wheat: 0, Carrot: 12, Cucumber: 4, Apple: 1}},
+		{id: "grizzly", name: "Гризли", hp: 4000000, attack: 80, xp: 40000, reward: map[Currency]int{Seeds: 70000, Wheat: 0, Carrot: 45, Cucumber: 15, Apple: 5}},
+		{id: "foot", name: "Нога", hp: 250000, attack: 48, xp: 6000, reward: map[Currency]int{Seeds: 14000, Wheat: 0, Carrot: 18, Cucumber: 7}},
+		{id: "dog", name: "Пёс", hp: 500000, attack: 56, xp: 10000, reward: map[Currency]int{Seeds: 20000, Wheat: 0, Carrot: 25, Cucumber: 9}},
+		{id: "machine", name: "Машина с опездалами", hp: 2000000, attack: 70, xp: 25000, reward: map[Currency]int{Seeds: 40000, Wheat: 0, Carrot: 40, Cucumber: 12, Apple: 3}},
 		{id: "cave_centipede", name: "Пещерная многоножка", hp: 1200, attack: 14, xp: 100, reward: map[Currency]int{Seeds: 400, Wheat: 0, Carrot: 2, Cucumber: 1}},
 		{id: "cave_bird", name: "Пещерная птица", hp: 3400, attack: 18, xp: 200, reward: map[Currency]int{Seeds: 500, Wheat: 0, Carrot: 3, Cucumber: 2}},
 		{id: "cave_spider", name: "Пещерный паук", hp: 24000, attack: 32, xp: 800, reward: map[Currency]int{Seeds: 2000, Wheat: 0, Carrot: 8, Cucumber: 2, Apple: 1}},
@@ -3248,8 +3286,10 @@ func bossLockedByProgress(gs *GameState, bossID string) bool {
 		return false
 	}
 	switch strings.TrimSpace(bossID) {
-	case "desert_owl", "desert_fox":
+	case "desert_owl", "desert_fox", "grizzly":
 		return !adventureFinishedForMap(gs, "desert")
+	case "foot", "dog", "machine":
+		return !adventureFinishedForMap(gs, "cave")
 	default:
 		return gs.LocationPasses < bossUnlockPasses(bossID)
 	}
@@ -3257,9 +3297,13 @@ func bossLockedByProgress(gs *GameState, bossID string) bool {
 
 func bossUnlockHint(gs *GameState, bossID string) string {
 	switch strings.TrimSpace(bossID) {
-	case "desert_owl", "desert_fox":
+	case "desert_owl", "desert_fox", "grizzly":
 		if gs == nil || !adventureFinishedForMap(gs, "desert") {
 			return "этот босс откроется после прохождения пустыни"
+		}
+	case "foot", "dog", "machine":
+		if gs == nil || !adventureFinishedForMap(gs, "cave") {
+			return "этот босс откроется после полного прохождения пещеры"
 		}
 	case "sand_lizard", "sand_snake", "cave_centipede", "cave_bird", "cave_spider", "honey_badger":
 		if gs == nil || gs.LocationPasses < 1 {

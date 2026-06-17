@@ -109,6 +109,10 @@ const CATALOG = {
     { id: 'sand_snake', name: 'Песчаная змея', img: '/assets/characters/bosses/sand_snake.png' },
     { id: 'desert_owl', name: 'Сова', img: '/assets/characters/bosses/desert_owl.png' },
     { id: 'desert_fox', name: 'Лиса', img: '/assets/characters/bosses/desert_fox.png' },
+    { id: 'grizzly', name: 'Гризли', img: '/assets/characters/bosses/grizzly.png' },
+    { id: 'foot', name: 'Нога', img: '/assets/characters/bosses/foot.png' },
+    { id: 'dog', name: 'Пёс', img: '/assets/characters/bosses/dog.png' },
+    { id: 'machine', name: 'Машина с опездалами', img: '/assets/characters/bosses/machine.png' },
     { id: 'cave_centipede', name: 'Пещерная многоножка', img: '/assets/characters/bosses/cave_centipede.png' },
     { id: 'cave_bird', name: 'Пещерная птица', img: '/assets/characters/bosses/cave_bird.png' },
     { id: 'cave_spider', name: 'Пещерный паук', img: '/assets/characters/bosses/cave_spider.png' },
@@ -120,6 +124,7 @@ const CATALOG = {
 const APPEARANCE_CATEGORIES = [
   { id: 'background', label: 'Фон', icon: '🌿', slot: 'background' },
   { id: 'color', label: 'Окрас', icon: '🎨', slot: 'color' },
+  { id: 'size', label: 'Размер', icon: '📏', slot: 'size' },
   { id: 'heldItem', label: 'В лапках', icon: '🫳', slot: 'heldItem' },
   { id: 'headwear', label: 'Кепка', icon: '🧢', slot: 'headwear' },
   { id: 'glasses', label: 'Очки', icon: '👓', slot: 'glasses' },
@@ -136,17 +141,26 @@ const APPEARANCE_OPTIONS = {
     { id: 'default', name: 'Базовый', img: '/assets/characters/hamster/layers/base.png' },
     { id: 'color1', name: 'Зеленый', img: '/assets/characters/hamster/layers/color1.png' },
     { id: 'color2', name: 'Серый', img: '/assets/characters/hamster/layers/color2.png' },
+    { id: 'black', name: 'Черный', img: '/assets/characters/hamster/layers/black.png' },
+  ],
+  size: [
+    { id: 'small', name: 'Маленький' },
+    { id: 'normal', name: 'Обычный' },
+    { id: 'large', name: 'Большой' },
   ],
   heldItem: [
     { id: 'none', name: 'Без предмета' },
     { id: 'flower', name: 'Цветок' },
     { id: 'seed_bag', name: 'Мешочек семечек' },
     { id: 'carrot', name: 'Морковка' },
+    { id: 'stick', name: 'Палка', img: '/assets/characters/hamster/layers/stick.png' },
+    { id: 'stone', name: 'Камень', img: '/assets/characters/hamster/layers/stone.png' },
   ],
   headwear: [
     { id: 'none', name: 'Без кепки' },
     { id: 'cap', name: 'Кепка' },
     { id: 'beanie', name: 'Шапка' },
+    { id: 'wreath', name: 'Венок', img: '/assets/characters/hamster/layers/wreath.png' },
   ],
   glasses: [
     { id: 'none', name: 'Без очков' },
@@ -157,15 +171,17 @@ const APPEARANCE_OPTIONS = {
     { id: 'none', name: 'Без маски' },
     { id: 'mask_simple', name: 'Маска' },
     { id: 'scarf', name: 'Шарфик' },
+    { id: 'cigarette', name: 'Сигарета', img: '/assets/characters/hamster/layers/cigarette.png' },
   ],
   body: [
     { id: 'none', name: 'Без одежды' },
     { id: 'jacket', name: 'Куртка' },
     { id: 'hoodie', name: 'Худи' },
+    { id: 'camouflage_jacket', name: 'Камуфляжная куртка', img: '/assets/characters/hamster/layers/camouflage_jacket.png' },
   ],
   shoes: [
     { id: 'none', name: 'Без обуви' },
-    { id: 'sneakers', name: 'Кроссовки' },
+    { id: 'camouflage_sneakers', name: 'Камуфляжные кроссовки', img: '/assets/characters/hamster/layers/camouflage_sneakers.png' },
     { id: 'boots', name: 'Ботинки' },
   ],
 };
@@ -193,6 +209,14 @@ const ADVENTURE_ROUTE_DEFS = {
     { id: 'jerboa', label: 'Помочь тушканчику', image: '/assets/maps/adventure/desert/jerboa.png', x: 77.0, y: 45.0, energyCost: 4, requiredPasses: 6 },
     { id: 'city', label: 'Обойти город', image: '/assets/maps/adventure/desert/city.png', x: 91.0, y: 58.0, energyCost: 5, requiredPasses: 7 },
   ],
+  cave: [
+    { id: 'cave_walk', label: 'Идти по пещере', image: '/assets/maps/adventure/cave/cave_walk.png', x: 8.0, y: 56.0, energyCost: 3, requiredPasses: 4 },
+    { id: 'cave_ore_view', label: 'Посмотреть на руду', image: '/assets/maps/adventure/cave/cave_ore_view.png', x: 24.0, y: 44.0, energyCost: 2, requiredPasses: 5 },
+    { id: 'cave_structure', label: 'Изучить подземное сооружение', image: '/assets/maps/adventure/cave/cave_structure.png', x: 41.0, y: 31.0, energyCost: 4, requiredPasses: 6 },
+    { id: 'cave_mine', label: 'Добывать руду', image: '/assets/maps/adventure/cave/cave_mine.png', x: 57.0, y: 52.0, energyCost: 5, requiredPasses: 6 },
+    { id: 'cave_water', label: 'Изучить водоём', image: '/assets/maps/adventure/cave/cave_water.png', x: 75.0, y: 41.0, energyCost: 4, requiredPasses: 7 },
+    { id: 'cave_bat', label: 'Спасти летучую мышь', image: '/assets/maps/adventure/cave/cave_bat.png', x: 90.0, y: 59.0, energyCost: 6, requiredPasses: 7 },
+  ],
 };
 
 const ADVENTURE_REWARD_MAPS = {
@@ -203,6 +227,14 @@ const ADVENTURE_REWARD_MAPS = {
     { xp: 8, seeds: 8 },
     { xp: 9, seeds: 10 },
     { xp: 12, seeds: 14 },
+  ],
+  cave: [
+    { xp: 6, seeds: 0 },
+    { xp: 5, seeds: 0 },
+    { xp: 12, seeds: 3 },
+    { xp: 12, seeds: 20 },
+    { xp: 12, seeds: 10 },
+    { xp: 24, seeds: 10 },
   ],
 };
 
@@ -238,6 +270,12 @@ const BOSS_BLUEPRINTS = {
   swagusinitsa: { name: 'Свагусиница', hp: 600, attack: 12, xp: 50, reward: { seeds: 200, wheat: 0, carrot: 2, cucumber: 1 } },
   sand_lizard: { name: 'Песчаная ящерица', hp: 7000, attack: 16, xp: 300, reward: { seeds: 1000, wheat: 0, carrot: 5, cucumber: 2 } },
   sand_snake: { name: 'Песчаная змея', hp: 15000, attack: 24, xp: 500, reward: { seeds: 2000, wheat: 10, carrot: 10, cucumber: 4 } },
+  desert_owl: { name: 'Сова', hp: 50000, attack: 36, xp: 1500, reward: { seeds: 4500, wheat: 0, carrot: 10, cucumber: 6 } },
+  desert_fox: { name: 'Лиса', hp: 100000, attack: 44, xp: 3600, reward: { seeds: 9000, wheat: 0, carrot: 12, cucumber: 4, apple: 1 } },
+  grizzly: { name: 'Гризли', hp: 4000000, attack: 80, xp: 40000, reward: { seeds: 70000, wheat: 0, carrot: 45, cucumber: 15, apple: 5 } },
+  foot: { name: 'Нога', hp: 250000, attack: 48, xp: 6000, reward: { seeds: 14000, wheat: 0, carrot: 18, cucumber: 7 } },
+  dog: { name: 'Пёс', hp: 500000, attack: 56, xp: 10000, reward: { seeds: 20000, wheat: 0, carrot: 25, cucumber: 9 } },
+  machine: { name: 'Машина с опездалами', hp: 2000000, attack: 70, xp: 25000, reward: { seeds: 40000, wheat: 0, carrot: 40, cucumber: 12, apple: 3 } },
   cave_centipede: { name: 'Пещерная многоножка', hp: 1200, attack: 14, xp: 100, reward: { seeds: 400, wheat: 0, carrot: 2, cucumber: 1 } },
   cave_bird: { name: 'Пещерная птица', hp: 3400, attack: 18, xp: 200, reward: { seeds: 500, wheat: 0, carrot: 3, cucumber: 2 } },
   cave_spider: { name: 'Пещерный паук', hp: 24000, attack: 32, xp: 800, reward: { seeds: 2000, wheat: 0, carrot: 8, cucumber: 2, apple: 1 } },
@@ -377,12 +415,13 @@ const DEFAULT_STATE = {
     attack: 2,
     defense: 0,
     currency: { seeds: 10, wheat: 3, carrot: 0, cucumber: 0, apple: 0, kormik: 0 },
-    inventory: { wallpaper_day: 1, iron_claw: 0, poison_bite: 0, eye_lasers: 0 },
+    inventory: { wallpaper_day: 1, black: 1, iron_claw: 0, poison_bite: 0, eye_lasers: 0 },
     equipped: { wallpaper: 'wallpaper_day' },
     wallpaper: 'wallpaper_day',
     appearance: {
       background: 'wallpaper_day',
       color: 'default',
+      size: 'normal',
       heldItem: 'none',
       headwear: 'none',
       glasses: 'none',
@@ -407,6 +446,16 @@ const DEFAULT_STATE = {
     { id: 'rat', name: 'Крыса', hp: 70, maxHp: 70, attack: 4, reward: { seeds: 20, wheat: 2, carrot: 1, cucumber: 0 }, xp: 10, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
     { id: 'lizard', name: 'Ящерица', hp: 150, maxHp: 150, attack: 8, reward: { seeds: 50, wheat: 3, carrot: 0, cucumber: 1 }, xp: 20, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
     { id: 'sand_lizard', name: 'Песчаная ящерица', hp: 600, maxHp: 600, attack: 16, reward: { seeds: 200, wheat: 0, carrot: 3, cucumber: 1 }, xp: 50, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'desert_owl', name: 'Сова', hp: 50000, maxHp: 50000, attack: 36, reward: { seeds: 4500, wheat: 0, carrot: 10, cucumber: 6 }, xp: 1500, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'desert_fox', name: 'Лиса', hp: 100000, maxHp: 100000, attack: 44, reward: { seeds: 9000, wheat: 0, carrot: 12, cucumber: 4, apple: 1 }, xp: 3600, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'grizzly', name: 'Гризли', hp: 4000000, maxHp: 4000000, attack: 80, reward: { seeds: 70000, wheat: 0, carrot: 45, cucumber: 15, apple: 5 }, xp: 40000, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'foot', name: 'Нога', hp: 250000, maxHp: 250000, attack: 48, reward: { seeds: 14000, wheat: 0, carrot: 18, cucumber: 7 }, xp: 6000, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'dog', name: 'Пёс', hp: 500000, maxHp: 500000, attack: 56, reward: { seeds: 20000, wheat: 0, carrot: 25, cucumber: 9 }, xp: 10000, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'machine', name: 'Машина с опездалами', hp: 2000000, maxHp: 2000000, attack: 70, reward: { seeds: 40000, wheat: 0, carrot: 40, cucumber: 12, apple: 3 }, xp: 25000, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'cave_centipede', name: 'Пещерная многоножка', hp: 1200, maxHp: 1200, attack: 14, reward: { seeds: 400, wheat: 0, carrot: 2, cucumber: 1 }, xp: 100, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'cave_bird', name: 'Пещерная птица', hp: 3400, maxHp: 3400, attack: 18, reward: { seeds: 500, wheat: 0, carrot: 3, cucumber: 2 }, xp: 200, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'cave_spider', name: 'Пещерный паук', hp: 24000, maxHp: 24000, attack: 32, reward: { seeds: 2000, wheat: 0, carrot: 8, cucumber: 2, apple: 1 }, xp: 800, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
+    { id: 'honey_badger', name: 'Медоед', hp: 1000000, maxHp: 1000000, attack: 40, reward: { seeds: 25000, wheat: 25, carrot: 30, cucumber: 10, apple: 2 }, xp: 15000, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
   ],
   activeBossId: '',
   locationPasses: 0,
@@ -438,6 +487,14 @@ const DEFAULT_STATE = {
       completed: false,
     })),
     desert: ADVENTURE_ROUTE_DEFS.desert.map((node) => ({
+      id: node.id,
+      name: node.label,
+      energyCost: node.energyCost,
+      requiredPasses: node.requiredPasses,
+      progress: 0,
+      completed: false,
+    })),
+    cave: ADVENTURE_ROUTE_DEFS.cave.map((node) => ({
       id: node.id,
       name: node.label,
       energyCost: node.energyCost,
@@ -695,6 +752,7 @@ function normalizeState(state) {
   next.player.appearance = {
     background: next.player.appearance?.background || next.player.wallpaper || 'wallpaper_day',
     color: next.player.appearance?.color || 'default',
+    size: ['small', 'normal', 'large'].includes(next.player.appearance?.size) ? next.player.appearance.size : 'normal',
     heldItem: next.player.appearance?.heldItem || 'none',
     headwear: next.player.appearance?.headwear || 'none',
     glasses: next.player.appearance?.glasses || 'none',
@@ -744,8 +802,9 @@ function normalizeState(state) {
   next.adventureMaps = {
     field: mergeAdventure(rawAdventureMaps.field || state.adventure || [], ADVENTURE_ROUTE_DEFS.field),
     desert: mergeAdventure(rawAdventureMaps.desert || [], ADVENTURE_ROUTE_DEFS.desert),
+    cave: mergeAdventure(rawAdventureMaps.cave || [], ADVENTURE_ROUTE_DEFS.cave),
   };
-  const normalizedAdventureMapId = next.adventureMaps[state.activeAdventureMapId] ? state.activeAdventureMapId : (state.activeAdventureMapId === 'desert' ? 'desert' : 'field');
+  const normalizedAdventureMapId = next.adventureMaps[state.activeAdventureMapId] ? state.activeAdventureMapId : (state.activeAdventureMapId === 'desert' ? 'desert' : (state.activeAdventureMapId === 'cave' ? 'cave' : 'field'));
   next.activeAdventureMapId = normalizedAdventureMapId;
   next.adventure = next.adventureMaps[normalizedAdventureMapId] || next.adventureMaps.field;
   next.activeAdventureId = state.activeAdventureId && next.adventure.some((node) => node.id === state.activeAdventureId)
@@ -927,6 +986,15 @@ function getHamsterSpriteAsset(colorValue) {
   const option = getAppearanceOption('color', colorValue || 'default');
   if (option && option.img) return option.img;
   return '/assets/characters/hamster/layers/base.png';
+}
+
+function getHamsterScale(sizeValue) {
+  switch (sizeValue) {
+    case 'small': return 0.86;
+    case 'large': return 1.16;
+    case 'normal':
+    default: return 1;
+  }
 }
 
 function damageDayKey(date = new Date()) {
@@ -1305,6 +1373,7 @@ function renderHamsterPreview(profile) {
   const appearance = player.appearance || {};
   const wallpaper = getWallpaperAsset(appearance.background || player.wallpaper || 'wallpaper_day');
   const hamsterSprite = getHamsterSpriteAsset(appearance.color || 'default');
+  const hamsterScale = getHamsterScale(appearance.size || 'normal');
   const outfit = `
     ${appearance.headwear && appearance.headwear !== 'none' ? `<div class="appearance-layer appearance-layer--headwear appearance-layer--${appearance.headwear}"></div>` : ''}
     ${appearance.glasses && appearance.glasses !== 'none' ? `<div class="appearance-layer appearance-layer--glasses appearance-layer--${appearance.glasses}"></div>` : ''}
@@ -1318,7 +1387,7 @@ function renderHamsterPreview(profile) {
       <div class="hamster-preview__scene" style="background-image: url('${wallpaper.img}')">
         <div class="scene-fog"></div>
         <div class="scene-ground"></div>
-        <div class="hamster-stage hamster-stage--preview">
+        <div class="hamster-stage hamster-stage--preview" style="--hamster-scale: ${hamsterScale};">
           <div class="ground-shadow"></div>
           <img src="${hamsterSprite}" alt="Хомяк" />
           <div class="hamster-preview__outfit">${outfit}</div>
@@ -1330,25 +1399,6 @@ function renderHamsterPreview(profile) {
       </div>
     </div>
   `;
-}
-
-function ensureHamsterPreviewModal() {
-  if (document.getElementById('hamster-preview-modal')) return;
-  document.body.insertAdjacentHTML('beforeend', `
-    <div id="hamster-preview-modal" class="hamster-preview-modal" hidden>
-      <div class="hamster-preview-modal__backdrop" data-hamster-preview-close></div>
-      <div class="hamster-preview-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="hamster-preview-title">
-        <div class="hamster-preview-modal__head">
-          <div>
-            <div class="eyebrow">Просмотр хомяка</div>
-            <h3 id="hamster-preview-title">Хомяк друга</h3>
-          </div>
-          <button type="button" class="ghost" data-hamster-preview-close>Закрыть</button>
-        </div>
-        <div id="hamster-preview-modal-body" class="hamster-preview-modal__body"></div>
-      </div>
-    </div>
-  `);
 }
 
 function renderHamsterPreviewModal(profile) {

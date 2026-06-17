@@ -70,8 +70,8 @@ let coinGameUI = {
 const ADVENTURE_MAP_KEY = 'humster_adventure_map';
 const ADVENTURE_MAPS = {
   field: { id: 'field', label: 'Поле', image: '/assets/maps/adventure-select/field.png', note: 'Текущая карта.' },
-  desert: { id: 'desert', label: 'Пустыня', image: '/assets/maps/adventure-select/desert.png', note: 'Доступ откроется после поля.' },
-  cave: { id: 'cave', label: 'Пещера', image: '/assets/maps/adventure-select/cave.png', note: 'Пока используется то же поле.' },
+  desert: { id: 'desert', label: 'Пустыня', image: '/assets/maps/adventure-select/desert.png', note: 'Откроется после полного прохождения поля.' },
+  cave: { id: 'cave', label: 'Пещера', image: '/assets/maps/adventure-select/cave.png', note: 'Откроется после полного прохождения поля.' },
 };
 
 function businessState(state) {
@@ -184,9 +184,14 @@ function updateScene(state) {
   $('#scene-meta').textContent = wallpaper.name;
 
   const hamsterSprite = getHamsterSpriteAsset(appearance.color || 'default');
+  const hamsterScale = getHamsterScale(appearance.size || 'normal');
   const spriteLayer = $('#hamster-sprite');
   if (spriteLayer) {
     spriteLayer.src = hamsterSprite;
+  }
+  const stage = $('#hamster-stage');
+  if (stage) {
+    stage.style.setProperty('--hamster-scale', hamsterScale);
   }
   const colorLayer = $('#hamster-color-layer');
   if (colorLayer) {
@@ -457,11 +462,10 @@ function applyLocalAction(action, payload = {}) {
     }
     case 'select_adventure_map': {
       const mapId = String(payload.mapId ?? payload.value ?? '').trim();
-      if (mapId === 'desert') {
-        const fieldPasses = Math.max(0, Number(currentState.locationPasses) || 0);
-        if (fieldPasses < 1) return;
+      if (mapId !== 'field' && !isFieldAdventureCompleted(currentState)) {
+        return;
       }
-      if (mapId === 'desert' || mapId === 'field') {
+      if (mapId === 'desert' || mapId === 'cave' || mapId === 'field') {
         currentState.activeAdventureMapId = mapId;
         const mapAdventure = currentState.adventureMaps?.[mapId];
         if (Array.isArray(mapAdventure) && mapAdventure.length) {
@@ -469,7 +473,7 @@ function applyLocalAction(action, payload = {}) {
           const firstOpen = mapAdventure.find((node) => !node.completed);
           currentState.activeAdventureId = firstOpen ? firstOpen.id : mapAdventure[0].id;
         }
-        currentState.location = mapId === 'desert' ? 'Пустыня' : 'Поле';
+        currentState.location = mapAdventureLabel(mapId);
       }
       return;
     }
@@ -606,7 +610,11 @@ function bossUnlockPasses(bossId) {
 }
 
 function desertBossIds() {
-  return new Set(['desert_owl', 'desert_fox']);
+  return new Set(['desert_owl', 'desert_fox', 'grizzly']);
+}
+
+function caveBossIds() {
+  return new Set(['foot', 'dog', 'machine']);
 }
 
 function adventureMapCompleted(state, mapId) {
@@ -620,6 +628,9 @@ function bossIsLocked(state, bossId) {
   const id = (bossId || '').trim();
   if (desertBossIds().has(id)) {
     return !adventureMapCompleted(state, 'desert');
+  }
+  if (caveBossIds().has(id)) {
+    return !adventureMapCompleted(state, 'cave');
   }
   const passes = Math.max(0, Number(state?.locationPasses) || 0);
   return passes < bossUnlockPasses(id);
@@ -639,11 +650,14 @@ function renderBossSelection() {
         const remainingKills = bossDailyRemaining(boss);
         const bossLocked = bossIsLocked(currentState, boss.id);
         const isDesertBoss = desertBossIds().has(boss.id);
+        const isCaveBoss = caveBossIds().has(boss.id);
         const anotherBossActive = !!(currentState.activeBossId && currentState.activeBossId !== boss.id);
         const disabled = bossLocked || anotherBossActive;
         const unlockText = isDesertBoss
           ? 'Откроется после прохождения пустыни'
-          : 'Откроется после 1 полного прохождения поля';
+          : (caveBossIds().has(boss.id)
+            ? 'Откроется после полного прохождения пещеры'
+            : 'Откроется после 1 полного прохождения поля');
         const buttonLabel = bossLocked
           ? unlockText
           : (anotherBossActive
@@ -661,7 +675,7 @@ function renderBossSelection() {
               <div class="boss-card__xp">Опыт: ${boss.xp || 0}</div>
               <div class="boss-card__limit">Осталось сегодня: ${remainingKills}/${BOSS_KILL_LIMIT}</div>
               ${battleTimer ? `<div class="boss-card__timer">До конца битвы: ${battleTimer}</div>` : ''}
-              ${bossLocked ? `<div class="boss-card__lock">${isDesertBoss ? 'Откроется после прохождения пустыни.' : 'Откроется после 1 полного прохождения поля.'}</div>` : ''}
+              ${bossLocked ? `<div class="boss-card__lock">${isDesertBoss ? 'Откроется после прохождения пустыни.' : (caveBossIds().has(boss.id) ? 'Откроется после полного прохождения пещеры.' : 'Откроется после 1 полного прохождения поля.')}</div>` : ''}
               ${anotherBossActive ? `<div class="boss-card__lock">Сначала заверши текущую битву с ${bossById(currentState, currentState.activeBossId)?.name || 'другим боссом'}.</div>` : ''}
               <button class="primary boss-select" data-boss="${boss.id}" type="button" ${disabled ? 'disabled' : ''}>
                 ${buttonLabel}
@@ -691,9 +705,13 @@ function getAdventureMapChoice() {
   return ADVENTURE_MAPS[mapId] || ADVENTURE_MAPS.field;
 }
 
+function isFieldAdventureCompleted(state = currentState) {
+  return adventureMapCompleted(state, 'field');
+}
+
 function isAdventureMapUnlocked(mapId) {
   if (mapId === 'field') return true;
-  return Math.max(0, Number(currentState?.locationPasses) || 0) > 0;
+  return isFieldAdventureCompleted(currentState);
 }
 
 async function setAdventureMapChoice(mapId) {
@@ -716,7 +734,9 @@ function adventureRewardMapForMap(mapId) {
 }
 
 function mapAdventureLabel(mapId) {
-  return mapId === 'desert' ? 'Пустыня' : 'Поле';
+  if (mapId === 'desert') return 'Пустыня';
+  if (mapId === 'cave') return 'Пещера';
+  return 'Поле';
 }
 
 function renderAdventureMapSelectScreen() {
@@ -736,13 +756,13 @@ function renderAdventureMapSelectScreen() {
           <img src="/assets/maps/adventure-select/desert.png" alt="Пустыня">
           <span>Пустыня</span>
         </button>
-        <button type="button" class="adventure-select__node ${activeMap.id === 'cave' ? 'is-active' : ''}" data-adventure-map="cave" style="left: 28%; top: 35%;">
+        <button type="button" class="adventure-select__node ${activeMap.id === 'cave' ? 'is-active' : ''} ${isAdventureMapUnlocked('cave') ? '' : 'is-locked'}" data-adventure-map="cave" style="left: 28%; top: 35%;" ${isAdventureMapUnlocked('cave') ? '' : 'disabled'}>
           <img src="/assets/maps/adventure-select/cave.png" alt="Пещера">
           <span>Пещера</span>
         </button>
       </div>
       <div class="adventure-select__legend">
-        <div class="social-note">Выбери карту. Поле уже подключено, пустыня и пещера пока показываются как выбор.</div>
+        <div class="social-note">Выбери карту. Пустыня и пещера открываются после полного прохождения поля.</div>
       </div>
     </div>
   `;
@@ -956,7 +976,7 @@ function renderAdventureScreen() {
     <div class="adventure-layout">
       <div class="adventure-map-shell">
         <div class="adventure-map">
-          <img class="adventure-map__bg" src="${mapId === 'desert' ? '/assets/maps/adventure/desert.png' : '/assets/maps/adventure/map.png'}" alt="Карта приключений">
+          <img class="adventure-map__bg" src="${mapId === 'desert' ? '/assets/maps/adventure/desert.png' : (mapId === 'cave' ? '/assets/maps/adventure/cave.png' : '/assets/maps/adventure/map.png')}" alt="Карта приключений">
           <div class="adventure-map__overlay"></div>
 
           ${currentState.adventure.map((node) => {
@@ -1286,7 +1306,7 @@ function renderEditScreen() {
         <div class="edit-preview__scene" style="background-image: url('${getWallpaperAsset(currentState.player.appearance?.background || currentState.player.wallpaper || 'wallpaper_day').img}')">
           <div class="edit-preview__fog"></div>
           <div class="edit-preview__ground"></div>
-          <div class="edit-preview__hamster">
+          <div class="edit-preview__hamster" style="--hamster-scale: ${getHamsterScale(currentState.player.appearance?.size || 'normal')};">
             <div class="ground-shadow"></div>
             <div class="edit-preview__color-layer" hidden></div>
             <img class="edit-preview__base" src="${getHamsterSpriteAsset(currentState.player.appearance?.color || 'default')}" alt="Хомяк" />
@@ -1314,7 +1334,7 @@ function renderEditScreen() {
         <div class="edit-panel__head">
           <div>
             <div class="eyebrow">${activeSlot.label}</div>
-            <h3>${activeSlot.id === 'background' ? 'Выбор фона' : 'Выбор предмета'}</h3>
+            <h3>${activeSlot.id === 'background' ? 'Выбор фона' : activeSlot.id === 'size' ? 'Выбор размера' : 'Выбор предмета'}</h3>
           </div>
           <div class="tag">Выбрано: ${getAppearanceOption(activeSlot.slot, currentValue)?.name || '—'}</div>
         </div>
@@ -1802,6 +1822,10 @@ function renderCoinScreen() {
   const result = coinGameUI.result || coinGameResultFromState();
 
   if (coinGameUI.phase === 'playing') {
+    const existingVideo = document.getElementById('coin-game-video');
+    if (existingVideo) {
+      return;
+    }
     body.innerHTML = `
       <div class="coin-video">
         <div class="coin-video__frame">
@@ -1826,7 +1850,6 @@ function renderCoinScreen() {
       video.onloadeddata = () => {
         video.play().catch(() => {});
       };
-      video.load();
       video.play().catch(() => {});
       if (coinGameUI.videoFallback) {
         window.clearTimeout(coinGameUI.videoFallback);

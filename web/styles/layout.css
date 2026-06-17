@@ -343,7 +343,8 @@
   left: 50%;
   bottom: 4%;
   width: min(75%, 420px);
-  transform: translateX(-50%);
+  transform: translateX(-50%) scale(var(--hamster-scale, 1));
+  transform-origin: bottom center;
   aspect-ratio: 1 / 1;
 }
 

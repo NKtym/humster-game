@@ -325,7 +325,8 @@ button.primary {
   position: absolute;
   left: 50%;
   bottom: 3.5%;
-  transform: translateX(-50%);
+  transform: translateX(-50%) scale(var(--hamster-scale, 1));
+  transform-origin: bottom center;
   width: min(58vw, 560px);
   max-width: 560px;
   display: grid;
@@ -449,6 +450,9 @@ button.primary {
   inset: 0;
   z-index: 4;
   pointer-events: none;
+  color: transparent;
+  font-size: 0;
+  line-height: 0;
 }
 
 .appearance-layer--headwear.cap,
@@ -526,6 +530,19 @@ button.primary {
   background: linear-gradient(180deg, #db9a52, #8f5c21);
 }
 
+.appearance-layer--shoes.appearance-layer--camouflage_sneakers {
+  top: 62%;
+  left: 50%;
+  width: 62%;
+  height: 43%;
+  transform: translateX(-50%);
+  background: url('/assets/characters/hamster/layers/camouflage_sneakers.png') center bottom / contain no-repeat;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: 5;
+}
+
 .appearance-layer--heldItem {
   top: 58%;
   width: 18%;
@@ -534,18 +551,84 @@ button.primary {
   background: radial-gradient(circle at 40% 40%, rgba(255,255,255,0.6), transparent 28%), linear-gradient(180deg, #9ad46e, #4d8f2c);
 }
 
-.appearance-layer--heldItem.seed_bag {
+.appearance-layer--heldItem.appearance-layer--stick {
+  top: 27%;
+  left: 58%;
+  width: 72%;
+  height: 70%;
+  transform: translateX(-50%);
+  background: url('/assets/characters/hamster/layers/stick.png') center center / contain no-repeat;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: 6;
+}
+
+.appearance-layer--heldItem.appearance-layer--seed_bag {
   background: linear-gradient(180deg, #d8c28b, #9f8352);
 }
 
-.appearance-layer--heldItem.carrot {
+.appearance-layer--heldItem.appearance-layer--carrot {
   background: linear-gradient(180deg, #f9a24d, #df6a20);
 }
 
-.appearance-layer--heldItem.flower {
+.appearance-layer--heldItem.appearance-layer--flower {
   background: radial-gradient(circle at 50% 30%, #fff2f6 0 16%, transparent 18%), linear-gradient(180deg, #8fdf6c, #4d8f2c);
 }
 
+
+.appearance-layer--headwear.appearance-layer--wreath {
+  top: 4%;
+  left: 50%;
+  width: 44%;
+  height: 28%;
+  transform: translateX(-50%);
+  background: url('/assets/characters/hamster/layers/wreath.png') center top / contain no-repeat;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: 6;
+}
+
+.appearance-layer--mask.appearance-layer--cigarette {
+  top: 47%;
+  left: 57%;
+  width: 28%;
+  height: 15%;
+  transform: translateX(-50%);
+  background: url('/assets/characters/hamster/layers/cigarette.png') center center / contain no-repeat;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: 6;
+}
+
+.appearance-layer--body.appearance-layer--camouflage_jacket {
+  top: 26%;
+  left: 50%;
+  width: 65%;
+  height: 68%;
+  transform: translateX(-50%);
+  background: url('/assets/characters/hamster/layers/camouflage_jacket.png') center center / contain no-repeat;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  clip-path: none;
+  z-index: 4;
+}
+
+.appearance-layer--heldItem.appearance-layer--stone {
+  top: 55%;
+  left: 45%;
+  width: 25%;
+  height: 18%;
+  transform: translateX(-50%);
+  background: url('/assets/characters/hamster/layers/stone.png') center center / contain no-repeat;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: 6;
+}
 
 .appearance-layer--headwear.appearance-layer--cap {
   top: 8%;
@@ -1067,6 +1150,10 @@ button.primary {
 .coin-screen {
   display: grid;
   gap: 16px;
+}
+
+[hidden] {
+  display: none !important;
 }
 
 .coin-layout {
