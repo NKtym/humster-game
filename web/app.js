@@ -124,7 +124,6 @@ const CATALOG = {
 const APPEARANCE_CATEGORIES = [
   { id: 'background', label: 'Фон', icon: '🌿', slot: 'background' },
   { id: 'color', label: 'Окрас', icon: '🎨', slot: 'color' },
-  { id: 'size', label: 'Размер', icon: '📏', slot: 'size' },
   { id: 'heldItem', label: 'В лапках', icon: '🫳', slot: 'heldItem' },
   { id: 'headwear', label: 'Кепка', icon: '🧢', slot: 'headwear' },
   { id: 'glasses', label: 'Очки', icon: '👓', slot: 'glasses' },
@@ -142,11 +141,6 @@ const APPEARANCE_OPTIONS = {
     { id: 'color1', name: 'Зеленый', img: '/assets/characters/hamster/layers/color1.png' },
     { id: 'color2', name: 'Серый', img: '/assets/characters/hamster/layers/color2.png' },
     { id: 'black', name: 'Черный', img: '/assets/characters/hamster/layers/black.png' },
-  ],
-  size: [
-    { id: 'small', name: 'Маленький' },
-    { id: 'normal', name: 'Обычный' },
-    { id: 'large', name: 'Большой' },
   ],
   heldItem: [
     { id: 'none', name: 'Без предмета' },
@@ -204,18 +198,18 @@ const ADVENTURE_ROUTE_DEFS = {
   ],
   desert: [
     { id: 'sand_bath', label: 'Помыться в песочке', image: '/assets/maps/adventure/desert/sand_bath.png', x: 7.0, y: 55.0, energyCost: 2, requiredPasses: 4 },
-    { id: 'water', label: 'Искупаться в водоёме', image: '/assets/maps/adventure/desert/water.png', x: 31.0, y: 45.0, energyCost: 3, requiredPasses: 4 },
-    { id: 'cave', label: 'Обыскать пещеру', image: '/assets/maps/adventure/desert/cave.png', x: 52.0, y: 31.0, energyCost: 4, requiredPasses: 5 },
-    { id: 'jerboa', label: 'Помочь тушканчику', image: '/assets/maps/adventure/desert/jerboa.png', x: 77.0, y: 45.0, energyCost: 4, requiredPasses: 6 },
-    { id: 'city', label: 'Обойти город', image: '/assets/maps/adventure/desert/city.png', x: 91.0, y: 58.0, energyCost: 5, requiredPasses: 7 },
+    { id: 'water', label: 'Искупаться в водоёме', image: '/assets/maps/adventure/desert/water.png', x: 32.0, y: 50.0, energyCost: 3, requiredPasses: 4 },
+    { id: 'cave', label: 'Обыскать пещеру', image: '/assets/maps/adventure/desert/cave.png', x: 53.0, y: 37.0, energyCost: 4, requiredPasses: 5 },
+    { id: 'jerboa', label: 'Помочь тушканчику', image: '/assets/maps/adventure/desert/jerboa.png', x: 71.0, y: 50.0, energyCost: 4, requiredPasses: 6 },
+    { id: 'city', label: 'Обойти город', image: '/assets/maps/adventure/desert/city.png', x: 89.0, y: 57.0, energyCost: 5, requiredPasses: 7 },
   ],
   cave: [
-    { id: 'cave_walk', label: 'Идти по пещере', image: '/assets/maps/adventure/cave/cave_walk.png', x: 8.0, y: 56.0, energyCost: 3, requiredPasses: 4 },
-    { id: 'cave_ore_view', label: 'Посмотреть на руду', image: '/assets/maps/adventure/cave/cave_ore_view.png', x: 24.0, y: 44.0, energyCost: 2, requiredPasses: 5 },
-    { id: 'cave_structure', label: 'Изучить подземное сооружение', image: '/assets/maps/adventure/cave/cave_structure.png', x: 41.0, y: 31.0, energyCost: 4, requiredPasses: 6 },
-    { id: 'cave_mine', label: 'Добывать руду', image: '/assets/maps/adventure/cave/cave_mine.png', x: 57.0, y: 52.0, energyCost: 5, requiredPasses: 6 },
-    { id: 'cave_water', label: 'Изучить водоём', image: '/assets/maps/adventure/cave/cave_water.png', x: 75.0, y: 41.0, energyCost: 4, requiredPasses: 7 },
-    { id: 'cave_bat', label: 'Спасти летучую мышь', image: '/assets/maps/adventure/cave/cave_bat.png', x: 90.0, y: 59.0, energyCost: 6, requiredPasses: 7 },
+    { id: 'cave_walk', label: 'Идти по пещере', image: '/assets/maps/adventure/cave/cave_walk.png', x: 10.0, y: 26.0, energyCost: 3, requiredPasses: 4 },
+    { id: 'cave_ore_view', label: 'Посмотреть на руду', image: '/assets/maps/adventure/cave/cave_ore_view.png', x: 27.0, y: 35.0, energyCost: 2, requiredPasses: 5 },
+    { id: 'cave_structure', label: 'Изучить подземное сооружение', image: '/assets/maps/adventure/cave/cave_structure.png', x: 40.0, y: 50.0, energyCost: 4, requiredPasses: 6 },
+    { id: 'cave_mine', label: 'Добывать руду', image: '/assets/maps/adventure/cave/cave_mine.png', x: 58.0, y: 53.0, energyCost: 5, requiredPasses: 6 },
+    { id: 'cave_water', label: 'Изучить водоём', image: '/assets/maps/adventure/cave/cave_water.png', x: 74.0, y: 68.0, energyCost: 4, requiredPasses: 7 },
+    { id: 'cave_bat', label: 'Спасти летучую мышь', image: '/assets/maps/adventure/cave/cave_bat.png', x: 90.0, y: 81.0, energyCost: 6, requiredPasses: 7 },
   ],
 };
 
@@ -285,6 +279,9 @@ const BOSS_BLUEPRINTS = {
 const BOSS_COSMETIC_DROPS = {
   rat: { itemId: 'color2', label: 'серый скин хомяка', chance: 25, bonus: '+5 к удару пузиком и +5 к удару железным когтем' },
   lizard: { itemId: 'color1', label: 'зеленый скин хомяка', chance: 25, bonus: '+20 к урону ядовитого укуса' },
+  cave_centipede: { itemId: 'black', label: 'черный скин хомяка', chance: 25, bonus: '+10 к урону ударом железным когтем' },
+  swagusinitsa: { itemId: 'cigarette_skin', label: 'сигаретный скин хомяка', chance: 20, bonus: '+20 к урону ядовитого укуса' },
+  cave_bird: { itemId: 'cave_skin_set', label: 'венок и камень (по одному при первых двух проходах)', chance: 100, bonus: '+20 к урону ударом когтем после разблокировки обоих скинов' },
 };
 
 const BOSS_COSMETIC_ITEM_BONUSES = {
@@ -295,6 +292,22 @@ const BOSS_COSMETIC_ITEM_BONUSES = {
   color1: {
     name: 'зеленый скин хомяка',
     bonus: '+20 к урону ядовитого укуса',
+  },
+  black: {
+    name: 'черный скин хомяка',
+    bonus: '+10 к урону ударом железным когтем',
+  },
+  cigarette_skin: {
+    name: 'сигаретный скин хомяка',
+    bonus: '+20 к урону ядовитого укуса',
+  },
+  wreath_skin: {
+    name: 'венок',
+    bonus: 'входит в набор: после разблокировки обоих скинов +20 к урону ударом когтем',
+  },
+  stone_skin: {
+    name: 'камень',
+    bonus: 'входит в набор: после разблокировки обоих скинов +20 к урону ударом когтем',
   },
 };
 
@@ -415,7 +428,7 @@ const DEFAULT_STATE = {
     attack: 2,
     defense: 0,
     currency: { seeds: 10, wheat: 3, carrot: 0, cucumber: 0, apple: 0, kormik: 0 },
-    inventory: { wallpaper_day: 1, black: 1, iron_claw: 0, poison_bite: 0, eye_lasers: 0 },
+    inventory: { wallpaper_day: 1, iron_claw: 0, poison_bite: 0, eye_lasers: 0 },
     equipped: { wallpaper: 'wallpaper_day' },
     wallpaper: 'wallpaper_day',
     appearance: {
@@ -999,13 +1012,17 @@ function getHamsterSpriteAsset(colorValue) {
   return '/assets/characters/hamster/layers/base.png';
 }
 
-function getHamsterScale(sizeValue) {
+function getHamsterScale(sizeValue, colorValue = 'default') {
+  let scale = 1;
   switch (sizeValue) {
-    case 'small': return 0.86;
-    case 'large': return 1.16;
-    case 'normal':
-    default: return 1;
+    case 'small': scale = 0.86; break;
+    case 'large': scale = 1.16; break;
+    default: scale = 1; break;
   }
+  if (colorValue === 'default' || colorValue === 'black') {
+    scale *= 1.05;
+  }
+  return scale;
 }
 
 function damageDayKey(date = new Date()) {
@@ -1185,6 +1202,25 @@ function ensureFriendsModal() {
         </div>
         <div id="friends-modal-error" class="auth-error" aria-live="polite"></div>
         <div id="friends-modal-body" class="social-modal__body"></div>
+      </div>
+    </div>
+  `);
+}
+
+function ensureHamsterPreviewModal() {
+  if (document.getElementById('hamster-preview-modal')) return;
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="hamster-preview-modal" class="profile-modal" hidden>
+      <div class="profile-modal__backdrop" data-hamster-preview-close></div>
+      <div class="profile-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="hamster-preview-title">
+        <div class="profile-modal__head">
+          <div>
+            <div class="eyebrow">Просмотр хомяка</div>
+            <h3 id="hamster-preview-title">Хомяк</h3>
+          </div>
+          <button type="button" class="ghost" data-hamster-preview-close>Закрыть</button>
+        </div>
+        <div id="hamster-preview-modal-body" class="profile-modal__body"></div>
       </div>
     </div>
   `);
@@ -1384,7 +1420,7 @@ function renderHamsterPreview(profile) {
   const appearance = player.appearance || {};
   const wallpaper = getWallpaperAsset(appearance.background || player.wallpaper || 'wallpaper_day');
   const hamsterSprite = getHamsterSpriteAsset(appearance.color || 'default');
-  const hamsterScale = getHamsterScale(appearance.size || 'normal');
+  const hamsterScale = getHamsterScale(appearance.size || 'normal', appearance.color || 'default');
   const outfit = `
     ${appearance.headwear && appearance.headwear !== 'none' ? `<div class="appearance-layer appearance-layer--headwear appearance-layer--${appearance.headwear}"></div>` : ''}
     ${appearance.glasses && appearance.glasses !== 'none' ? `<div class="appearance-layer appearance-layer--glasses appearance-layer--${appearance.glasses}"></div>` : ''}

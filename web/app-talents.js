@@ -47,6 +47,16 @@
       prerequisite: { skillId: 'martial_energy', rank: 10 },
     },
     {
+      id: 'martial_time',
+      classId: 'martial_arts',
+      name: 'Время боя',
+      image: '/assets/talents/icons/martial_time.png',
+      description: 'Снижает перезарядку ударов пузиком, царапанья, удара с разбега и укуса.',
+      bonusText: 'Каждый ранг уменьшает перезарядку этих атак на 25 минут.',
+      wip: false,
+      prerequisite: { skillId: 'martial_bite', rank: 10 },
+    },
+    {
       id: 'authority_scratch',
       classId: 'authority',
       name: 'Царапанье',
@@ -114,6 +124,7 @@
     martial_arts: [
       { top: '16.4%', left: '49.9%' },
       { top: '26.4%', left: '49.9%' },
+      { top: '35.0%', left: '49.9%' },
     ],
     authority: [
       { top: '16.4%', left: '49.9%' },

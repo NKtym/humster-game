@@ -1792,7 +1792,11 @@ func (s *Server) attackBoss(gs *GameState, attackType string, userID string) err
 	if chargeAttack {
 		delete(gs.Bosses[idx].AttackCooldowns, attackType)
 	} else {
-		gs.Bosses[idx].AttackCooldowns[attackType] = now.Add(bossAttackCooldown)
+		cooldown := bossAttackCooldown - martialTimeCooldownReduction(gs, attackType)
+		if cooldown < 0 {
+			cooldown = 0
+		}
+		gs.Bosses[idx].AttackCooldowns[attackType] = now.Add(cooldown)
 	}
 	appendLog(gs, fmt.Sprintf("Хомяк использовал %s и нанёс %d урона %s.", label, damage, boss.Name))
 
@@ -2058,19 +2062,26 @@ func (s *Server) setAppearance(gs *GameState, slot, value string) error {
 		}
 		gs.Player.Appearance.Color = value
 	case "size":
-		switch value {
-		case "small", "normal", "large":
-			gs.Player.Appearance.Size = value
-		default:
-			return fmt.Errorf("неизвестный размер")
-		}
+		return fmt.Errorf("изменение размера отключено")
 	case "heldItem":
+		// Special: held item 'stone' is a boss cosmetic and requires the stone_skin in inventory
+		if value == "stone" && gs.Player.Inventory["stone_skin"] <= 0 {
+			return fmt.Errorf("сначала выбей этот скин")
+		}
 		gs.Player.Appearance.HeldItem = value
 	case "headwear":
+		// Special: headwear 'wreath' is a boss cosmetic and requires the wreath_skin in inventory
+		if value == "wreath" && gs.Player.Inventory["wreath_skin"] <= 0 {
+			return fmt.Errorf("сначала выбей этот скин")
+		}
 		gs.Player.Appearance.Headwear = value
 	case "glasses":
 		gs.Player.Appearance.Glasses = value
 	case "mask":
+		// Special: mask 'cigarette' is a boss cosmetic and requires the cigarette_skin in inventory
+		if value == "cigarette" && gs.Player.Inventory["cigarette_skin"] <= 0 {
+			return fmt.Errorf("сначала выбей этот скин")
+		}
 		gs.Player.Appearance.Mask = value
 	case "body":
 		gs.Player.Appearance.Body = value
@@ -2108,7 +2119,7 @@ func talentClassExists(classID string) bool {
 
 func talentSkillClass(skillID string) string {
 	switch strings.TrimSpace(skillID) {
-	case "martial_energy", "martial_bite":
+	case "martial_energy", "martial_bite", "martial_time":
 		return "martial_arts"
 	case "authority_scratch", "authority_shop_income", "authority_wip_tier2":
 		return "authority"
@@ -2127,7 +2138,7 @@ func talentSkillWIP(skillID string) bool {
 
 func talentSkillMaxRank(skillID string) int {
 	switch strings.TrimSpace(skillID) {
-	case "martial_energy", "martial_bite", "authority_scratch", "authority_shop_income", "authority_wheel_xp", "berserk_poison", "berserk_lasers", "berserk_iron_claw":
+	case "martial_energy", "martial_bite", "martial_time", "authority_scratch", "authority_shop_income", "authority_wheel_xp", "berserk_poison", "berserk_lasers", "berserk_iron_claw":
 		return 10
 	default:
 		return 0
@@ -2138,6 +2149,8 @@ func talentSkillPrerequisite(skillID string) (string, int) {
 	switch strings.TrimSpace(skillID) {
 	case "martial_bite":
 		return "martial_energy", 10
+	case "martial_time":
+		return "martial_bite", 10
 	case "authority_shop_income", "authority_wip_tier2":
 		return "authority_scratch", 10
 	case "authority_wheel_xp", "authority_wip_tier3":
@@ -2402,6 +2415,22 @@ func attackConfig(attackType string) (int, string, int, bool) {
 	}
 }
 
+func martialTimeCooldownReduction(gs *GameState, attackType string) time.Duration {
+	if gs == nil || gs.Player.TalentClass != "martial_arts" {
+		return 0
+	}
+	rank := talentRank(gs, "martial_time")
+	if rank <= 0 {
+		return 0
+	}
+	switch attackType {
+	case "belly_punch", "scratch", "rush", "bite":
+		return time.Duration(rank) * 25 * time.Minute
+	default:
+		return 0
+	}
+}
+
 func attackConsumesChargeWithoutCooldown(attackType string) bool {
 	switch attackType {
 	case "iron_claw", "poison_bite", "eye_lasers":
@@ -2423,6 +2452,10 @@ func bossCosmeticDropFor(bossID string) (bossCosmeticDrop, bool) {
 		return bossCosmeticDrop{ItemID: "color2", Label: "серый скин хомяка", Chance: 25}, true
 	case "lizard":
 		return bossCosmeticDrop{ItemID: "color1", Label: "зеленый скин хомяка", Chance: 25}, true
+	case "cave_centipede":
+		return bossCosmeticDrop{ItemID: "black", Label: "черный скин хомяка", Chance: 25}, true
+	case "swagusinitsa":
+		return bossCosmeticDrop{ItemID: "cigarette_skin", Label: "сигаретный скин хомяка", Chance: 20}, true
 	default:
 		return bossCosmeticDrop{}, false
 	}
@@ -2434,6 +2467,12 @@ func cosmeticDropBonusText(bossID string) string {
 		return "Бонус за скин: +5 к удару пузиком и +5 к удару железным когтем."
 	case "lizard":
 		return "Бонус за скин: +20 к урону ядовитого укуса."
+	case "cave_centipede":
+		return "Бонус за скин: +10 к удару железным когтем."
+	case "swagusinitsa":
+		return "Бонус за скин: +20 к урону ядовитого укуса."
+	case "cave_bird":
+		return "Награды: венок и камень — выдаются по одному при первых двух победах (всегда). После разблокировки обоих скинов: +20 к урону ударом когтем."
 	default:
 		return ""
 	}
@@ -2445,12 +2484,24 @@ func attackBonusDamage(gs *GameState, attackType string) int {
 	}
 	bonus := 0
 	switch attackType {
-	case "belly_punch", "iron_claw":
+	case "belly_punch":
 		if gs.Player.Inventory["color2"] > 0 {
 			bonus += 5
 		}
+	case "iron_claw":
+		if gs.Player.Inventory["color2"] > 0 {
+			bonus += 5
+		}
+		if gs.Player.Inventory["black"] > 0 {
+			bonus += 10
+		}
+		// Доп. бонус за набор скинов венок+камень: +20 к удару когтем
+		if gs.Player.Inventory["wreath_skin"] > 0 && gs.Player.Inventory["stone_skin"] > 0 {
+			bonus += 20
+		}
 	case "poison_bite":
-		if gs.Player.Inventory["color1"] > 0 {
+		// Зелёный скин или сигаретный скин дают +20 к урону ядом
+		if gs.Player.Inventory["color1"] > 0 || gs.Player.Inventory["cigarette_skin"] > 0 {
 			bonus += 20
 		}
 	}
@@ -2463,6 +2514,40 @@ func maybeGrantBossCosmeticDrop(gs *GameState, boss *Boss) string {
 	if !ok || gs == nil {
 		return ""
 	}
+	// Special handling for cave_bird: grants two unique skins across two clears
+	if boss.ID == "cave_bird" {
+		if gs.Player.Inventory == nil {
+			gs.Player.Inventory = map[string]int{}
+		}
+		hasWreath := gs.Player.Inventory["wreath_skin"] > 0
+		hasStone := gs.Player.Inventory["stone_skin"] > 0
+		// If player already has both, nothing to give
+		if hasWreath && hasStone {
+			return ""
+		}
+		// If player has one of them, grant the missing one (100% chance)
+		if hasWreath && !hasStone {
+			gs.Player.Inventory["stone_skin"] = gs.Player.Inventory["stone_skin"] + 1
+			return "камень"
+		}
+		if hasStone && !hasWreath {
+			gs.Player.Inventory["wreath_skin"] = gs.Player.Inventory["wreath_skin"] + 1
+			return "венок"
+		}
+		// If none, randomly grant one of them (50/50)
+		n, err := rand.Int(rand.Reader, big.NewInt(2))
+		if err != nil {
+			return ""
+		}
+		if n.Int64() == 0 {
+			gs.Player.Inventory["wreath_skin"] = gs.Player.Inventory["wreath_skin"] + 1
+			return "венок"
+		}
+		gs.Player.Inventory["stone_skin"] = gs.Player.Inventory["stone_skin"] + 1
+		return "камень"
+	}
+
+	// Default behaviour for single-item drops
 	n, err := rand.Int(rand.Reader, big.NewInt(100))
 	if err != nil || n.Int64() >= int64(drop.Chance) {
 		return ""
@@ -2526,7 +2611,6 @@ func newGameState() GameState {
 			},
 			Inventory: map[string]int{
 				"wallpaper_day": 1,
-				"black":         1,
 			},
 			Equipped: map[string]string{
 				"wallpaper": "wallpaper_day",

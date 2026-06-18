@@ -184,7 +184,7 @@ function updateScene(state) {
   $('#scene-meta').textContent = wallpaper.name;
 
   const hamsterSprite = getHamsterSpriteAsset(appearance.color || 'default');
-  const hamsterScale = getHamsterScale(appearance.size || 'normal');
+  const hamsterScale = getHamsterScale(appearance.size || 'normal', appearance.color || 'default');
   const spriteLayer = $('#hamster-sprite');
   if (spriteLayer) {
     spriteLayer.src = hamsterSprite;
@@ -919,16 +919,22 @@ function renderBattleScreen() {
   document.querySelectorAll('[data-attack]').forEach((btn) => {
     btn.onclick = async () => {
       const attackType = btn.dataset.attack;
+      if (!attackType) return;
+      btn.disabled = true;
       const attack = ATTACKS.find((item) => item.id === attackType);
       const owned = attackOwnedCount(currentState, attackType);
       if (attack && attack.costWheat > 0 && owned <= 0) {
         const buyResponse = await syncAction('buy_attack', { attackType });
         if (!(buyResponse?.ok || buyResponse?.data?.state)) {
+          btn.disabled = false;
           return;
         }
       }
-      btn.disabled = true;
-      await syncAction('attack_boss', { attackType });
+      const attackResponse = await syncAction('attack_boss', { attackType });
+      if (!(attackResponse?.ok || attackResponse?.data?.state)) {
+        btn.disabled = false;
+        return;
+      }
       setView('battle');
       render();
     };
@@ -1283,7 +1289,19 @@ function renderAppearanceOptionButton(option, slot) {
   const thumbImage = option.img
     ? `<img class="appearance-option__img ${slot === 'color' ? 'appearance-option__img--hamster' : ''}" src="${option.img}" alt="" />`
     : `<span class="appearance-thumb-fallback">${option.name.slice(0, 2)}</span>`;
-  const locked = slot === 'color' && option.id !== 'default' && (currentState.player.inventory?.[option.id] || 0) <= 0;
+  let locked = false;
+  if (slot === 'color' && option.id !== 'default') {
+    locked = (currentState.player.inventory?.[option.id] || 0) <= 0;
+  }
+  if (slot === 'headwear' && option.id === 'wreath') {
+    locked = (currentState.player.inventory?.['wreath_skin'] || 0) <= 0;
+  }
+  if (slot === 'heldItem' && option.id === 'stone') {
+    locked = (currentState.player.inventory?.['stone_skin'] || 0) <= 0;
+  }
+  if (slot === 'mask' && option.id === 'cigarette') {
+    locked = (currentState.player.inventory?.['cigarette_skin'] || 0) <= 0;
+  }
   return `
     <button type="button" class="appearance-option ${selected ? 'is-selected' : ''} ${locked ? 'is-locked' : ''}" data-appearance-slot="${slot}" data-appearance-value="${option.id}" ${locked ? 'disabled aria-disabled="true" title="Сначала выбей этот скин"' : ''}>
       <div class="appearance-option__thumb" ${thumbStyle}>${thumbImage}</div>
@@ -1316,7 +1334,7 @@ function renderEditScreen() {
         <div class="edit-preview__scene" style="background-image: url('${getWallpaperAsset(currentState.player.appearance?.background || currentState.player.wallpaper || 'wallpaper_day').img}')">
           <div class="edit-preview__fog"></div>
           <div class="edit-preview__ground"></div>
-          <div class="edit-preview__hamster" style="--hamster-scale: ${getHamsterScale(currentState.player.appearance?.size || 'normal')};">
+          <div class="edit-preview__hamster" style="--hamster-scale: ${getHamsterScale(currentState.player.appearance?.size || 'normal', currentState.player.appearance?.color || 'default')};">
             <div class="ground-shadow"></div>
             <div class="edit-preview__color-layer" hidden></div>
             <img class="edit-preview__base" src="${getHamsterSpriteAsset(currentState.player.appearance?.color || 'default')}" alt="Хомяк" />
