@@ -144,39 +144,30 @@ const APPEARANCE_OPTIONS = {
   ],
   heldItem: [
     { id: 'none', name: 'Без предмета' },
-    { id: 'flower', name: 'Цветок' },
-    { id: 'seed_bag', name: 'Мешочек семечек' },
-    { id: 'carrot', name: 'Морковка' },
     { id: 'stick', name: 'Палка', img: '/assets/characters/hamster/layers/stick.png' },
     { id: 'stone', name: 'Камень', img: '/assets/characters/hamster/layers/stone.png' },
   ],
   headwear: [
     { id: 'none', name: 'Без кепки' },
     { id: 'cap', name: 'Кепка' },
-    { id: 'beanie', name: 'Шапка' },
     { id: 'wreath', name: 'Венок', img: '/assets/characters/hamster/layers/wreath.png' },
   ],
   glasses: [
     { id: 'none', name: 'Без очков' },
     { id: 'glasses_round', name: 'Очки' },
-    { id: 'glasses_sun', name: 'Солнцезащитные' },
   ],
   mask: [
     { id: 'none', name: 'Без маски' },
-    { id: 'mask_simple', name: 'Маска' },
     { id: 'scarf', name: 'Шарфик' },
     { id: 'cigarette', name: 'Сигарета', img: '/assets/characters/hamster/layers/cigarette.png' },
   ],
   body: [
     { id: 'none', name: 'Без одежды' },
-    { id: 'jacket', name: 'Куртка' },
-    { id: 'hoodie', name: 'Худи' },
     { id: 'camouflage_jacket', name: 'Камуфляжная куртка', img: '/assets/characters/hamster/layers/camouflage_jacket.png' },
   ],
   shoes: [
     { id: 'none', name: 'Без обуви' },
     { id: 'camouflage_sneakers', name: 'Камуфляжные кроссовки', img: '/assets/characters/hamster/layers/camouflage_sneakers.png' },
-    { id: 'boots', name: 'Ботинки' },
   ],
 };
 
@@ -284,6 +275,35 @@ const BOSS_COSMETIC_DROPS = {
   cave_bird: { itemId: 'cave_skin_set', label: 'венок и камень (по одному при первых двух проходах)', chance: 100, bonus: '+20 к урону ударом когтем после разблокировки обоих скинов' },
 };
 
+const BOSS_MODES = [
+  { id: '', label: 'Хомичарик', description: 'Обычный режим', img: '/assets/characters/boss_modes/homicharik.png' },
+  { id: 'homyak', label: 'Хомяк', description: 'x3 HP, особые награды', img: '/assets/characters/boss_modes/homyak.png' },
+];
+
+const BOSS_HARD_MODE_DROPS = {
+  rat: {
+    items: [
+      { itemId: 'cap', label: 'кепка' },
+      { itemId: 'glasses_round', label: 'очки' },
+      { itemId: 'scarf', label: 'шарфик' },
+    ],
+    setBonus: { attackType: 'bite', bonus: 5, label: '+5 к урону укуса' },
+  },
+  lizard: {
+    items: [
+      { itemId: 'camouflage_sneakers', label: 'камуфляжные кроссовки' },
+      { itemId: 'camouflage_jacket', label: 'камуфляжная куртка' },
+      { itemId: 'stick', label: 'палка' },
+    ],
+    setBonus: { attackType: 'rush', bonus: 8, label: '+8 к урону удара с разбега' },
+  },
+};
+
+const BOSS_HARD_MODE_SET_BONUSES = {
+  rat: { requiredItems: ['cap', 'glasses_round', 'scarf'], attackType: 'bite', bonus: 5 },
+  lizard: { requiredItems: ['camouflage_sneakers', 'camouflage_jacket', 'stick'], attackType: 'rush', bonus: 8 },
+};
+
 const BOSS_COSMETIC_ITEM_BONUSES = {
   color2: {
     name: 'серый скин хомяка',
@@ -317,6 +337,24 @@ function bossCosmeticDrop(bossId) {
 
 function bossRewardText(boss) {
   const base = formatReward(boss?.reward || {});
+  if (boss?.mode === 'homyak' && (boss?.id === 'rat' || boss?.id === 'lizard')) {
+    const hardMode = BOSS_HARD_MODE_DROPS[boss.id];
+    if (hardMode) {
+      const missing = hardMode.items.filter((item) => (currentState.player.inventory?.[item.itemId] || 0) <= 0);
+      const collected = hardMode.items.length - missing.length;
+      const items = hardMode.items.map((i) => `${i.label}${(currentState.player.inventory?.[i.itemId] || 0) > 0 ? ' ✓' : ''}`).join(', ');
+      return `${base}, награды хомяка: ${items} (${collected}/${hardMode.items.length}) — ${hardMode.setBonus.label} при сборе всех`;
+    }
+    return base;
+  }
+  if ((boss?.id === 'rat' || boss?.id === 'lizard') && !boss?.mode) {
+    const hardMode = BOSS_HARD_MODE_DROPS[boss.id];
+    const drop = bossCosmeticDrop(boss.id);
+    let text = base;
+    if (drop) text += `, случайно: ${drop.label} (${drop.chance}%)`;
+    if (hardMode) text += `; в режиме «Хомяк»: ${hardMode.items.map((i) => i.label).join(', ')} — ${hardMode.setBonus.label}`;
+    return text;
+  }
   const drop = bossCosmeticDrop(boss?.id || '');
   if (!drop) return base;
   return `${base}, случайно: ${drop.label} (${drop.chance}%) — ${drop.bonus}`;
@@ -339,10 +377,34 @@ function cryptoRandomInt(maxExclusive) {
 }
 
 function maybeGrantBossCosmeticDrop(state, boss) {
-  const drop = bossCosmeticDrop(boss?.id || '');
-  if (!drop || !state?.player) return null;
-  if (cryptoRandomInt(100) >= drop.chance) return null;
+  if (!state?.player) return null;
   state.player.inventory = state.player.inventory || {};
+
+  if (boss?.mode === 'homyak' && (boss?.id === 'rat' || boss?.id === 'lizard')) {
+    const hardMode = BOSS_HARD_MODE_DROPS[boss.id];
+    if (!hardMode) return null;
+    const missing = hardMode.items.filter((item) => (state.player.inventory[item.itemId] || 0) <= 0);
+    if (missing.length === 0) return null;
+    const chosen = missing[cryptoRandomInt(missing.length)];
+    state.player.inventory[chosen.itemId] = (state.player.inventory[chosen.itemId] || 0) + 1;
+    const allCollected = hardMode.items.every((item) => (state.player.inventory[item.itemId] || 0) > 0);
+    if (Array.isArray(state.log)) {
+      const label = allCollected ? `${chosen.label} (набор полный!)` : chosen.label;
+      state.log.push(`Случайная награда: получен ${label}.`);
+      if (!allCollected) {
+        const collected = hardMode.items.filter((item) => (state.player.inventory[item.itemId] || 0) > 0).length;
+        state.log.push(`Набор: осталось собрать ${collected}/${hardMode.items.length} предметов.`);
+      } else {
+        state.log.push(`Бонус за набор: ${hardMode.setBonus.label}.`);
+      }
+      if (state.log.length > 100) state.log = state.log.slice(-100);
+    }
+    return { label: chosen.label, hardMode: true };
+  }
+
+  const drop = bossCosmeticDrop(boss?.id || '');
+  if (!drop) return null;
+  if (cryptoRandomInt(100) >= drop.chance) return null;
   const alreadyOwned = (state.player.inventory[drop.itemId] || 0) > 0;
   state.player.inventory[drop.itemId] = (state.player.inventory[drop.itemId] || 0) + 1;
   if (Array.isArray(state.log)) {
@@ -471,6 +533,7 @@ const DEFAULT_STATE = {
     { id: 'honey_badger', name: 'Медоед', hp: 1000000, maxHp: 1000000, attack: 40, reward: { seeds: 25000, wheat: 25, carrot: 30, cucumber: 10, apple: 2 }, xp: 15000, defeated: false, battleStartedAt: '', battleEndsAt: '', attackCooldowns: {}, killsToday: 0, killsDay: '', killsTotal: 0 },
   ],
   activeBossId: '',
+  selectedBossMode: '',
   locationPasses: 0,
   bossDamageDay: 0,
   bossDamageDayKey: damageDayKey(),
@@ -674,7 +737,8 @@ function normalizeBosses(stateBosses = []) {
   }
   return Object.entries(BOSS_BLUEPRINTS).map(([id, tpl]) => {
     const existing = map.get(id) || {};
-    const maxHp = tpl.hp;
+    const isHardMode = existing.mode === 'homyak' && (id === 'rat' || id === 'lizard');
+    const maxHp = isHardMode ? tpl.hp * 3 : tpl.hp;
     const killsToday = clampNumber(existing.killsToday ?? 0, 0, BOSS_KILL_LIMIT);
     const killsDay = existing.killsDay || bossKillDayKey();
     const bestClearSeconds = clampNumber(existing.bestClearSeconds ?? 0, 0, 9999999);
@@ -697,6 +761,7 @@ function normalizeBosses(stateBosses = []) {
       reward,
       xp: tpl.xp,
       defeated,
+      mode: isHardMode ? 'homyak' : '',
       battleStartedAt: defeated ? '' : cleanTimestamp(existing.battleStartedAt),
       battleEndsAt: defeated ? '' : cleanTimestamp(existing.battleEndsAt),
       attackCooldowns: defeated ? {} : Object.fromEntries(Object.entries(attackCooldowns).filter(([, v]) => cleanTimestamp(v))),
@@ -779,6 +844,7 @@ function normalizeState(state) {
   }
 
   next.activeBossId = state.activeBossId || '';
+  next.selectedBossMode = state.selectedBossMode || '';
   next.bosses = Array.isArray(state.bosses)
     ? normalizeBosses(state.bosses)
     : structuredClone(DEFAULT_STATE.bosses);

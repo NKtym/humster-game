@@ -42,6 +42,7 @@ type Boss struct {
 	KillsDay         string               `json:"killsDay"`
 	KillsTotal       int                  `json:"killsTotal"`
 	BestClearSeconds int                  `json:"bestClearSeconds"`
+	Mode             string               `json:"mode"`
 }
 
 type Business struct {
@@ -106,6 +107,7 @@ type GameState struct {
 	Location                string                     `json:"location"`
 	Bosses                  []Boss                     `json:"bosses"`
 	ActiveBossID            string                     `json:"activeBossId"`
+	SelectedBossMode        string                     `json:"selectedBossMode"`
 	Adventure               []AdventureNode            `json:"adventure"`
 	AdventureMaps           map[string][]AdventureNode `json:"adventureMaps,omitempty"`
 	AdventureClears         map[string]bool            `json:"adventureClears,omitempty"`
@@ -148,6 +150,7 @@ type ActionRequest struct {
 	ItemID     string `json:"itemId,omitempty"`
 	Name       string `json:"name,omitempty"`
 	BossID     string `json:"bossId,omitempty"`
+	Mode       string `json:"mode,omitempty"`
 	NodeID     string `json:"nodeId,omitempty"`
 	MapID      string `json:"mapId,omitempty"`
 	AttackType string `json:"attackType,omitempty"`

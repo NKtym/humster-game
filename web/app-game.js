@@ -222,13 +222,30 @@ function updateScene(state) {
 function skinBonusDamage(state, attackType) {
   const ownedColor1 = Number(state?.player?.inventory?.color1 || 0) > 0;
   const ownedColor2 = Number(state?.player?.inventory?.color2 || 0) > 0;
+  const ownedBlack = Number(state?.player?.inventory?.black || 0) > 0;
+  const ownedCigarette = Number(state?.player?.inventory?.cigarette_skin || 0) > 0;
+  let bonus = 0;
   if (attackType === 'belly_punch' || attackType === 'iron_claw') {
-    return ownedColor2 ? 5 : 0;
+    bonus += ownedColor2 ? 5 : 0;
+  }
+  if (attackType === 'iron_claw') {
+    bonus += ownedBlack ? 10 : 0;
+    const ownedWreath = Number(state?.player?.inventory?.wreath_skin || 0) > 0;
+    const ownedStone = Number(state?.player?.inventory?.stone_skin || 0) > 0;
+    if (ownedWreath && ownedStone) bonus += 20;
   }
   if (attackType === 'poison_bite') {
-    return ownedColor1 ? 20 : 0;
+    bonus += (ownedColor1 || ownedCigarette) ? 20 : 0;
   }
-  return 0;
+  for (const [, setDef] of Object.entries(BOSS_HARD_MODE_SET_BONUSES || {})) {
+    if (attackType === setDef.attackType) {
+      const allCollected = setDef.requiredItems.every((itemId) => (state?.player?.inventory?.[itemId] || 0) > 0);
+      if (allCollected) {
+        bonus += setDef.bonus;
+      }
+    }
+  }
+  return bonus;
 }
 
 function attackDamage(state, attackType) {
@@ -269,6 +286,7 @@ function applyLocalAction(action, payload = {}) {
   switch (action) {
     case 'select_boss': {
       const bossId = payload.bossId || '';
+      const mode = payload.mode || '';
       if (bossIsLocked(state, bossId)) {
         return;
       }
@@ -278,20 +296,27 @@ function applyLocalAction(action, payload = {}) {
           return;
         }
       }
+      state.selectedBossMode = mode;
       state.activeBossId = bossId;
       const active = bossById(state, bossId);
       if (active) {
         const remaining = bossDailyRemaining(active);
+        const isHardMode = mode === 'homyak' && (bossId === 'rat' || bossId === 'lizard');
         if (active.defeated) {
           if (remaining <= 0) return;
           const now = Date.now();
           active.defeated = false;
+          active.mode = isHardMode ? 'homyak' : '';
+          active.maxHp = isHardMode ? (BOSS_BLUEPRINTS[bossId]?.hp || active.maxHp) * 3 : (BOSS_BLUEPRINTS[bossId]?.hp || active.maxHp);
           active.hp = active.maxHp;
           active.battleStartedAt = new Date(now).toISOString();
           active.battleEndsAt = new Date(now + (8 * 60 * 60 * 1000)).toISOString();
           active.attackCooldowns = {};
         } else if (!active.battleStartedAt || !active.battleEndsAt) {
           const now = Date.now();
+          active.mode = isHardMode ? 'homyak' : '';
+          active.maxHp = isHardMode ? (BOSS_BLUEPRINTS[bossId]?.hp || active.maxHp) * 3 : (BOSS_BLUEPRINTS[bossId]?.hp || active.maxHp);
+          active.hp = active.maxHp;
           active.battleStartedAt = new Date(now).toISOString();
           active.battleEndsAt = new Date(now + (8 * 60 * 60 * 1000)).toISOString();
         }
@@ -645,6 +670,9 @@ function renderBossSelection() {
   $('#battle-screen-title').textContent = 'Выбор босса';
   $('#battle-screen-subtitle').textContent = '';
   const body = $('#battle-screen-body');
+
+  const hasModeSelection = (bossId) => bossId === 'rat' || bossId === 'lizard';
+
   body.innerHTML = `
     <div class="boss-grid">
       ${(currentState.bosses || []).map((boss) => {
@@ -658,6 +686,7 @@ function renderBossSelection() {
         const isCaveBoss = caveBossIds().has(boss.id);
         const anotherBossActive = !!(currentState.activeBossId && currentState.activeBossId !== boss.id);
         const disabled = bossLocked || anotherBossActive;
+        const showMode = hasModeSelection(boss.id) && !bossLocked && !anotherBossActive && (boss.defeated || !boss.battleEndsAt || toMillis(boss.battleEndsAt) <= Date.now());
         const unlockText = isDesertBoss
           ? 'Откроется после прохождения пустыни'
           : (caveBossIds().has(boss.id)
@@ -668,6 +697,37 @@ function renderBossSelection() {
           : (anotherBossActive
             ? 'Бой уже выбран'
             : (boss.defeated ? (remainingKills > 0 ? 'Пройти ещё раз' : 'Лимит исчерпан') : 'Выбрать и начать бой'));
+
+        if (showMode) {
+          const baseHp = BOSS_BLUEPRINTS[boss.id]?.hp || boss.maxHp;
+          return `
+            <article class="boss-card boss-card--mode-select ${bossLocked ? 'is-locked' : ''}">
+              <img class="boss-card__img" src="${cat.img}" alt="${boss.name}" />
+              <div class="boss-card__body">
+                <div class="boss-card__title">
+                  <strong>${boss.name}</strong>
+                  <span>${baseHp} HP</span>
+                </div>
+                <div class="boss-card__reward">Награда: ${rewardText}</div>
+                <div class="boss-card__xp">Опыт: ${boss.xp || 0}</div>
+                <div class="boss-card__limit">Осталось сегодня: ${remainingKills}/${BOSS_KILL_LIMIT}</div>
+                <div class="boss-mode-select">
+                  <div class="boss-mode-select__title">Выбери сложность:</div>
+                  <div class="boss-mode-select__options">
+                    ${BOSS_MODES.map((mode) => `
+                      <button class="boss-mode-option" data-boss="${boss.id}" data-mode="${mode.id}" type="button">
+                        <img class="boss-mode-option__img" src="${mode.img}" alt="${mode.label}" />
+                        <strong class="boss-mode-option__label">${mode.label}</strong>
+                        <span class="boss-mode-option__desc">${mode.description}${mode.id === 'homyak' ? ` (${baseHp * 3} HP)` : ''}</span>
+                      </button>
+                    `).join('')}
+                  </div>
+                </div>
+              </div>
+            </article>
+          `;
+        }
+
         return `
           <article class="boss-card ${boss.defeated ? 'is-defeated' : ''} ${bossLocked ? 'is-locked' : ''}">
             <img class="boss-card__img" src="${cat.img}" alt="${boss.name}" />
@@ -692,10 +752,19 @@ function renderBossSelection() {
     </div>
   `;
 
-  document.querySelectorAll('[data-boss]').forEach((btn) => {
+  document.querySelectorAll('.boss-mode-option').forEach((btn) => {
     btn.onclick = async () => {
       btn.disabled = true;
-      await syncAction('select_boss', { bossId: btn.dataset.boss });
+      await syncAction('select_boss', { bossId: btn.dataset.boss, mode: btn.dataset.mode || '' });
+      setView('battle');
+      render();
+    };
+  });
+
+  document.querySelectorAll('[data-boss]:not(.boss-mode-option)').forEach((btn) => {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      await syncAction('select_boss', { bossId: btn.dataset.boss, mode: '' });
       setView('battle');
       render();
     };
@@ -855,7 +924,7 @@ function renderBattleScreen() {
     return;
   }
 
-  $('#battle-screen-title').textContent = `Бой: ${activeBoss.name}`;
+  $('#battle-screen-title').textContent = `Бой: ${activeBoss.name}${activeBoss.mode === 'homyak' ? ' (Хомяк)' : ''}`;
   const battleRemaining = activeBoss.defeated ? '' : bossBattleCountdown(activeBoss);
   $('#battle-screen-subtitle').textContent = activeBoss.defeated
     ? (activeBoss.killsToday >= BOSS_KILL_LIMIT ? 'Дневной лимит этого босса исчерпан.' : 'Босс уже побеждён.')
@@ -1301,6 +1370,24 @@ function renderAppearanceOptionButton(option, slot) {
   }
   if (slot === 'mask' && option.id === 'cigarette') {
     locked = (currentState.player.inventory?.['cigarette_skin'] || 0) <= 0;
+  }
+  if (slot === 'headwear' && option.id === 'cap') {
+    locked = (currentState.player.inventory?.['cap'] || 0) <= 0;
+  }
+  if (slot === 'glasses' && option.id === 'glasses_round') {
+    locked = (currentState.player.inventory?.['glasses_round'] || 0) <= 0;
+  }
+  if (slot === 'mask' && option.id === 'scarf') {
+    locked = (currentState.player.inventory?.['scarf'] || 0) <= 0;
+  }
+  if (slot === 'heldItem' && option.id === 'stick') {
+    locked = (currentState.player.inventory?.['stick'] || 0) <= 0;
+  }
+  if (slot === 'body' && option.id === 'camouflage_jacket') {
+    locked = (currentState.player.inventory?.['camouflage_jacket'] || 0) <= 0;
+  }
+  if (slot === 'shoes' && option.id === 'camouflage_sneakers') {
+    locked = (currentState.player.inventory?.['camouflage_sneakers'] || 0) <= 0;
   }
   return `
     <button type="button" class="appearance-option ${selected ? 'is-selected' : ''} ${locked ? 'is-locked' : ''}" data-appearance-slot="${slot}" data-appearance-value="${option.id}" ${locked ? 'disabled aria-disabled="true" title="Сначала выбей этот скин"' : ''}>

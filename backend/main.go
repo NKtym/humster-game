@@ -233,7 +233,7 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	case "explore_field":
 		err = s.exploreField(lease.state)
 	case "select_boss":
-		err = s.selectBoss(lease.state, req.BossID)
+		err = s.selectBoss(lease.state, req.BossID, req.Mode)
 	case "clear_boss":
 		err = s.clearBoss(lease.state)
 	case "finish_battle":
@@ -1571,7 +1571,7 @@ func (s *Server) exploreField(gs *GameState) error {
 	return nil
 }
 
-func (s *Server) selectBoss(gs *GameState, bossID string) error {
+func (s *Server) selectBoss(gs *GameState, bossID string, mode string) error {
 	if bossID == "" {
 		return s.clearBoss(gs)
 	}
@@ -1591,6 +1591,12 @@ func (s *Server) selectBoss(gs *GameState, bossID string) error {
 		return fmt.Errorf(hint)
 	}
 
+	if mode == "homyak" && (bossID == "rat" || bossID == "lizard") {
+		gs.SelectedBossMode = "homyak"
+	} else {
+		gs.SelectedBossMode = ""
+	}
+
 	now := time.Now()
 	refreshBossKillLimit(boss)
 	if boss.Defeated {
@@ -1598,10 +1604,28 @@ func (s *Server) selectBoss(gs *GameState, bossID string) error {
 			return fmt.Errorf("дневной лимит этого босса уже исчерпан")
 		}
 		prepareBossBattle(boss, now)
+		if gs.SelectedBossMode == "homyak" && (bossID == "rat" || bossID == "lizard") {
+			boss.Mode = "homyak"
+			boss.MaxHP = bossMaxHP(bossID) * 3
+			boss.HP = boss.MaxHP
+		} else {
+			boss.Mode = ""
+			boss.MaxHP = bossMaxHP(bossID)
+			boss.HP = boss.MaxHP
+		}
 		resetBossBattleDamage(gs)
 		appendLog(gs, fmt.Sprintf("%s можно пройти ещё раз.", boss.Name))
 	} else {
 		startBossBattle(boss, now)
+		if gs.SelectedBossMode == "homyak" && (bossID == "rat" || bossID == "lizard") {
+			boss.Mode = "homyak"
+			boss.MaxHP = bossMaxHP(bossID) * 3
+			boss.HP = boss.MaxHP
+		} else {
+			boss.Mode = ""
+			boss.MaxHP = bossMaxHP(bossID)
+			boss.HP = boss.MaxHP
+		}
 		resetBossBattleDamage(gs)
 		appendLog(gs, fmt.Sprintf("Выбран босс: %s.", boss.Name))
 	}
@@ -1671,6 +1695,10 @@ func (s *Server) retryBoss(gs *GameState) error {
 
 	if boss.Defeated || boss.HP <= 0 || boss.BattleStartedAt.IsZero() || boss.BattleEndsAt.IsZero() {
 		prepareBossBattle(&gs.Bosses[idx], time.Now())
+		if boss.Mode == "homyak" && (boss.ID == "rat" || boss.ID == "lizard") {
+			gs.Bosses[idx].MaxHP = bossMaxHP(boss.ID) * 3
+			gs.Bosses[idx].HP = gs.Bosses[idx].MaxHP
+		}
 		resetBossBattleDamage(gs)
 		appendLog(gs, fmt.Sprintf("%s можно пройти ещё раз.", boss.Name))
 		return nil
@@ -1704,7 +1732,27 @@ func finalizeBossVictory(gs *GameState, idx int, now time.Time) {
 	gs.Player.XP += boss.XP
 	if drop := maybeGrantBossCosmeticDrop(gs, boss); drop != "" {
 		appendLog(gs, fmt.Sprintf("Случайная награда: получен %s.", drop))
-		appendLog(gs, cosmeticDropBonusText(boss.ID))
+		if boss.Mode == "homyak" && (boss.ID == "rat" || boss.ID == "lizard") {
+			setBonus := bossHardModeSetBonuses[boss.ID]
+			allCollected := true
+			for _, reqItem := range setBonus.RequiredItems {
+				if gs.Player.Inventory[reqItem] <= 0 {
+					allCollected = false
+					break
+				}
+			}
+			if !allCollected {
+				remaining := 0
+				for _, reqItem := range setBonus.RequiredItems {
+					if gs.Player.Inventory[reqItem] <= 0 {
+						remaining++
+					}
+				}
+				appendLog(gs, fmt.Sprintf("Набор: осталось собрать %d из %d предметов.", len(setBonus.RequiredItems)-remaining, len(setBonus.RequiredItems)))
+			}
+		} else {
+			appendLog(gs, cosmeticDropBonusText(boss.ID))
+		}
 	}
 	appendLog(gs, fmt.Sprintf("%s побеждён! Награда получена.", boss.Name))
 	recalcLevel(gs)
@@ -2446,6 +2494,60 @@ type bossCosmeticDrop struct {
 	Chance int
 }
 
+var bossHardModeItems = map[string][]struct {
+	InventoryID string
+	Label       string
+}{
+	"rat":    {{InventoryID: "cap", Label: "кепка"}, {InventoryID: "glasses_round", Label: "очки"}, {InventoryID: "scarf", Label: "шарфик"}},
+	"lizard": {{InventoryID: "camouflage_sneakers", Label: "камуфляжные кроссовки"}, {InventoryID: "camouflage_jacket", Label: "камуфляжная куртка"}, {InventoryID: "stick", Label: "палка"}},
+}
+
+var bossHardModeSetBonuses = map[string]struct {
+	RequiredItems []string
+	AttackType    string
+	Bonus         int
+}{
+	"rat":    {RequiredItems: []string{"cap", "glasses_round", "scarf"}, AttackType: "bite", Bonus: 5},
+	"lizard": {RequiredItems: []string{"camouflage_sneakers", "camouflage_jacket", "stick"}, AttackType: "rush", Bonus: 8},
+}
+
+func bossMaxHP(bossID string) int {
+	switch bossID {
+	case "rat":
+		return 70
+	case "lizard":
+		return 150
+	case "swagusinitsa":
+		return 600
+	case "sand_lizard":
+		return 7000
+	case "sand_snake":
+		return 15000
+	case "desert_owl":
+		return 50000
+	case "desert_fox":
+		return 100000
+	case "grizzly":
+		return 4000000
+	case "foot":
+		return 250000
+	case "dog":
+		return 500000
+	case "machine":
+		return 2000000
+	case "cave_centipede":
+		return 1200
+	case "cave_bird":
+		return 3400
+	case "cave_spider":
+		return 24000
+	case "honey_badger":
+		return 1000000
+	default:
+		return 100
+	}
+}
+
 func bossCosmeticDropFor(bossID string) (bossCosmeticDrop, bool) {
 	switch bossID {
 	case "rat":
@@ -2458,6 +2560,27 @@ func bossCosmeticDropFor(bossID string) (bossCosmeticDrop, bool) {
 		return bossCosmeticDrop{ItemID: "cigarette_skin", Label: "сигаретный скин хомяка", Chance: 20}, true
 	default:
 		return bossCosmeticDrop{}, false
+	}
+}
+
+func attackLabelGo(attackType string) string {
+	switch attackType {
+	case "belly_punch":
+		return "удар пузиком"
+	case "scratch":
+		return "царапанье"
+	case "rush":
+		return "удар с разбега"
+	case "bite":
+		return "укус"
+	case "iron_claw":
+		return "удар железным когтем"
+	case "poison_bite":
+		return "ядовитый укус"
+	case "eye_lasers":
+		return "лазеры из глаз"
+	default:
+		return "удар"
 	}
 }
 
@@ -2505,13 +2628,73 @@ func attackBonusDamage(gs *GameState, attackType string) int {
 			bonus += 20
 		}
 	}
+	for _, setBonus := range bossHardModeSetBonuses {
+		if attackType == setBonus.AttackType {
+			allCollected := true
+			for _, reqItem := range setBonus.RequiredItems {
+				if gs.Player.Inventory[reqItem] <= 0 {
+					allCollected = false
+					break
+				}
+			}
+			if allCollected {
+				bonus += setBonus.Bonus
+			}
+		}
+	}
 	bonus += talentAttackBonusDamage(gs, attackType)
 	return bonus
 }
 
 func maybeGrantBossCosmeticDrop(gs *GameState, boss *Boss) string {
+	if gs == nil {
+		return ""
+	}
+
+	// Hard mode drops for rat and lizard
+	if boss.Mode == "homyak" && (boss.ID == "rat" || boss.ID == "lizard") {
+		items, ok := bossHardModeItems[boss.ID]
+		if !ok {
+			return ""
+		}
+		if gs.Player.Inventory == nil {
+			gs.Player.Inventory = map[string]int{}
+		}
+		missing := []struct {
+			InventoryID string
+			Label       string
+		}{}
+		for _, item := range items {
+			if gs.Player.Inventory[item.InventoryID] <= 0 {
+				missing = append(missing, item)
+			}
+		}
+		if len(missing) == 0 {
+			return ""
+		}
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(missing))))
+		if err != nil {
+			return ""
+		}
+		chosen := missing[n.Int64()]
+		gs.Player.Inventory[chosen.InventoryID] = gs.Player.Inventory[chosen.InventoryID] + 1
+		setBonus := bossHardModeSetBonuses[boss.ID]
+		allCollected := true
+		for _, reqItem := range setBonus.RequiredItems {
+			if gs.Player.Inventory[reqItem] <= 0 {
+				allCollected = false
+				break
+			}
+		}
+		if allCollected {
+			return fmt.Sprintf("%s (набор полный! +%d к урону %s)", chosen.Label, setBonus.Bonus, attackLabelGo(setBonus.AttackType))
+		}
+		return chosen.Label
+	}
+
+	// Normal mode drops
 	drop, ok := bossCosmeticDropFor(boss.ID)
-	if !ok || gs == nil {
+	if !ok {
 		return ""
 	}
 	// Special handling for cave_bird: grants two unique skins across two clears
@@ -3227,7 +3410,6 @@ func normalizeBosses(gs *GameState) {
 		boss := byID[tpl.id]
 		boss.ID = tpl.id
 		boss.Name = tpl.name
-		boss.MaxHP = tpl.hp
 		boss.Attack = tpl.attack
 		boss.XP = tpl.xp
 		if boss.Reward == nil {
@@ -3245,6 +3427,13 @@ func normalizeBosses(gs *GameState) {
 		}
 		if boss.KillsTotal < 0 {
 			boss.KillsTotal = 0
+		}
+		isHardMode := boss.Mode == "homyak" && (tpl.id == "rat" || tpl.id == "lizard")
+		if isHardMode {
+			boss.MaxHP = tpl.hp * 3
+		} else {
+			boss.MaxHP = tpl.hp
+			boss.Mode = ""
 		}
 		refreshBossKillLimit(&boss)
 		if boss.HP < 0 {
