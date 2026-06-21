@@ -521,6 +521,7 @@ const DEFAULT_STATE = {
     coinLastWon: false,
     coinLastMessage: '',
     boxCount: 0,
+    boxesClaimed: 0,
     lastLootBoxRewards: [],
   },
   location: 'Поле',
@@ -851,6 +852,7 @@ function normalizeState(state) {
   }
 
   next.player.boxCount = Math.max(0, Number(state.player?.boxCount) || 0);
+  next.player.boxesClaimed = Math.max(0, Number(state.player?.boxesClaimed) || 0);
   next.player.lastLootBoxRewards = Array.isArray(state.player?.lastLootBoxRewards) ? state.player.lastLootBoxRewards : [];
 
   next.activeBossId = state.activeBossId || '';

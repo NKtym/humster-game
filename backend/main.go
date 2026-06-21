@@ -283,7 +283,7 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	case "play_coin_game":
 		err = s.playCoinGame(lease.state, req.Value)
 	case "open_lootbox":
-		err = s.openLootBox(lease.state, req.BoxCount)
+		err = s.openLootBox(lease.state)
 	default:
 		err = fmt.Errorf("неизвестное действие")
 	}
@@ -1404,10 +1404,16 @@ func normalizeGameState(state *GameState) {
 	if state.Player.BoxCount < 0 {
 		state.Player.BoxCount = 0
 	}
-	expectedBoxes := countUnlockedAchievements(state) / 8
-	if expectedBoxes > state.Player.BoxCount {
-		state.Player.BoxCount = expectedBoxes
+	if state.Player.BoxesClaimed < 0 {
+		state.Player.BoxesClaimed = 0
 	}
+	expectedBoxes := countUnlockedAchievements(state) / 8
+	if expectedBoxes > state.Player.BoxesClaimed {
+		newBoxes := expectedBoxes - state.Player.BoxesClaimed
+		state.Player.BoxCount += newBoxes
+		state.Player.BoxesClaimed = expectedBoxes
+	}
+
 	if state.Location == "" {
 		state.Location = defaults.Location
 	}
@@ -2803,12 +2809,9 @@ func recalcLevel(gs *GameState) {
 	}
 }
 
-func (s *Server) openLootBox(gs *GameState, clientBoxCount int) error {
+func (s *Server) openLootBox(gs *GameState) error {
 	if gs == nil {
 		return fmt.Errorf("игровое состояние недоступно")
-	}
-	if clientBoxCount > gs.Player.BoxCount {
-		gs.Player.BoxCount = clientBoxCount
 	}
 	if gs.Player.BoxCount <= 0 {
 		return fmt.Errorf("нет боксов для открытия")

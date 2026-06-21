@@ -101,6 +101,7 @@ type Player struct {
 	CoinLastWon          bool              `json:"coinLastWon,omitempty"`
 	CoinLastMessage      string            `json:"coinLastMessage,omitempty"`
 	BoxCount             int               `json:"boxCount"`
+	BoxesClaimed         int               `json:"boxesClaimed"`
 	LastLootBoxRewards   []string          `json:"lastLootBoxRewards,omitempty"`
 }
 
@@ -160,7 +161,6 @@ type ActionRequest struct {
 	Value      string `json:"value,omitempty"`
 	From       string `json:"from,omitempty"`
 	To         string `json:"to,omitempty"`
-	BoxCount   int    `json:"boxCount,omitempty"`
 }
 
 type ActionResponse struct {

@@ -1518,8 +1518,10 @@ function render() {
   currentState = normalizeState(currentState);
   const totalAchievements = countUnlockedAchievements(currentState);
   const expectedBoxes = Math.floor(totalAchievements / 8);
-  if (expectedBoxes > currentState.player.boxCount) {
-    currentState.player.boxCount = expectedBoxes;
+  const claimed = currentState.player.boxesClaimed || 0;
+  if (expectedBoxes > claimed) {
+    currentState.player.boxCount = (currentState.player.boxCount || 0) + (expectedBoxes - claimed);
+    currentState.player.boxesClaimed = expectedBoxes;
   }
   currentState = advanceLocalBusiness(currentState);
   if (!currentState.activeBossId) {
@@ -2293,16 +2295,12 @@ async function openLootBox() {
   const body = $('#lootbox-screen-body');
   if (!body) return;
 
-  const totalAchievements = countUnlockedAchievements(currentState);
-  const expectedBoxes = Math.floor(totalAchievements / 8);
-  currentState.player.boxCount = Math.max(currentState.player.boxCount || 0, expectedBoxes);
-
   body.innerHTML = '<div class="lootbox-lock" style="text-align:center;padding:40px;font-size:18px;">Открываем бокс...</div>';
 
   const response = await fetch(apiUrl('/action'), {
     method: 'POST',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ action: 'open_lootbox', boxCount: currentState.player.boxCount }),
+    body: JSON.stringify({ action: 'open_lootbox' }),
   });
   const data = await response.json().catch(() => null);
 
