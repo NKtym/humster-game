@@ -910,3 +910,121 @@
   display: grid;
   gap: 8px;
 }
+
+.lootbox-layout {
+  display: grid;
+  gap: 14px;
+}
+
+.lootbox-hero {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.lootbox-hero__image img {
+  width: min(200px, 40vw);
+  height: auto;
+  border-radius: 18px;
+}
+
+.lootbox-hero__meta strong {
+  display: block;
+  font-size: 22px;
+}
+
+.lootbox-hero__meta p {
+  margin-top: 6px;
+  color: rgba(255, 236, 208, 0.84);
+}
+
+.lootbox-panel {
+  border-radius: 28px;
+  background: linear-gradient(180deg, rgba(102, 61, 28, 0.76), rgba(69, 39, 16, 0.82));
+  border: 1px solid rgba(255, 226, 160, 0.15);
+  box-shadow: var(--shadow);
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.lootbox-stats {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.lootbox-video {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+}
+
+.lootbox-video__frame {
+  width: min(100%, 500px);
+  border-radius: 22px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.lootbox-video__frame video {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.lootbox-lock {
+  font-weight: 700;
+  color: rgba(255, 236, 208, 0.84);
+}
+
+.lootbox-result {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+}
+
+.lootbox-result__image img {
+  width: min(220px, 40vw);
+  height: auto;
+  border-radius: 18px;
+}
+
+.lootbox-rewards {
+  display: grid;
+  gap: 8px;
+}
+
+.lootbox-reward-item {
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(100, 190, 126, 0.12);
+  border: 1px solid rgba(180, 255, 188, 0.22);
+}
+
+.lootbox-reward-item strong {
+  font-size: 16px;
+}
+
+@media (max-width: 760px) {
+  .lootbox-hero {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+
+  .lootbox-hero__image img {
+    width: min(160px, 50vw);
+  }
+
+  .lootbox-result {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+
+  .lootbox-result__image img {
+    width: min(160px, 50vw);
+    margin: 0 auto;
+  }
+}

@@ -100,6 +100,8 @@ type Player struct {
 	CoinLastRolled       string            `json:"coinLastRolled,omitempty"`
 	CoinLastWon          bool              `json:"coinLastWon,omitempty"`
 	CoinLastMessage      string            `json:"coinLastMessage,omitempty"`
+	BoxCount             int               `json:"boxCount"`
+	LastLootBoxRewards   []string          `json:"lastLootBoxRewards,omitempty"`
 }
 
 type GameState struct {

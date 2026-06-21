@@ -282,6 +282,8 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		}
 	case "play_coin_game":
 		err = s.playCoinGame(lease.state, req.Value)
+	case "open_lootbox":
+		err = s.openLootBox(lease.state)
 	default:
 		err = fmt.Errorf("неизвестное действие")
 	}
@@ -1398,6 +1400,9 @@ func normalizeGameState(state *GameState) {
 	}
 	if state.Player.TalentNextThreshold < 70 {
 		state.Player.TalentNextThreshold = 70
+	}
+	if state.Player.BoxCount < 0 {
+		state.Player.BoxCount = 0
 	}
 	if state.Location == "" {
 		state.Location = defaults.Location
@@ -2628,6 +2633,28 @@ func attackBonusDamage(gs *GameState, attackType string) int {
 			bonus += 20
 		}
 	}
+	// Набор vans + t-shirt: +5 к удару с разбега, +5 к удару пузиком, +10 к удару железным когтем
+	if gs.Player.Inventory["vans_skin"] > 0 && gs.Player.Inventory["t-shirt_skin"] > 0 {
+		switch attackType {
+		case "rush":
+			bonus += 5
+		case "belly_punch":
+			bonus += 5
+		case "iron_claw":
+			bonus += 10
+		}
+	}
+	// Набор prize + festive_cap + festive_tiugue: +5 к укусу, +30 к лазерам из глаз, +10 к удару с разбега
+	if gs.Player.Inventory["prize_skin"] > 0 && gs.Player.Inventory["festive_cap_skin"] > 0 && gs.Player.Inventory["festive_tiugue_skin"] > 0 {
+		switch attackType {
+		case "bite":
+			bonus += 5
+		case "eye_lasers":
+			bonus += 30
+		case "rush":
+			bonus += 10
+		}
+	}
 	for _, setBonus := range bossHardModeSetBonuses {
 		if attackType == setBonus.AttackType {
 			allCollected := true
@@ -2772,6 +2799,148 @@ func recalcLevel(gs *GameState) {
 	}
 }
 
+func (s *Server) openLootBox(gs *GameState) error {
+	if gs == nil {
+		return fmt.Errorf("игровое состояние недоступно")
+	}
+	if gs.Player.BoxCount <= 0 {
+		return fmt.Errorf("нет боксов для открытия")
+	}
+	gs.Player.BoxCount--
+
+	type lootItem struct {
+		label string
+		count int
+	}
+	var rewards []lootItem
+
+	// XP: 10-100 (50%), 101-500 (35%), 501-1500 (15%)
+	xpRoll := randInt(100)
+	var xp int
+	switch {
+	case xpRoll < 50:
+		xp = 10 + randInt(91)
+	case xpRoll < 85:
+		xp = 101 + randInt(400)
+	default:
+		xp = 501 + randInt(1000)
+	}
+	gs.Player.XP += xp
+	rewards = append(rewards, lootItem{label: fmt.Sprintf("+%d опыта", xp), count: xp})
+
+	// Seeds: 50-200 (50%), 201-800 (35%), 801-2000 (15%)
+	seedRoll := randInt(100)
+	var seeds int
+	switch {
+	case seedRoll < 50:
+		seeds = 50 + randInt(151)
+	case seedRoll < 85:
+		seeds = 201 + randInt(600)
+	default:
+		seeds = 801 + randInt(1200)
+	}
+	addCurrencyGain(gs, Seeds, seeds)
+	rewards = append(rewards, lootItem{label: fmt.Sprintf("+%d семечек", seeds), count: seeds})
+
+	// Wheat: 50% chance
+	if randInt(100) < 50 {
+		wheatRoll := randInt(100)
+		var wheat int
+		switch {
+		case wheatRoll < 60:
+			wheat = 1 + randInt(5)
+		case wheatRoll < 90:
+			wheat = 6 + randInt(10)
+		default:
+			wheat = 16 + randInt(15)
+		}
+		addCurrencyGain(gs, Wheat, wheat)
+		rewards = append(rewards, lootItem{label: fmt.Sprintf("+%d пшеницы", wheat), count: wheat})
+	}
+
+	// Special attacks: always 1-4 attacks, 50% iron_claw, 35% poison_bite, 15% eye_lasers
+	attackCount := 1 + randInt(4)
+	attackRoll := randInt(100)
+	var attackType string
+	switch {
+	case attackRoll < 50:
+		attackType = "iron_claw"
+	case attackRoll < 85:
+		attackType = "poison_bite"
+	default:
+		attackType = "eye_lasers"
+	}
+	if gs.Player.Inventory == nil {
+		gs.Player.Inventory = map[string]int{}
+	}
+	gs.Player.Inventory[attackType] += attackCount
+	attackLabelStr := attackLabelGo(attackType)
+	rewards = append(rewards, lootItem{label: fmt.Sprintf("%dx %s", attackCount, attackLabelStr), count: attackCount})
+
+	// Carrots: 30% chance
+	if randInt(100) < 30 {
+		carrotRoll := randInt(100)
+		var carrots int
+		switch {
+		case carrotRoll < 65:
+			carrots = 1 + randInt(5)
+		case carrotRoll < 95:
+			carrots = 6 + randInt(7)
+		default:
+			carrots = 13 + randInt(8)
+		}
+		addCurrencyGain(gs, Carrot, carrots)
+		rewards = append(rewards, lootItem{label: fmt.Sprintf("+%d моркови", carrots), count: carrots})
+	}
+
+	// Cucumbers: 20% chance
+	if randInt(100) < 20 {
+		cucumberRoll := randInt(100)
+		var cucumbers int
+		switch {
+		case cucumberRoll < 70:
+			cucumbers = 1 + randInt(3)
+		case cucumberRoll < 95:
+			cucumbers = 4 + randInt(3)
+		default:
+			cucumbers = 7 + randInt(4)
+		}
+		addCurrencyGain(gs, Cucumber, cucumbers)
+		rewards = append(rewards, lootItem{label: fmt.Sprintf("+%d огурцов", cucumbers), count: cucumbers})
+	}
+
+	// Skins: 10% chance, random from 5 new skins
+	if randInt(100) < 10 {
+		skinRoll := randInt(5)
+		var skinID, skinLabel string
+		switch skinRoll {
+		case 0:
+			skinID, skinLabel = "prize_skin", "Приз"
+		case 1:
+			skinID, skinLabel = "festive_cap_skin", "Праздничная кепка"
+		case 2:
+			skinID, skinLabel = "festive_tiugue_skin", "Праздничная маска"
+		case 3:
+			skinID, skinLabel = "t-shirt_skin", "Футболка"
+		case 4:
+			skinID, skinLabel = "vans_skin", "Vans"
+		}
+		gs.Player.Inventory[skinID]++
+		rewards = append(rewards, lootItem{label: skinLabel, count: 1})
+	}
+
+	recalcLevel(gs)
+	logParts := make([]string, 0, len(rewards))
+	rewardStrings := make([]string, 0, len(rewards))
+	for _, r := range rewards {
+		logParts = append(logParts, r.label)
+		rewardStrings = append(rewardStrings, r.label)
+	}
+	gs.Player.LastLootBoxRewards = rewardStrings
+	appendLog(gs, fmt.Sprintf("Лут-бокс открыт! Награда: %s.", strings.Join(logParts, ", ")))
+	return nil
+}
+
 func newGameState() GameState {
 	return GameState{
 		Player: Player{
@@ -2822,6 +2991,7 @@ func newGameState() GameState {
 			CoinLastRolled:       "",
 			CoinLastWon:          false,
 			CoinLastMessage:      "",
+			BoxCount:             0,
 		},
 		Location: "Поле",
 		Bosses: []Boss{

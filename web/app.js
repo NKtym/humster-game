@@ -73,11 +73,11 @@ const VIEW_KEY = 'humster_view';
 
 function getSavedView() {
   const saved = localStorage.getItem(VIEW_KEY);
-  return ['main', 'battle', 'adventure', 'adventure-select', 'business', 'exchange', 'coin', 'edit', 'talents'].includes(saved) ? saved : 'main';
+  return ['main', 'battle', 'adventure', 'adventure-select', 'business', 'exchange', 'coin', 'edit', 'talents', 'lootbox'].includes(saved) ? saved : 'main';
 }
 
 function setView(nextView) {
-  view = ['main', 'battle', 'adventure', 'adventure-select', 'business', 'exchange', 'coin', 'edit', 'talents'].includes(nextView) ? nextView : 'main';
+  view = ['main', 'battle', 'adventure', 'adventure-select', 'business', 'exchange', 'coin', 'edit', 'talents', 'lootbox'].includes(nextView) ? nextView : 'main';
   localStorage.setItem(VIEW_KEY, view);
 }
 
@@ -146,11 +146,13 @@ const APPEARANCE_OPTIONS = {
     { id: 'none', name: 'Без предмета' },
     { id: 'stick', name: 'Палка', img: '/assets/characters/hamster/layers/stick.png' },
     { id: 'stone', name: 'Камень', img: '/assets/characters/hamster/layers/stone.png' },
+    { id: 'prize', name: 'Приз', img: '/assets/characters/hamster/layers/prize.png' },
   ],
   headwear: [
     { id: 'none', name: 'Без кепки' },
     { id: 'cap', name: 'Кепка' },
     { id: 'wreath', name: 'Венок', img: '/assets/characters/hamster/layers/wreath.png' },
+    { id: 'festive_cap', name: 'Праздничная кепка', img: '/assets/characters/hamster/layers/festive_cap.png' },
   ],
   glasses: [
     { id: 'none', name: 'Без очков' },
@@ -160,14 +162,17 @@ const APPEARANCE_OPTIONS = {
     { id: 'none', name: 'Без маски' },
     { id: 'scarf', name: 'Шарфик' },
     { id: 'cigarette', name: 'Сигарета', img: '/assets/characters/hamster/layers/cigarette.png' },
+    { id: 'festive_tiugue', name: 'Праздничная маска', img: '/assets/characters/hamster/layers/festive_tiugue.png' },
   ],
   body: [
     { id: 'none', name: 'Без одежды' },
     { id: 'camouflage_jacket', name: 'Камуфляжная куртка', img: '/assets/characters/hamster/layers/camouflage_jacket.png' },
+    { id: 't-shirt', name: 'Футболка', img: '/assets/characters/hamster/layers/t-shirt.png' },
   ],
   shoes: [
     { id: 'none', name: 'Без обуви' },
     { id: 'camouflage_sneakers', name: 'Камуфляжные кроссовки', img: '/assets/characters/hamster/layers/camouflage_sneakers.png' },
+    { id: 'vans', name: 'Vans', img: '/assets/characters/hamster/layers/vans.png' },
   ],
 };
 
@@ -515,6 +520,8 @@ const DEFAULT_STATE = {
     coinLastRolled: '',
     coinLastWon: false,
     coinLastMessage: '',
+    boxCount: 0,
+    lastLootBoxRewards: [],
   },
   location: 'Поле',
   bosses: [
@@ -842,6 +849,9 @@ function normalizeState(state) {
   if (next.player.appearance.color !== 'default' && (next.player.inventory[next.player.appearance.color] || 0) <= 0) {
     next.player.appearance.color = 'default';
   }
+
+  next.player.boxCount = Math.max(0, Number(state.player?.boxCount) || 0);
+  next.player.lastLootBoxRewards = Array.isArray(state.player?.lastLootBoxRewards) ? state.player.lastLootBoxRewards : [];
 
   next.activeBossId = state.activeBossId || '';
   next.selectedBossMode = state.selectedBossMode || '';

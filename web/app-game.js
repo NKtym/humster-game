@@ -67,6 +67,12 @@ let coinGameUI = {
   videoFallback: null,
 };
 
+let lootBoxUI = {
+  phase: 'ready',
+  result: null,
+  message: '',
+};
+
 const ADVENTURE_MAP_KEY = 'humster_adventure_map';
 const ADVENTURE_MAPS = {
   field: { id: 'field', label: 'Поле', image: '/assets/maps/adventure-select/field.png', note: 'Текущая карта.' },
@@ -236,6 +242,21 @@ function skinBonusDamage(state, attackType) {
   }
   if (attackType === 'poison_bite') {
     bonus += (ownedColor1 || ownedCigarette) ? 20 : 0;
+  }
+  const ownedVans = Number(state?.player?.inventory?.vans_skin || 0) > 0;
+  const ownedTshirt = Number(state?.player?.inventory?.['t-shirt_skin'] || 0) > 0;
+  if (ownedVans && ownedTshirt) {
+    if (attackType === 'rush') bonus += 5;
+    if (attackType === 'belly_punch') bonus += 5;
+    if (attackType === 'iron_claw') bonus += 10;
+  }
+  const ownedPrize = Number(state?.player?.inventory?.prize_skin || 0) > 0;
+  const ownedFestiveCap = Number(state?.player?.inventory?.festive_cap_skin || 0) > 0;
+  const ownedFestiveTiugue = Number(state?.player?.inventory?.festive_tiugue_skin || 0) > 0;
+  if (ownedPrize && ownedFestiveCap && ownedFestiveTiugue) {
+    if (attackType === 'bite') bonus += 5;
+    if (attackType === 'eye_lasers') bonus += 30;
+    if (attackType === 'rush') bonus += 10;
   }
   for (const [, setDef] of Object.entries(BOSS_HARD_MODE_SET_BONUSES || {})) {
     if (attackType === setDef.attackType) {
@@ -1389,6 +1410,21 @@ function renderAppearanceOptionButton(option, slot) {
   if (slot === 'shoes' && option.id === 'camouflage_sneakers') {
     locked = (currentState.player.inventory?.['camouflage_sneakers'] || 0) <= 0;
   }
+  if (slot === 'heldItem' && option.id === 'prize') {
+    locked = (currentState.player.inventory?.['prize_skin'] || 0) <= 0;
+  }
+  if (slot === 'headwear' && option.id === 'festive_cap') {
+    locked = (currentState.player.inventory?.['festive_cap_skin'] || 0) <= 0;
+  }
+  if (slot === 'mask' && option.id === 'festive_tiugue') {
+    locked = (currentState.player.inventory?.['festive_tiugue_skin'] || 0) <= 0;
+  }
+  if (slot === 'body' && option.id === 't-shirt') {
+    locked = (currentState.player.inventory?.['t-shirt_skin'] || 0) <= 0;
+  }
+  if (slot === 'shoes' && option.id === 'vans') {
+    locked = (currentState.player.inventory?.['vans_skin'] || 0) <= 0;
+  }
   return `
     <button type="button" class="appearance-option ${selected ? 'is-selected' : ''} ${locked ? 'is-locked' : ''}" data-appearance-slot="${slot}" data-appearance-value="${option.id}" ${locked ? 'disabled aria-disabled="true" title="Сначала выбей этот скин"' : ''}>
       <div class="appearance-option__thumb" ${thumbStyle}>${thumbImage}</div>
@@ -1481,6 +1517,11 @@ function renderEditScreen() {
 
 function render() {
   currentState = normalizeState(currentState);
+  const totalAchievements = countUnlockedAchievements(currentState);
+  const expectedBoxes = Math.floor(totalAchievements / 8);
+  if (expectedBoxes > currentState.player.boxCount) {
+    currentState.player.boxCount = expectedBoxes;
+  }
   currentState = advanceLocalBusiness(currentState);
   if (!currentState.activeBossId) {
     currentState = advanceLocalEnergy(currentState);
@@ -1580,6 +1621,8 @@ function render() {
     if (coin) coin.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
+    const lootbox = $('#lootbox-screen');
+    if (lootbox) lootbox.hidden = true;
     battle.hidden = false;
     renderBattleScreen();
   } else if (view === 'adventure-select') {
@@ -1658,7 +1701,23 @@ function render() {
     if (coin) coin.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = false;
+    const lootbox = $('#lootbox-screen');
+    if (lootbox) lootbox.hidden = true;
     renderTalentsScreen();
+  } else if (view === 'lootbox') {
+    main.hidden = true;
+    battle.hidden = true;
+    adventure.hidden = true;
+    business.hidden = true;
+    exchange.hidden = true;
+    if (coin) coin.hidden = true;
+    edit.hidden = true;
+    if (talents) talents.hidden = true;
+    const lootbox = $('#lootbox-screen');
+    if (lootbox) lootbox.hidden = false;
+    if (lootBoxUI.phase === 'ready') {
+      renderLootBoxScreen();
+    }
   } else {
     battle.hidden = true;
     adventureSelect.hidden = true;
@@ -1668,6 +1727,8 @@ function render() {
     if (coin) coin.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
+    const lootbox = $('#lootbox-screen');
+    if (lootbox) lootbox.hidden = true;
     main.hidden = false;
   }
 }
@@ -1795,6 +1856,14 @@ function initTopButtons() {
     };
   }
 
+  const lootboxBackButton = $('#btn-lootbox-back');
+  if (lootboxBackButton) {
+    lootboxBackButton.onclick = () => {
+      setView('main');
+      render();
+    };
+  }
+
   const businessPanelButton = $('#btn-business-panel');
   if (businessPanelButton) {
     businessPanelButton.disabled = Number(currentState?.player?.level || 1) < BUSINESS_UNLOCK_LEVEL;
@@ -1826,6 +1895,14 @@ function initTopButtons() {
   if (talentsPanelButton) {
     talentsPanelButton.onclick = () => {
       setView('talents');
+      render();
+    };
+  }
+
+  const lootboxPanelButton = $('#btn-lootbox-panel');
+  if (lootboxPanelButton) {
+    lootboxPanelButton.onclick = () => {
+      setView('lootbox');
       render();
     };
   }
@@ -2112,6 +2189,161 @@ function renderCoinScreen() {
       render();
     };
   }
+}
+
+function resetLootBoxUI() {
+  lootBoxUI = {
+    phase: 'ready',
+    result: null,
+    message: '',
+  };
+}
+
+const LOOTBOX_ART = {
+  menu: '/assets/box/menu.png',
+  video: '/assets/box/open_box.mp4',
+  open: '/assets/box/open.png',
+};
+
+function renderLootBoxScreen() {
+  const title = $('#lootbox-screen .battle-screen__head h2');
+  const subtitle = $('#lootbox-screen .battle-screen__head p');
+  if (title) title.textContent = 'Лут Бокс';
+  if (subtitle) subtitle.textContent = 'Открывай боксы и получай награды за достижения.';
+  const body = $('#lootbox-screen-body');
+  if (!body) return;
+
+  const boxCount = currentState.player.boxCount || 0;
+  const achievements = countUnlockedAchievements(currentState);
+  const nextBoxAt = (Math.floor(achievements / 8) + 1) * 8;
+  const progressToNext = achievements % 8;
+
+  body.innerHTML = `
+    <div class="lootbox-layout">
+      <section class="lootbox-hero">
+        <div class="lootbox-hero__image">
+          <img src="${LOOTBOX_ART.menu}" alt="Лут Бокс" />
+        </div>
+        <div class="lootbox-hero__meta">
+          <strong>Лут Бокс</strong>
+          <p>Каждые 8 достижений дают 1 бокс. Открывай боксы и получай ресурсы, атаки и скины!</p>
+        </div>
+      </section>
+      <section class="lootbox-panel">
+        <div class="lootbox-stats">
+          <div class="coin-stat"><span>Боксов</span><strong>${boxCount}</strong></div>
+          <div class="coin-stat"><span>Достижений</span><strong>${achievements}</strong></div>
+          <div class="coin-stat"><span>Следующий бокс через</span><strong>${nextBoxAt - achievements} достижений</strong></div>
+        </div>
+        <div class="progress-bar"><div style="width: ${(progressToNext / 8) * 100}%"></div></div>
+        <p>${boxCount > 0 ? 'Нажимай «Открыть» и забирай награду.' : 'Пока боксов нет. Получай достижения!'}</p>
+        ${lootBoxUI.message ? `<div class="coin-lock">${lootBoxUI.message}</div>` : ''}
+        <div class="coin-actions">
+          <button id="btn-lootbox-open" class="primary" type="button" ${boxCount > 0 ? '' : 'disabled'}>Открыть бокс</button>
+        </div>
+      </section>
+    </div>
+  `;
+  const openBtn = document.getElementById('btn-lootbox-open');
+  if (openBtn) {
+    openBtn.onclick = () => openLootBox();
+  }
+}
+
+function showLootBoxVideo() {
+  const body = $('#lootbox-screen-body');
+  if (!body) return;
+  body.innerHTML = `
+    <div class="lootbox-video">
+      <div class="lootbox-video__frame">
+        <video id="lootbox-game-video" src="${LOOTBOX_ART.video}" autoplay muted playsinline preload="auto" poster="${LOOTBOX_ART.open}"></video>
+      </div>
+      <div class="lootbox-lock">Открываем бокс...</div>
+    </div>
+  `;
+}
+
+function showLootBoxRewards(rewards) {
+  const body = $('#lootbox-screen-body');
+  if (!body) return;
+  body.innerHTML = `
+    <div class="lootbox-result">
+      <div class="lootbox-result__image">
+        <img src="${LOOTBOX_ART.open}" alt="Бокс открыт" />
+      </div>
+      <div class="lootbox-result__info">
+        <div class="profile-section__head">
+          <strong>Бокс открыт!</strong>
+          <span>Полученные награды</span>
+        </div>
+        <div class="lootbox-rewards">
+          ${rewards.map((r) => `
+            <div class="lootbox-reward-item">
+              <strong>${r}</strong>
+            </div>
+          `).join('')}
+        </div>
+        <div class="coin-result__actions">
+          <button id="btn-lootbox-again" class="primary" type="button" ${(currentState.player.boxCount || 0) > 0 ? '' : 'disabled'}>Открыть ещё</button>
+          <button id="btn-lootbox-reset" class="ghost" type="button">Назад</button>
+        </div>
+      </div>
+    </div>
+  `;
+  const again = document.getElementById('btn-lootbox-again');
+  if (again) {
+    again.onclick = () => {
+      resetLootBoxUI();
+      openLootBox();
+    };
+  }
+  const reset = document.getElementById('btn-lootbox-reset');
+  if (reset) {
+    reset.onclick = () => {
+      resetLootBoxUI();
+      render();
+    };
+  }
+}
+
+async function openLootBox() {
+  if ((currentState.player.boxCount || 0) <= 0) {
+    lootBoxUI.message = 'Нет боксов для открытия.';
+    render();
+    return;
+  }
+  lootBoxUI.phase = 'playing';
+  lootBoxUI.result = null;
+  lootBoxUI.message = '';
+
+  showLootBoxVideo();
+
+  const video = document.getElementById('lootbox-game-video');
+  const videoPromise = new Promise((resolve) => {
+    if (!video) { resolve(); return; }
+    const done = () => { resolve(); };
+    video.onended = done;
+    video.onerror = done;
+    video.onloadeddata = () => { video.play().catch(done); };
+    video.play().catch(done);
+    setTimeout(done, 3000);
+  });
+
+  const response = await syncAction('open_lootbox', {});
+  if (!response?.ok && !response?.data?.state) {
+    lootBoxUI.phase = 'ready';
+    lootBoxUI.message = response?.data?.error || response?.error || 'Не удалось открыть бокс.';
+    lootBoxUI.result = null;
+    render();
+    return;
+  }
+
+  await videoPromise;
+
+  const rewards = currentState.player.lastLootBoxRewards || [];
+  lootBoxUI.result = rewards.length > 0 ? rewards : ['Бокс открыт!'];
+  lootBoxUI.phase = 'result';
+  showLootBoxRewards(lootBoxUI.result);
 }
 
 async function startCoinRound(choice) {
