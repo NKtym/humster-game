@@ -653,6 +653,177 @@ button.primary {
   box-shadow: none;
 }
 
+.appearance-layer--headwear.appearance-layer--festive_cap {
+  top: -11%;
+  left: 53%;
+  width: 85%;
+  height: 85%;
+  background: url('/assets/characters/hamster/layers/festive_cap.png') center top / contain no-repeat;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: 6;
+}
+
+.appearance-layer--mask.appearance-layer--festive_tiugue {
+  top: 18%;
+  left: 42%;
+  width: 65%;
+  height: 55%;
+  transform: translateX(-50%);
+  background: url('/assets/characters/hamster/layers/festive_tiugue.png') center center / contain no-repeat;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: 5;
+}
+
+.appearance-layer--body.appearance-layer--t-shirt {
+  top: 26%;
+  left: 50%;
+  width: 65%;
+  height: 68%;
+  transform: translateX(-50%);
+  background: url('/assets/characters/hamster/layers/t-shirt.png') center center / contain no-repeat;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  clip-path: none;
+  z-index: 4;
+}
+
+.appearance-layer--shoes.appearance-layer--vans {
+  top: 62%;
+  left: 50%;
+  width: 62%;
+  height: 43%;
+  transform: translateX(-50%);
+  background: url('/assets/characters/hamster/layers/vans.png') center bottom / contain no-repeat;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: 5;
+}
+
+.appearance-layer--heldItem.appearance-layer--prize {
+  top: 27%;
+  left: 58%;
+  width: 72%;
+  height: 70%;
+  transform: translateX(-50%);
+  background: url('/assets/characters/hamster/layers/prize.png') center center / contain no-repeat;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: 6;
+}
+
+.appearance-layer--headwear.appearance-layer--mehanic_cup {
+  top: 3%;
+  left: 49%;
+  width: 50%;
+  height: 55%;
+  transform: translateX(-50%);
+  background: url('/assets/characters/hamster/layers/mehanic_cup.png') center top / contain no-repeat;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: 6;
+}
+
+.appearance-layer--headwear.appearance-layer--meat_cup {
+  top: -2%;
+  left: 48%;
+  width: 60%;
+  height: 60%;
+  transform: translateX(-50%);
+  background: url('/assets/characters/hamster/layers/meat_cup.png') center top / contain no-repeat;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: 6;
+}
+
+.appearance-layer--shoes.appearance-layer--mehanic_but {
+  top: 55%;
+  left: 48%;
+  width: 58%;
+  height: 40%;
+  transform: translateX(-50%);
+  background: url('/assets/characters/hamster/layers/mehanic_but.png') center bottom / contain no-repeat;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: 5;
+}
+
+.appearance-layer--mask.appearance-layer--mustache {
+  top: 15.3%;
+  left: 47.8%;
+  width: 65%;
+  height: 65%;
+  transform: translateX(-50%);
+  background: url('/assets/characters/hamster/layers/mustache.png') center center / contain no-repeat;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: 6;
+}
+
+.appearance-layer--body.appearance-layer--mehanic_costume {
+  top: 26%;
+  left: 50%;
+  width: 70%;
+  height: 70%;
+  transform: translateX(-50%);
+  background: url('/assets/characters/hamster/layers/mehanic_costume.png') center center / contain no-repeat;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  clip-path: none;
+  z-index: 4;
+}
+
+.appearance-layer--body.appearance-layer--meat_apron {
+  top: 40%;
+  left: 50%;
+  width: 100%;
+  height: 50%;
+  transform: translateX(-50%);
+  background: url('/assets/characters/hamster/layers/meat_apron.png') center center / contain no-repeat;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  clip-path: none;
+  z-index: 4;
+}
+
+.appearance-layer--heldItem.appearance-layer--cleaver {
+  top: 10%;
+  left: 31%;
+  width: 90%;
+  height: 80%;
+  transform: translateX(-50%);
+  background: url('/assets/characters/hamster/layers/cleaver.png') center center / contain no-repeat;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: 6;
+}
+
+.appearance-layer--heldItem.appearance-layer--adjustable_wrench {
+  top: 27%;
+  left: 50%;
+  width: 76%;
+  height: 70%;
+  transform: translateX(-50%);
+  background: url('/assets/characters/hamster/layers/adjustable_wrench.png') center center / contain no-repeat;
+  background-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: 6;
+}
+
 .side-panel {
   position: absolute;
   right: 16px;
@@ -1417,4 +1588,145 @@ button.primary {
 .boss-mode-option__desc {
   font-size: 11px;
   color: rgba(255, 236, 208, 0.70);
+}
+
+.skinshop-layout {
+  display: grid;
+  gap: 16px;
+}
+
+.skinshop-hero {
+  text-align: center;
+}
+
+.skinshop-hero__img {
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: 16px;
+  object-fit: contain;
+}
+
+.skinshop-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.skinshop-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.skinshop-refresh {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 237, 196, 0.12);
+  border-radius: 12px;
+}
+
+.skinshop-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.skinshop-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(255, 237, 196, 0.10);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 233, 186, 0.15);
+  text-align: center;
+  transition: background 0.2s;
+}
+
+.skinshop-card.is-owned {
+  border-color: rgba(100, 200, 100, 0.4);
+  background: rgba(100, 200, 100, 0.08);
+}
+
+.skinshop-card__img {
+  width: 80px;
+  height: 80px;
+  object-fit: contain;
+  border-radius: 12px;
+}
+
+.skinshop-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.skinshop-card__body span {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.skinshop-sets {
+  margin-top: 8px;
+}
+
+.skinshop-sets h3 {
+  margin-bottom: 8px;
+}
+
+.skinshop-set {
+  padding: 12px;
+  background: rgba(255, 237, 196, 0.08);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 233, 186, 0.12);
+  margin-bottom: 8px;
+}
+
+.skinshop-set.is-complete {
+  border-color: rgba(100, 200, 100, 0.4);
+  background: rgba(100, 200, 100, 0.08);
+}
+
+.skinshop-set__head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.skinshop-set__items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.skinshop-set-item {
+  padding: 2px 8px;
+  background: rgba(255, 237, 196, 0.12);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.skinshop-set-item.is-owned {
+  background: rgba(100, 200, 100, 0.2);
+}
+
+.skinshop-set__bonuses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.skinshop-set__bonus-active {
+  color: #6fcf6f;
+  font-weight: bold;
+}
+
+.panel-action--skinshop {
+  background: linear-gradient(180deg, rgba(255, 220, 160, 0.96), rgba(220, 160, 80, 0.94));
 }

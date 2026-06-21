@@ -289,6 +289,8 @@ function ensureAchievementsModal() {
         <div class="achievements-modal__tabs">
           <button type="button" class="achievements-modal__tab is-active" data-achievements-tab="battle">Битвы</button>
           <button type="button" class="achievements-modal__tab" data-achievements-tab="economy">Экономика</button>
+          <button type="button" class="achievements-modal__tab" data-achievements-tab="business">Бизнес</button>
+          <button type="button" class="achievements-modal__tab" data-achievements-tab="map">Карта</button>
         </div>
         <div id="achievements-modal-body" class="achievements-modal__body"></div>
       </div>
@@ -306,6 +308,8 @@ function captureAchievementsAccordionState() {
   const next = {
     battle: { ...(achievementsAccordionState.battle || {}) },
     economy: { ...(achievementsAccordionState.economy || {}) },
+    business: { ...(achievementsAccordionState.business || {}) },
+    map: { ...(achievementsAccordionState.map || {}) },
   };
   body.querySelectorAll('details[data-achievement-scope][data-achievement-key]').forEach((details) => {
     const scope = details.getAttribute('data-achievement-scope') || '';
@@ -671,6 +675,65 @@ function renderBattleAchievements() {
   }
 }
 
+function renderBusinessAchievements() {
+  try {
+    const sections = BUSINESS_ACHIEVEMENTS.map((entry) => {
+      const parts = entry.stateKey.split('.');
+      const val = Math.max(0, Number(parts.reduce((o, k) => o?.[k], currentState)) || 0);
+      const isOpen = getAchievementAccordionOpen('business', entry.key);
+      const rows = entry.thresholds.map((threshold) => {
+        const unlocked = val >= threshold;
+        const percent = Math.max(0, Math.min(100, (Math.min(threshold, val) / threshold) * 100));
+        return `
+          <div class="achievement-step ${unlocked ? 'is-done' : ''}">
+            <div class="achievement-step__head">
+              <strong>Достигните уровень ${formatAchievementNumber(threshold)}</strong>
+              <span>${unlocked ? 'Выполнено' : `${formatAchievementNumber(Math.max(0, threshold - val))} осталось`}</span>
+            </div>
+            <div class="achievement-step__bar"><div style="width: ${percent}%"></div></div>
+            <div class="achievement-step__state">${unlocked ? `Текущий уровень: ${formatAchievementNumber(val)}` : `Сейчас уровень: ${formatAchievementNumber(val)}`}</div>
+          </div>
+        `;
+      }).join('');
+      const unlockedCount = entry.thresholds.filter((threshold) => val >= threshold).length;
+      return `
+        <details class="achievement-panel" data-achievement-scope="business" data-achievement-key="${entry.key}" ${isOpen ? 'open' : ''}>
+          <summary class="achievement-panel__summary">
+            <div>
+              <strong>${entry.label}</strong>
+              <span>Уровень ${formatAchievementNumber(val)}</span>
+            </div>
+            <span class="achievement-accordion__hint">${unlockedCount}/${entry.thresholds.length} целей</span>
+          </summary>
+          <div class="achievement-panel__content">
+            ${rows}
+          </div>
+        </details>
+      `;
+    }).join('');
+
+    const totalUnlocked = BUSINESS_ACHIEVEMENTS.reduce((sum, entry) => {
+      const parts = entry.stateKey.split('.');
+      const val = Math.max(0, Number(parts.reduce((o, k) => o?.[k], currentState)) || 0);
+      return sum + entry.thresholds.filter((threshold) => val >= threshold).length;
+    }, 0);
+    const totalTargets = BUSINESS_ACHIEVEMENTS.reduce((sum, entry) => sum + entry.thresholds.length, 0);
+
+    return `
+      <div class="achievement-summary">
+        <div class="profile-card">
+          <span>Бизнес достижений</span>
+          <strong>${totalUnlocked}/${totalTargets}</strong>
+        </div>
+      </div>
+      ${sections}
+    `;
+  } catch (error) {
+    console.error('Не удалось отрендерить renderBusinessAchievements', error);
+    return '<div class="social-note">Достижения временно недоступны. Попробуй открыть их ещё раз.</div>';
+  }
+}
+
 function renderEconomyAchievements() {
   try {
       const totals = currentState?.economyTotals || {};
@@ -756,6 +819,63 @@ function renderEconomyAchievements() {
   }
 }
 
+function renderMapAchievements() {
+  try {
+    const sections = MAP_ACHIEVEMENTS.map((entry) => {
+      const val = Math.max(0, Number(currentState?.[entry.stateKey]) || 0);
+      const isOpen = getAchievementAccordionOpen('map', entry.key);
+      const rows = MAP_PASS_ACHIEVEMENT_THRESHOLDS.map((threshold) => {
+        const unlocked = val >= threshold;
+        const percent = Math.max(0, Math.min(100, (Math.min(threshold, val) / threshold) * 100));
+        return `
+          <div class="achievement-step ${unlocked ? 'is-done' : ''}">
+            <div class="achievement-step__head">
+              <strong>${threshold} прохождений</strong>
+              <span>${unlocked ? 'Выполнено' : `${formatAchievementNumber(Math.max(0, threshold - val))} осталось`}</span>
+            </div>
+            <div class="achievement-step__bar"><div style="width: ${percent}%"></div></div>
+            <div class="achievement-step__state">${unlocked ? `Всего прохождений: ${formatAchievementNumber(val)}` : `Сейчас прохождений: ${formatAchievementNumber(val)}`}</div>
+          </div>
+        `;
+      }).join('');
+      const unlockedCount = MAP_PASS_ACHIEVEMENT_THRESHOLDS.filter((threshold) => val >= threshold).length;
+      return `
+        <details class="achievement-panel" data-achievement-scope="map" data-achievement-key="${entry.key}" ${isOpen ? 'open' : ''}>
+          <summary class="achievement-panel__summary">
+            <div>
+              <strong>${entry.label}</strong>
+              <span>${formatAchievementNumber(val)} прохождений</span>
+            </div>
+            <span class="achievement-accordion__hint">${unlockedCount}/${MAP_PASS_ACHIEVEMENT_THRESHOLDS.length} целей</span>
+          </summary>
+          <div class="achievement-panel__content">
+            ${rows}
+          </div>
+        </details>
+      `;
+    }).join('');
+
+    const totalUnlocked = MAP_ACHIEVEMENTS.reduce((sum, entry) => {
+      const val = Math.max(0, Number(currentState?.[entry.stateKey]) || 0);
+      return sum + MAP_PASS_ACHIEVEMENT_THRESHOLDS.filter((threshold) => val >= threshold).length;
+    }, 0);
+    const totalTargets = MAP_ACHIEVEMENTS.length * MAP_PASS_ACHIEVEMENT_THRESHOLDS.length;
+
+    return `
+      <div class="achievement-summary">
+        <div class="profile-card">
+          <span>Карта достижений</span>
+          <strong>${totalUnlocked}/${totalTargets}</strong>
+        </div>
+      </div>
+      ${sections}
+    `;
+  } catch (error) {
+    console.error('Не удалось отрендерить renderMapAchievements', error);
+    return '<div class="social-note">Достижения временно недоступны. Попробуй открыть их ещё раз.</div>';
+  }
+}
+
 function bindAchievementsModalEvents() {
   document.querySelectorAll('[data-achievements-close]').forEach((btn) => {
     btn.onclick = closeAchievementsModal;
@@ -788,7 +908,7 @@ function renderAchievementsModal() {
     if (body) {
       captureAchievementsAccordionState();
     }
-    const titles = { battle: 'Битвы', economy: 'Экономика' };
+    const titles = { battle: 'Битвы', economy: 'Экономика', business: 'Бизнес', map: 'Карта' };
     if (title) {
       title.textContent = titles[achievementsModalTab] || 'Достижения';
     }
@@ -802,6 +922,10 @@ function renderAchievementsModal() {
         body.innerHTML = renderBattleAchievements();
       } else if (achievementsModalTab === 'economy') {
         body.innerHTML = renderEconomyAchievements();
+      } else if (achievementsModalTab === 'business') {
+        body.innerHTML = renderBusinessAchievements();
+      } else if (achievementsModalTab === 'map') {
+        body.innerHTML = renderMapAchievements();
       } else {
         body.innerHTML = '<div class="social-note">Раздел в разработке.</div>';
       }

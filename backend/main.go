@@ -153,6 +153,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	advanceEnergy(lease.state)
 	advanceBusiness(lease.state)
 	advanceBossTimers(lease.state)
+	advanceSkinShop(lease.state)
 	if err := lease.commit(); err != nil {
 		writeJSON(w, ActionResponse{OK: false, Error: err.Error()})
 		return
@@ -227,6 +228,7 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	advanceEnergy(lease.state)
 	advanceBusiness(lease.state)
 	advanceBossTimers(lease.state)
+	advanceSkinShop(lease.state)
 	lease.state.UpdatedAt = time.Now()
 
 	switch req.Action {
@@ -269,6 +271,10 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		err = s.selectTalentClass(lease.state, req.Value)
 	case "buy_talent":
 		err = s.buyTalentRank(lease.state, req.Slot)
+	case "buy_skin_shop_item":
+		err = buySkinShopItem(lease.state, req.ItemID)
+	case "refresh_skin_shop":
+		err = manualRefreshSkinShop(lease.state)
 	case "exchange_currency", "exchange_wheat_to_seeds", "exchange_carrot_to_wheat", "exchange_cucumber_to_carrot", "exchange_apple_to_cucumber", "exchange_kormik_to_apple":
 		if req.Action == "exchange_currency" {
 			err = s.exchangeCurrency(lease.state, req.From, req.To)
@@ -2018,6 +2024,14 @@ func (s *Server) adventureStep(gs *GameState, nodeID string) error {
 		}
 		if allDone {
 			gs.LocationPasses++
+			switch normalizeAdventureMapID(mapID) {
+			case "desert":
+				gs.DesertPasses++
+			case "cave":
+				gs.CavePasses++
+			default:
+				gs.FieldPasses++
+			}
 			if gs.AdventureClears == nil {
 				gs.AdventureClears = map[string]bool{}
 			}
@@ -2679,6 +2693,28 @@ func attackBonusDamage(gs *GameState, attackType string) int {
 			}
 		}
 	}
+	// Набор механиков (adjustable_wrench + mehanic_costume + mehanic_but + mehanic_cup): +10 iron_claw, +5 belly_punch, +10 eye_lasers
+	if gs.Player.Inventory["adjustable_wrench"] > 0 && gs.Player.Inventory["mehanic_costume"] > 0 && gs.Player.Inventory["mehanic_but"] > 0 && gs.Player.Inventory["mehanic_cup"] > 0 {
+		switch attackType {
+		case "iron_claw":
+			bonus += 10
+		case "belly_punch":
+			bonus += 5
+		case "eye_lasers":
+			bonus += 10
+		}
+	}
+	// Набор мясников (cleaver + mustache + meat_cup + meat_apron): +10 scratch, +20 iron_claw, +10 bite
+	if gs.Player.Inventory["cleaver"] > 0 && gs.Player.Inventory["mustache"] > 0 && gs.Player.Inventory["meat_cup"] > 0 && gs.Player.Inventory["meat_apron"] > 0 {
+		switch attackType {
+		case "scratch":
+			bonus += 10
+		case "iron_claw":
+			bonus += 20
+		case "bite":
+			bonus += 10
+		}
+	}
 	bonus += talentAttackBonusDamage(gs, attackType)
 	return bonus
 }
@@ -3157,6 +3193,9 @@ func newGameState() GameState {
 		BossKillsToday:          0,
 		BossKillsDay:            bossKillDayKey(),
 		LocationPasses:          0,
+		FieldPasses:             0,
+		DesertPasses:            0,
+		CavePasses:              0,
 		BossDamageDay:           0,
 		BossDamageDayKey:        damageDayKey(time.Now()),
 		BossDamageWeek:          0,
@@ -3166,6 +3205,8 @@ func newGameState() GameState {
 		BossDamageAllTime:       0,
 		BossBattleDamageCurrent: 0,
 		BossBattleDamageBest:    0,
+		SkinShopItems:           []string{},
+		SkinShopLastRefreshAt:   time.Time{},
 		Log:                     []string{"Добро пожаловать в поле хомяков."},
 		UpdatedAt:               time.Now(),
 		LastEnergyRegenAt:       time.Now(),
@@ -3217,6 +3258,127 @@ func normalizeAdventureMapID(value string) string {
 		return "cave"
 	default:
 		return "field"
+	}
+}
+
+var skinShopPool = []string{
+	"adjustable_wrench", "mehanic_costume", "mehanic_but", "mehanic_cup",
+	"cleaver", "mustache", "meat_cup", "meat_apron",
+}
+
+const skinShopSize = 3
+const skinShopRefreshInterval = 24 * time.Hour
+
+func refreshSkinShop(gs *GameState) {
+	if gs == nil {
+		return
+	}
+	pool := make([]string, len(skinShopPool))
+	copy(pool, skinShopPool)
+	// Fisher-Yates shuffle
+	for i := len(pool) - 1; i > 0; i-- {
+		j, _ := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+		pool[i], pool[j.Int64()] = pool[j.Int64()], pool[i]
+	}
+	n := skinShopSize
+	if n > len(pool) {
+		n = len(pool)
+	}
+	gs.SkinShopItems = pool[:n]
+	gs.SkinShopLastRefreshAt = time.Now()
+}
+
+func advanceSkinShop(gs *GameState) {
+	if gs == nil {
+		return
+	}
+	if len(gs.SkinShopItems) == 0 {
+		refreshSkinShop(gs)
+		return
+	}
+	if gs.SkinShopLastRefreshAt.IsZero() {
+		gs.SkinShopLastRefreshAt = time.Now()
+		return
+	}
+	if time.Since(gs.SkinShopLastRefreshAt) >= skinShopRefreshInterval {
+		refreshSkinShop(gs)
+	}
+}
+
+func buySkinShopItem(gs *GameState, itemID string) error {
+	if gs == nil {
+		return fmt.Errorf("игровое состояние недоступно")
+	}
+	found := false
+	for _, id := range gs.SkinShopItems {
+		if id == itemID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("скин не найден в магазине")
+	}
+	if gs.Player.Inventory == nil {
+		gs.Player.Inventory = map[string]int{}
+	}
+	if gs.Player.Inventory[itemID] > 0 {
+		return fmt.Errorf("скин уже куплен")
+	}
+	price := skinShopItemPrice(itemID)
+	if gs.Player.Currency[Seeds] < price {
+		return fmt.Errorf("не хватает семечек")
+	}
+	gs.Player.Currency[Seeds] -= price
+	gs.Player.Inventory[itemID] = 1
+	appendLog(gs, fmt.Sprintf("Куплен скин из магазина: %s.", skinShopItemName(itemID)))
+	return nil
+}
+
+func manualRefreshSkinShop(gs *GameState) error {
+	if gs == nil {
+		return fmt.Errorf("игровое состояние недоступно")
+	}
+	if gs.Player.Currency[Cucumber] < 1 {
+		return fmt.Errorf("не хватает огурцов")
+	}
+	gs.Player.Currency[Cucumber] -= 1
+	refreshSkinShop(gs)
+	appendLog(gs, "Магазин скинов обновлён.")
+	return nil
+}
+
+func skinShopItemPrice(itemID string) int {
+	switch itemID {
+	case "adjustable_wrench", "mehanic_costume", "mehanic_but", "mehanic_cup":
+		return 1000
+	case "cleaver", "mustache", "meat_cup", "meat_apron":
+		return 2500
+	default:
+		return 0
+	}
+}
+
+func skinShopItemName(itemID string) string {
+	switch itemID {
+	case "adjustable_wrench":
+		return "Разводной ключ"
+	case "mehanic_costume":
+		return "Механический костюм"
+	case "mehanic_but":
+		return "Механические ботинки"
+	case "mehanic_cup":
+		return "Механичная кружка"
+	case "cleaver":
+		return "Тесак"
+	case "mustache":
+		return "Усы"
+	case "meat_cup":
+		return "Мясная кружка"
+	case "meat_apron":
+		return "Мясной фартук"
+	default:
+		return itemID
 	}
 }
 
@@ -4481,6 +4643,38 @@ func countUnlockedAchievements(gs *GameState) int {
 			if total >= t {
 				count++
 			}
+		}
+	}
+
+	businessCoinThresholds := []int{1, 5, 10, 25, 50, 100}
+	for _, t := range businessCoinThresholds {
+		if gs.Player.CoinLevel >= t {
+			count++
+		}
+	}
+	businessWheelThresholds := []int{1, 5, 10, 25, 100}
+	for _, t := range businessWheelThresholds {
+		if gs.Business.WheelLevel >= t {
+			count++
+		}
+	}
+	businessShopThresholds := []int{1, 5, 10, 25, 100}
+	for _, t := range businessShopThresholds {
+		if gs.Business.ShopLevel >= t {
+			count++
+		}
+	}
+
+	mapPassThresholds := []int{1, 2, 5, 10, 15, 25, 50, 100}
+	for _, t := range mapPassThresholds {
+		if gs.FieldPasses >= t {
+			count++
+		}
+		if gs.DesertPasses >= t {
+			count++
+		}
+		if gs.CavePasses >= t {
+			count++
 		}
 	}
 

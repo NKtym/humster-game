@@ -265,6 +265,20 @@ function skinBonusDamage(state, attackType) {
       }
     }
   }
+  // Набор механиков
+  const ownedMehanic = ['adjustable_wrench', 'mehanic_costume', 'mehanic_but', 'mehanic_cup'].every((id) => (state?.player?.inventory?.[id] || 0) > 0);
+  if (ownedMehanic) {
+    if (attackType === 'iron_claw') bonus += 10;
+    if (attackType === 'belly_punch') bonus += 5;
+    if (attackType === 'eye_lasers') bonus += 10;
+  }
+  // Набор мясников
+  const ownedMeat = ['cleaver', 'mustache', 'meat_cup', 'meat_apron'].every((id) => (state?.player?.inventory?.[id] || 0) > 0);
+  if (ownedMeat) {
+    if (attackType === 'scratch') bonus += 10;
+    if (attackType === 'iron_claw') bonus += 20;
+    if (attackType === 'bite') bonus += 10;
+  }
   return bonus;
 }
 
@@ -1556,6 +1570,14 @@ function render() {
       ? `Откроется с ${COIN_GAME_UNLOCK_LEVEL} уровня`
       : 'Открыть монетку';
   }
+  const skinshopPanelButton = $('#btn-skinshop-panel');
+  if (skinshopPanelButton) {
+    const playerLevel = Math.max(1, Number(currentState?.player?.level) || 1);
+    skinshopPanelButton.disabled = playerLevel < SKIN_SHOP_UNLOCK_LEVEL;
+    skinshopPanelButton.title = skinshopPanelButton.disabled
+      ? `Откроется с ${SKIN_SHOP_UNLOCK_LEVEL} уровня`
+      : 'Открыть магазин скинов';
+  }
   updateScene(currentState);
   updateFriendsBadge();
   if (isAuthenticated) {
@@ -1596,6 +1618,7 @@ function render() {
   const coin = $('#coin-screen');
   const edit = $('#edit-screen');
   const talents = $('#talents-screen');
+  const skinshop = $('#skinshop-screen');
 
   if (auth) auth.hidden = isAuthenticated;
   if (!isAuthenticated) {
@@ -1610,6 +1633,7 @@ function render() {
     if (coinPanelButton) coinPanelButton.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
+    if (skinshop) skinshop.hidden = true;
     return;
   }
 
@@ -1714,11 +1738,25 @@ function render() {
     if (coin) coin.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
+    if (skinshop) skinshop.hidden = true;
     const lootbox = $('#lootbox-screen');
     if (lootbox) lootbox.hidden = false;
     if (lootBoxUI.phase === 'ready') {
       renderLootBoxScreen();
     }
+  } else if (view === 'skinshop') {
+    main.hidden = true;
+    battle.hidden = true;
+    adventure.hidden = true;
+    business.hidden = true;
+    exchange.hidden = true;
+    if (coin) coin.hidden = true;
+    edit.hidden = true;
+    if (talents) talents.hidden = true;
+    const lootbox = $('#lootbox-screen');
+    if (lootbox) lootbox.hidden = true;
+    if (skinshop) skinshop.hidden = false;
+    renderSkinShopScreen();
   } else {
     battle.hidden = true;
     adventureSelect.hidden = true;
@@ -1865,6 +1903,14 @@ function initTopButtons() {
     };
   }
 
+  const skinshopBackButton = $('#btn-skinshop-back');
+  if (skinshopBackButton) {
+    skinshopBackButton.onclick = () => {
+      setView('main');
+      render();
+    };
+  }
+
   const businessPanelButton = $('#btn-business-panel');
   if (businessPanelButton) {
     businessPanelButton.disabled = Number(currentState?.player?.level || 1) < BUSINESS_UNLOCK_LEVEL;
@@ -1904,6 +1950,16 @@ function initTopButtons() {
   if (lootboxPanelButton) {
     lootboxPanelButton.onclick = () => {
       setView('lootbox');
+      render();
+    };
+  }
+
+  const skinshopPanelButton = $('#btn-skinshop-panel');
+  if (skinshopPanelButton) {
+    skinshopPanelButton.disabled = Number(currentState?.player?.level || 1) < SKIN_SHOP_UNLOCK_LEVEL;
+    skinshopPanelButton.onclick = () => {
+      if (skinshopPanelButton.disabled) return;
+      setView('skinshop');
       render();
     };
   }
@@ -2291,18 +2347,145 @@ function showLootBoxRewards(rewards) {
   }
 }
 
+function renderSkinShopScreen() {
+  const body = $('#skinshop-screen-body');
+  if (!body) return;
+
+  const seeds = Math.max(0, Number(currentState?.player?.currency?.seeds) || 0);
+  const cucumbers = Math.max(0, Number(currentState?.player?.currency?.cucumber) || 0);
+  const inventory = currentState?.player?.inventory || {};
+  const shopItems = currentState?.skinShopItems || [];
+  const lastRefresh = currentState?.skinShopLastRefreshAt || '';
+
+  let refreshCountdown = '';
+  if (lastRefresh) {
+    const elapsed = Date.now() - new Date(lastRefresh).getTime();
+    const remaining = SKIN_SHOP_REFRESH_MS - elapsed;
+    if (remaining > 0) {
+      const hours = Math.floor(remaining / 3600000);
+      const mins = Math.floor((remaining % 3600000) / 60000);
+      refreshCountdown = `${hours}ч ${mins}м`;
+    }
+  }
+
+  const itemsHtml = shopItems.map((itemId) => {
+    const item = SKIN_SHOP_ITEMS[itemId];
+    if (!item) return '';
+    const owned = (inventory[itemId] || 0) > 0;
+    const canAfford = seeds >= item.price;
+    return `
+      <div class="skinshop-card ${owned ? 'is-owned' : ''}">
+        <img class="skinshop-card__img" src="${item.img}" alt="${item.name}" />
+        <div class="skinshop-card__body">
+          <strong>${item.name}</strong>
+          <span>${owned ? 'Куплено' : `${item.price} семечек`}</span>
+          ${!owned ? `<button class="primary skinshop-buy-btn" data-skin-id="${itemId}" ${!canAfford ? 'disabled' : ''}>Купить</button>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const setsHtml = SKIN_SHOP_SETS.map((setDef) => {
+    const allOwned = setDef.items.every((id) => (inventory[id] || 0) > 0);
+    const ownedCount = setDef.items.filter((id) => (inventory[id] || 0) > 0).length;
+    const itemsList = setDef.items.map((id) => {
+      const item = SKIN_SHOP_ITEMS[id];
+      const owned = (inventory[id] || 0) > 0;
+      return `<span class="skinshop-set-item ${owned ? 'is-owned' : ''}">${item ? item.name : id}</span>`;
+    }).join('');
+    return `
+      <div class="skinshop-set ${allOwned ? 'is-complete' : ''}">
+        <div class="skinshop-set__head">
+          <strong>${setDef.name}</strong>
+          <span>${ownedCount}/${setDef.items.length}</span>
+        </div>
+        <div class="skinshop-set__items">${itemsList}</div>
+        <div class="skinshop-set__bonuses">
+          ${allOwned ? '<span class="skinshop-set__bonus-active">Бонус активен!</span>' : ''}
+          ${setDef.bonuses.map((b) => `<span>${b}</span>`).join('')}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  body.innerHTML = `
+    <div class="skinshop-layout">
+      <section class="skinshop-hero">
+        <img class="skinshop-hero__img" src="/assets/shop/menu.png" alt="Продавец" />
+      </section>
+      <section class="skinshop-panel">
+        <div class="skinshop-stats">
+          <div class="coin-stat"><span>Семечки</span><strong>${formatAchievementNumber(seeds)}</strong></div>
+          <div class="coin-stat"><span>Огурцы</span><strong>${formatAchievementNumber(cucumbers)}</strong></div>
+        </div>
+        <div class="skinshop-refresh">
+          <span>Обновление через: ${refreshCountdown || 'скоро'}</span>
+          <button id="btn-skinshop-refresh" class="ghost" type="button" ${cucumbers < 1 ? 'disabled' : ''}>Обновить за 1 огурец</button>
+        </div>
+        <div class="skinshop-items">${itemsHtml || '<div class="social-note">Магазин пуст. Обновите позже.</div>'}</div>
+        <div class="skinshop-sets">
+          <h3>Наборы скинов</h3>
+          ${setsHtml}
+        </div>
+      </section>
+    </div>
+  `;
+
+  body.querySelectorAll('.skinshop-buy-btn').forEach((btn) => {
+    btn.onclick = async () => {
+      const skinId = btn.getAttribute('data-skin-id');
+      if (!skinId) return;
+      btn.disabled = true;
+      const response = await syncAction('buy_skin_shop_item', { itemId: skinId });
+      if (response && response.ok) {
+        render();
+      } else {
+        btn.disabled = false;
+      }
+    };
+  });
+
+  const refreshBtn = document.getElementById('btn-skinshop-refresh');
+  if (refreshBtn) {
+    refreshBtn.onclick = async () => {
+      refreshBtn.disabled = true;
+      const response = await syncAction('refresh_skin_shop', {});
+      if (response && response.ok) {
+        render();
+      } else {
+        refreshBtn.disabled = false;
+      }
+    };
+  }
+}
+
 async function openLootBox() {
   const body = $('#lootbox-screen-body');
   if (!body) return;
 
-  body.innerHTML = '<div class="lootbox-lock" style="text-align:center;padding:40px;font-size:18px;">Открываем бокс...</div>';
+  lootBoxUI.phase = 'playing';
+  body.innerHTML = `
+    <div class="lootbox-video-wrap" style="text-align:center;">
+      <video id="lootbox-video" src="${LOOTBOX_ART.video}" autoplay muted playsinline
+        style="max-width:100%;max-height:60vh;border-radius:12px;"></video>
+    </div>`;
 
-  const response = await fetch(apiUrl('/action'), {
+  const responsePromise = fetch(apiUrl('/action'), {
     method: 'POST',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ action: 'open_lootbox' }),
   });
-  const data = await response.json().catch(() => null);
+
+  const video = document.getElementById('lootbox-video');
+  if (video) {
+    video.play().catch(() => {});
+    await new Promise((resolve) => {
+      video.onended = resolve;
+      video.onerror = resolve;
+    });
+  }
+
+  const data = await responsePromise.then((r) => r.json().catch(() => null));
 
   if (data && data.state) {
     currentState = normalizeState(data.state);

@@ -120,6 +120,11 @@ type GameState struct {
 	BossKillsToday          int                        `json:"bossKillsToday"`
 	BossKillsDay            string                     `json:"bossKillsDay"`
 	LocationPasses          int                        `json:"locationPasses"`
+	FieldPasses             int                        `json:"fieldPasses"`
+	DesertPasses            int                        `json:"desertPasses"`
+	CavePasses              int                        `json:"cavePasses"`
+	SkinShopItems           []string                   `json:"skinShopItems"`
+	SkinShopLastRefreshAt   time.Time                  `json:"skinShopLastRefreshAt"`
 	BossDamageDay           int                        `json:"bossDamageDay"`
 	BossDamageDayKey        string                     `json:"bossDamageDayKey"`
 	BossDamageWeek          int                        `json:"bossDamageWeek"`

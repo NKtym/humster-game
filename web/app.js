@@ -57,6 +57,57 @@ const ECONOMY_ACHIEVEMENT_THRESHOLDS = (() => {
 
 const LEVEL_ACHIEVEMENT_THRESHOLDS = [2, 6, 12, 18, 25, 50, 100, 200, 500, 1000];
 
+const BUSINESS_ACHIEVEMENTS = [
+  { key: 'coinLevel', label: 'Уровень монетки', stateKey: 'player.coinLevel', thresholds: [1, 5, 10, 25, 50, 100] },
+  { key: 'wheelLevel', label: 'Уровень колёсика', stateKey: 'business.wheelLevel', thresholds: [1, 5, 10, 25, 100] },
+  { key: 'shopLevel', label: 'Уровень магазина', stateKey: 'business.shopLevel', thresholds: [1, 5, 10, 25, 100] },
+];
+
+const MAP_PASS_ACHIEVEMENT_THRESHOLDS = [1, 2, 5, 10, 15, 25, 50, 100];
+
+const MAP_ACHIEVEMENTS = [
+  { key: 'field', label: 'Поле', stateKey: 'fieldPasses' },
+  { key: 'desert', label: 'Пустыня', stateKey: 'desertPasses' },
+  { key: 'cave', label: 'Пещера', stateKey: 'cavePasses' },
+];
+
+const SKIN_SHOP_UNLOCK_LEVEL = 8;
+const SKIN_SHOP_REFRESH_MS = 24 * 60 * 60 * 1000;
+
+const SKIN_SHOP_ITEMS = {
+  adjustable_wrench: { name: 'Разводной ключ', price: 1000, img: '/assets/characters/hamster/layers/adjustable_wrench.png' },
+  mehanic_costume: { name: 'Механический костюм', price: 1000, img: '/assets/characters/hamster/layers/mehanic_costume.png' },
+  mehanic_but: { name: 'Механические ботинки', price: 1000, img: '/assets/characters/hamster/layers/mehanic_but.png' },
+  mehanic_cup: { name: 'Механичная кружка', price: 1000, img: '/assets/characters/hamster/layers/mehanic_cup.png' },
+  cleaver: { name: 'Тесак', price: 2500, img: '/assets/characters/hamster/layers/cleaver.png' },
+  mustache: { name: 'Усы', price: 2500, img: '/assets/characters/hamster/layers/mustache.png' },
+  meat_cup: { name: 'Мясная кружка', price: 2500, img: '/assets/characters/hamster/layers/meat_cup.png' },
+  meat_apron: { name: 'Мясной фартук', price: 2500, img: '/assets/characters/hamster/layers/meat_apron.png' },
+};
+
+const SKIN_SHOP_SETS = [
+  {
+    name: 'Набор механиков',
+    items: ['adjustable_wrench', 'mehanic_costume', 'mehanic_but', 'mehanic_cup'],
+    priceEach: 1000,
+    bonuses: [
+      '+10 к урону железный коготь',
+      '+5 к удару пузиком',
+      '+10 к лазерам из глаз',
+    ],
+  },
+  {
+    name: 'Набор мясников',
+    items: ['cleaver', 'mustache', 'meat_cup', 'meat_apron'],
+    priceEach: 2500,
+    bonuses: [
+      '+10 к царапанью',
+      '+20 к урону железный коготь',
+      '+10 к укусу',
+    ],
+  },
+];
+
 const LEADERBOARD_PERIODS = [
   { key: 'day', label: 'За день', rewardText: '1 место: 50 семечек, 5 пшеницы и 1 морковь' },
   { key: 'week', label: 'За неделю', rewardText: '1 место: 200 семечек, 15 пшеницы, 6 моркови и 2 огурца' },
@@ -73,11 +124,11 @@ const VIEW_KEY = 'humster_view';
 
 function getSavedView() {
   const saved = localStorage.getItem(VIEW_KEY);
-  return ['main', 'battle', 'adventure', 'adventure-select', 'business', 'exchange', 'coin', 'edit', 'talents', 'lootbox'].includes(saved) ? saved : 'main';
+  return ['main', 'battle', 'adventure', 'adventure-select', 'business', 'exchange', 'coin', 'edit', 'talents', 'lootbox', 'skinshop'].includes(saved) ? saved : 'main';
 }
 
 function setView(nextView) {
-  view = ['main', 'battle', 'adventure', 'adventure-select', 'business', 'exchange', 'coin', 'edit', 'talents', 'lootbox'].includes(nextView) ? nextView : 'main';
+  view = ['main', 'battle', 'adventure', 'adventure-select', 'business', 'exchange', 'coin', 'edit', 'talents', 'lootbox', 'skinshop'].includes(nextView) ? nextView : 'main';
   localStorage.setItem(VIEW_KEY, view);
 }
 
@@ -147,12 +198,16 @@ const APPEARANCE_OPTIONS = {
     { id: 'stick', name: 'Палка', img: '/assets/characters/hamster/layers/stick.png' },
     { id: 'stone', name: 'Камень', img: '/assets/characters/hamster/layers/stone.png' },
     { id: 'prize', name: 'Приз', img: '/assets/characters/hamster/layers/prize.png' },
+    { id: 'cleaver', name: 'Тесак', img: '/assets/characters/hamster/layers/cleaver.png' },
+    { id: 'adjustable_wrench', name: 'Разводной ключ', img: '/assets/characters/hamster/layers/adjustable_wrench.png' },
   ],
   headwear: [
     { id: 'none', name: 'Без кепки' },
     { id: 'cap', name: 'Кепка' },
     { id: 'wreath', name: 'Венок', img: '/assets/characters/hamster/layers/wreath.png' },
     { id: 'festive_cap', name: 'Праздничная кепка', img: '/assets/characters/hamster/layers/festive_cap.png' },
+    { id: 'mehanic_cup', name: 'Механичная кружка', img: '/assets/characters/hamster/layers/mehanic_cup.png' },
+    { id: 'meat_cup', name: 'Мясная кружка', img: '/assets/characters/hamster/layers/meat_cup.png' },
   ],
   glasses: [
     { id: 'none', name: 'Без очков' },
@@ -163,16 +218,20 @@ const APPEARANCE_OPTIONS = {
     { id: 'scarf', name: 'Шарфик' },
     { id: 'cigarette', name: 'Сигарета', img: '/assets/characters/hamster/layers/cigarette.png' },
     { id: 'festive_tiugue', name: 'Праздничная маска', img: '/assets/characters/hamster/layers/festive_tiugue.png' },
+    { id: 'mustache', name: 'Усы', img: '/assets/characters/hamster/layers/mustache.png' },
   ],
   body: [
     { id: 'none', name: 'Без одежды' },
     { id: 'camouflage_jacket', name: 'Камуфляжная куртка', img: '/assets/characters/hamster/layers/camouflage_jacket.png' },
     { id: 't-shirt', name: 'Футболка', img: '/assets/characters/hamster/layers/t-shirt.png' },
+    { id: 'mehanic_costume', name: 'Механический костюм', img: '/assets/characters/hamster/layers/mehanic_costume.png' },
+    { id: 'meat_apron', name: 'Мясной фартук', img: '/assets/characters/hamster/layers/meat_apron.png' },
   ],
   shoes: [
     { id: 'none', name: 'Без обуви' },
     { id: 'camouflage_sneakers', name: 'Камуфляжные кроссовки', img: '/assets/characters/hamster/layers/camouflage_sneakers.png' },
     { id: 'vans', name: 'Vans', img: '/assets/characters/hamster/layers/vans.png' },
+    { id: 'mehanic_but', name: 'Механические ботинки', img: '/assets/characters/hamster/layers/mehanic_but.png' },
   ],
 };
 
@@ -543,6 +602,11 @@ const DEFAULT_STATE = {
   activeBossId: '',
   selectedBossMode: '',
   locationPasses: 0,
+  fieldPasses: 0,
+  desertPasses: 0,
+  cavePasses: 0,
+  skinShopItems: [],
+  skinShopLastRefreshAt: '',
   bossDamageDay: 0,
   bossDamageDayKey: damageDayKey(),
   bossDamageWeek: 0,
@@ -891,6 +955,9 @@ function normalizeState(state) {
     wheelLastClaimAt: cleanTimestamp(state?.business?.wheelLastClaimAt || next.business?.wheelLastClaimAt || ''),
   };
 
+  next.skinShopItems = Array.isArray(state?.skinShopItems) ? state.skinShopItems : [];
+  next.skinShopLastRefreshAt = cleanTimestamp(state?.skinShopLastRefreshAt || '');
+
   const rawAdventureMaps = state?.adventureMaps && typeof state.adventureMaps === 'object' ? state.adventureMaps : {};
   next.adventureMaps = {
     field: mergeAdventure(rawAdventureMaps.field || state.adventure || [], ADVENTURE_ROUTE_DEFS.field),
@@ -1225,6 +1292,8 @@ let achievementsModalTab = 'battle';
 let achievementsAccordionState = {
   battle: true,
   economy: {},
+  business: {},
+  map: {},
 };
 let leaderboardsData = null;
 let leaderboardsLoading = false;
@@ -1385,7 +1454,17 @@ function countUnlockedAchievements(state) {
     return sum + unlocked;
   }, 0);
 
-  return battleDamageUnlocked + speedUnlocked + bossPassUnlocked + talentSpentUnlocked + levelUnlocked + economyUnlocked;
+  const businessUnlocked = BUSINESS_ACHIEVEMENTS.reduce((sum, entry) => {
+    const val = Math.max(0, Number(entry.stateKey.split('.').reduce((o, k) => o?.[k], state)) || 0);
+    return sum + entry.thresholds.filter((threshold) => val >= threshold).length;
+  }, 0);
+
+  const mapUnlocked = MAP_ACHIEVEMENTS.reduce((sum, entry) => {
+    const val = Math.max(0, Number(state?.[entry.stateKey]) || 0);
+    return sum + MAP_PASS_ACHIEVEMENT_THRESHOLDS.filter((threshold) => val >= threshold).length;
+  }, 0);
+
+  return battleDamageUnlocked + speedUnlocked + bossPassUnlocked + talentSpentUnlocked + levelUnlocked + economyUnlocked + businessUnlocked + mapUnlocked;
 }
 
 function renderProfileSummary(profile) {
