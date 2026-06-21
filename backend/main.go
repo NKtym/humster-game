@@ -365,6 +365,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	state := newGameState()
 	state.Player.Name = login
+	advanceSkinShop(&state)
 	if err := s.saveState(ctx, userID, state); err != nil {
 		writeJSON(w, AuthResponse{OK: false, Error: "не удалось сохранить прогресс"})
 		return
@@ -416,6 +417,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if state.Player.Name == "" {
 		state.Player.Name = login
 	}
+	advanceSkinShop(&state)
 	if err := s.saveState(ctx, user.ID, state); err != nil {
 		writeJSON(w, AuthResponse{OK: false, Error: "не удалось сохранить прогресс"})
 		return
@@ -451,6 +453,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, AuthResponse{OK: false, Error: "не удалось загрузить прогресс"})
 		return
 	}
+	advanceSkinShop(&state)
 	writeJSON(w, AuthResponse{OK: true, User: login, State: copyState(state)})
 }
 
