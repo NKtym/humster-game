@@ -71,7 +71,7 @@ const MAP_ACHIEVEMENTS = [
   { key: 'cave', label: 'Пещера', stateKey: 'cavePasses' },
 ];
 
-const SKIN_SHOP_UNLOCK_LEVEL = 8;
+const SKIN_SHOP_UNLOCK_LEVEL = 1;
 const SKIN_SHOP_REFRESH_MS = 24 * 60 * 60 * 1000;
 
 const SKIN_SHOP_ITEMS = {

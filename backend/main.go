@@ -194,6 +194,7 @@ func (s *Server) handleName(w http.ResponseWriter, r *http.Request) {
 	advanceEnergy(lease.state)
 	advanceBusiness(lease.state)
 	advanceBossTimers(lease.state)
+	advanceSkinShop(lease.state)
 	lease.state.Player.Name = name
 	appendLog(lease.state, fmt.Sprintf("Теперь тебя зовут %s.", name))
 
@@ -2141,28 +2142,49 @@ func (s *Server) setAppearance(gs *GameState, slot, value string) error {
 	case "size":
 		return fmt.Errorf("изменение размера отключено")
 	case "heldItem":
-		// Special: held item 'stone' is a boss cosmetic and requires the stone_skin in inventory
 		if value == "stone" && gs.Player.Inventory["stone_skin"] <= 0 {
 			return fmt.Errorf("сначала выбей этот скин")
 		}
+		if value == "adjustable_wrench" && gs.Player.Inventory["adjustable_wrench"] <= 0 {
+			return fmt.Errorf("сначала купи этот скин в магазине")
+		}
+		if value == "cleaver" && gs.Player.Inventory["cleaver"] <= 0 {
+			return fmt.Errorf("сначала купи этот скин в магазине")
+		}
 		gs.Player.Appearance.HeldItem = value
 	case "headwear":
-		// Special: headwear 'wreath' is a boss cosmetic and requires the wreath_skin in inventory
 		if value == "wreath" && gs.Player.Inventory["wreath_skin"] <= 0 {
 			return fmt.Errorf("сначала выбей этот скин")
+		}
+		if value == "mehanic_cup" && gs.Player.Inventory["mehanic_cup"] <= 0 {
+			return fmt.Errorf("сначала купи этот скин в магазине")
+		}
+		if value == "meat_cup" && gs.Player.Inventory["meat_cup"] <= 0 {
+			return fmt.Errorf("сначала купи этот скин в магазине")
 		}
 		gs.Player.Appearance.Headwear = value
 	case "glasses":
 		gs.Player.Appearance.Glasses = value
 	case "mask":
-		// Special: mask 'cigarette' is a boss cosmetic and requires the cigarette_skin in inventory
 		if value == "cigarette" && gs.Player.Inventory["cigarette_skin"] <= 0 {
 			return fmt.Errorf("сначала выбей этот скин")
 		}
+		if value == "mustache" && gs.Player.Inventory["mustache"] <= 0 {
+			return fmt.Errorf("сначала купи этот скин в магазине")
+		}
 		gs.Player.Appearance.Mask = value
 	case "body":
+		if value == "mehanic_costume" && gs.Player.Inventory["mehanic_costume"] <= 0 {
+			return fmt.Errorf("сначала купи этот скин в магазине")
+		}
+		if value == "meat_apron" && gs.Player.Inventory["meat_apron"] <= 0 {
+			return fmt.Errorf("сначала купи этот скин в магазине")
+		}
 		gs.Player.Appearance.Body = value
 	case "shoes":
+		if value == "mehanic_but" && gs.Player.Inventory["mehanic_but"] <= 0 {
+			return fmt.Errorf("сначала купи этот скин в магазине")
+		}
 		gs.Player.Appearance.Shoes = value
 	default:
 		return fmt.Errorf("неизвестный слот")

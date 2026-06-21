@@ -570,7 +570,18 @@ function applyLocalAction(action, payload = {}) {
       const slot = payload.slot;
       const value = payload.value;
       if (!slot || !value) return;
-      if (slot === 'color' && value !== 'default' && (currentState.player.inventory?.[value] || 0) <= 0) {
+      const inv = currentState.player.inventory || {};
+      const SKIN_SHOP_LOCKED = {
+        heldItem: { adjustable_wrench: 'adjustable_wrench', cleaver: 'cleaver' },
+        headwear: { mehanic_cup: 'mehanic_cup', meat_cup: 'meat_cup' },
+        mask: { mustache: 'mustache' },
+        body: { mehanic_costume: 'mehanic_costume', meat_apron: 'meat_apron' },
+        shoes: { mehanic_but: 'mehanic_but' },
+      };
+      if (slot === 'color' && value !== 'default' && (inv[value] || 0) <= 0) {
+        return;
+      }
+      if (SKIN_SHOP_LOCKED[slot] && SKIN_SHOP_LOCKED[slot][value] && (inv[value] || 0) <= 0) {
         return;
       }
       currentState.player.appearance = {
@@ -1438,6 +1449,30 @@ function renderAppearanceOptionButton(option, slot) {
   if (slot === 'shoes' && option.id === 'vans') {
     locked = (currentState.player.inventory?.['vans_skin'] || 0) <= 0;
   }
+  if (slot === 'heldItem' && option.id === 'adjustable_wrench') {
+    locked = (currentState.player.inventory?.['adjustable_wrench'] || 0) <= 0;
+  }
+  if (slot === 'heldItem' && option.id === 'cleaver') {
+    locked = (currentState.player.inventory?.['cleaver'] || 0) <= 0;
+  }
+  if (slot === 'body' && option.id === 'mehanic_costume') {
+    locked = (currentState.player.inventory?.['mehanic_costume'] || 0) <= 0;
+  }
+  if (slot === 'body' && option.id === 'meat_apron') {
+    locked = (currentState.player.inventory?.['meat_apron'] || 0) <= 0;
+  }
+  if (slot === 'headwear' && option.id === 'mehanic_cup') {
+    locked = (currentState.player.inventory?.['mehanic_cup'] || 0) <= 0;
+  }
+  if (slot === 'headwear' && option.id === 'meat_cup') {
+    locked = (currentState.player.inventory?.['meat_cup'] || 0) <= 0;
+  }
+  if (slot === 'mask' && option.id === 'mustache') {
+    locked = (currentState.player.inventory?.['mustache'] || 0) <= 0;
+  }
+  if (slot === 'shoes' && option.id === 'mehanic_but') {
+    locked = (currentState.player.inventory?.['mehanic_but'] || 0) <= 0;
+  }
   return `
     <button type="button" class="appearance-option ${selected ? 'is-selected' : ''} ${locked ? 'is-locked' : ''}" data-appearance-slot="${slot}" data-appearance-value="${option.id}" ${locked ? 'disabled aria-disabled="true" title="Сначала выбей этот скин"' : ''}>
       <div class="appearance-option__thumb" ${thumbStyle}>${thumbImage}</div>
@@ -1637,6 +1672,8 @@ function render() {
     return;
   }
 
+  if (skinshop) skinshop.hidden = true;
+
   if (view === 'battle') {
     main.hidden = true;
     adventureSelect.hidden = true;
@@ -1738,7 +1775,6 @@ function render() {
     if (coin) coin.hidden = true;
     edit.hidden = true;
     if (talents) talents.hidden = true;
-    if (skinshop) skinshop.hidden = true;
     const lootbox = $('#lootbox-screen');
     if (lootbox) lootbox.hidden = false;
     if (lootBoxUI.phase === 'ready') {
@@ -1747,6 +1783,7 @@ function render() {
   } else if (view === 'skinshop') {
     main.hidden = true;
     battle.hidden = true;
+    adventureSelect.hidden = true;
     adventure.hidden = true;
     business.hidden = true;
     exchange.hidden = true;
@@ -2650,6 +2687,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   initBattleButtons();
   initAdventureButtons();
   initEditButtons();
+  initPanelButtons();
   setupSocialPolling();
   render();
   await loadState();
