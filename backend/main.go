@@ -283,7 +283,7 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	case "play_coin_game":
 		err = s.playCoinGame(lease.state, req.Value)
 	case "open_lootbox":
-		err = s.openLootBox(lease.state)
+		err = s.openLootBox(lease.state, req.BoxCount)
 	default:
 		err = fmt.Errorf("неизвестное действие")
 	}
@@ -1403,6 +1403,10 @@ func normalizeGameState(state *GameState) {
 	}
 	if state.Player.BoxCount < 0 {
 		state.Player.BoxCount = 0
+	}
+	expectedBoxes := countUnlockedAchievements(state) / 8
+	if expectedBoxes > state.Player.BoxCount {
+		state.Player.BoxCount = expectedBoxes
 	}
 	if state.Location == "" {
 		state.Location = defaults.Location
@@ -2799,9 +2803,12 @@ func recalcLevel(gs *GameState) {
 	}
 }
 
-func (s *Server) openLootBox(gs *GameState) error {
+func (s *Server) openLootBox(gs *GameState, clientBoxCount int) error {
 	if gs == nil {
 		return fmt.Errorf("игровое состояние недоступно")
+	}
+	if clientBoxCount > gs.Player.BoxCount {
+		gs.Player.BoxCount = clientBoxCount
 	}
 	if gs.Player.BoxCount <= 0 {
 		return fmt.Errorf("нет боксов для открытия")
@@ -2858,24 +2865,26 @@ func (s *Server) openLootBox(gs *GameState) error {
 		rewards = append(rewards, lootItem{label: fmt.Sprintf("+%d пшеницы", wheat), count: wheat})
 	}
 
-	// Special attacks: always 1-4 attacks, 50% iron_claw, 35% poison_bite, 15% eye_lasers
-	attackCount := 1 + randInt(4)
-	attackRoll := randInt(100)
-	var attackType string
-	switch {
-	case attackRoll < 50:
-		attackType = "iron_claw"
-	case attackRoll < 85:
-		attackType = "poison_bite"
-	default:
-		attackType = "eye_lasers"
+	// Special attacks: 50% chance, always 1-4 attacks, 50% iron_claw, 35% poison_bite, 15% eye_lasers
+	if randInt(100) < 50 {
+		attackCount := 1 + randInt(4)
+		attackRoll := randInt(100)
+		var attackType string
+		switch {
+		case attackRoll < 50:
+			attackType = "iron_claw"
+		case attackRoll < 85:
+			attackType = "poison_bite"
+		default:
+			attackType = "eye_lasers"
+		}
+		if gs.Player.Inventory == nil {
+			gs.Player.Inventory = map[string]int{}
+		}
+		gs.Player.Inventory[attackType] += attackCount
+		attackLabelStr := attackLabelGo(attackType)
+		rewards = append(rewards, lootItem{label: fmt.Sprintf("%dx %s", attackCount, attackLabelStr), count: attackCount})
 	}
-	if gs.Player.Inventory == nil {
-		gs.Player.Inventory = map[string]int{}
-	}
-	gs.Player.Inventory[attackType] += attackCount
-	attackLabelStr := attackLabelGo(attackType)
-	rewards = append(rewards, lootItem{label: fmt.Sprintf("%dx %s", attackCount, attackLabelStr), count: attackCount})
 
 	// Carrots: 30% chance
 	if randInt(100) < 30 {
@@ -4413,6 +4422,66 @@ func pay(balance map[Currency]int, cost map[Currency]int) {
 	for cur, amt := range cost {
 		balance[cur] -= amt
 	}
+}
+
+func countUnlockedAchievements(gs *GameState) int {
+	if gs == nil {
+		return 0
+	}
+	count := 0
+
+	battleDamageThresholds := []int{100, 500, 2500, 12500, 62500, 312500, 1562500, 2000000}
+	for _, t := range battleDamageThresholds {
+		if gs.BossBattleDamageBest >= t {
+			count++
+		}
+	}
+
+	speedBosses := []string{"rat", "lizard", "swagusinitsa", "sand_lizard", "sand_snake", "cave_centipede", "cave_bird", "cave_spider", "honey_badger"}
+	for _, bossID := range speedBosses {
+		for _, boss := range gs.Bosses {
+			if boss.ID == bossID && boss.BestClearSeconds > 0 && boss.BestClearSeconds <= 3600 {
+				count++
+				break
+			}
+		}
+	}
+
+	bossPassThresholds := []int{1, 5, 10, 25, 50, 100}
+	for _, boss := range gs.Bosses {
+		for _, t := range bossPassThresholds {
+			if boss.KillsTotal >= t {
+				count++
+			}
+		}
+	}
+
+	talentThresholds := []int{1, 10, 25, 50, 100, 150, 200}
+	for _, t := range talentThresholds {
+		if gs.Player.TalentPointsSpent >= t {
+			count++
+		}
+	}
+
+	levelThresholds := []int{2, 6, 12, 18, 25, 50, 100, 200, 500, 1000}
+	for _, t := range levelThresholds {
+		if gs.Player.Level >= t {
+			count++
+		}
+	}
+
+	economyThresholds := []int{10, 100, 1000, 10000, 100000, 1000000, 10000000}
+	economyCurrencies := []Currency{Seeds, Wheat, Carrot, Cucumber, Apple, Kormik}
+	for _, cur := range economyCurrencies {
+		total := gs.EconomyTotals[cur]
+		for _, t := range economyThresholds {
+			if total >= t {
+				count++
+			}
+		}
+	}
+
+	return count
 }
 
 func addCurrencyGain(gs *GameState, cur Currency, amount int) {

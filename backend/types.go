@@ -160,6 +160,7 @@ type ActionRequest struct {
 	Value      string `json:"value,omitempty"`
 	From       string `json:"from,omitempty"`
 	To         string `json:"to,omitempty"`
+	BoxCount   int    `json:"boxCount,omitempty"`
 }
 
 type ActionResponse struct {

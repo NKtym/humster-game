@@ -69,7 +69,6 @@ let coinGameUI = {
 
 let lootBoxUI = {
   phase: 'ready',
-  result: null,
   message: '',
 };
 
@@ -2192,11 +2191,7 @@ function renderCoinScreen() {
 }
 
 function resetLootBoxUI() {
-  lootBoxUI = {
-    phase: 'ready',
-    result: null,
-    message: '',
-  };
+  lootBoxUI = { phase: 'ready', message: '' };
 }
 
 const LOOTBOX_ART = {
@@ -2239,7 +2234,7 @@ function renderLootBoxScreen() {
         <p>${boxCount > 0 ? 'Нажимай «Открыть» и забирай награду.' : 'Пока боксов нет. Получай достижения!'}</p>
         ${lootBoxUI.message ? `<div class="coin-lock">${lootBoxUI.message}</div>` : ''}
         <div class="coin-actions">
-          <button id="btn-lootbox-open" class="primary" type="button" ${boxCount > 0 ? '' : 'disabled'}>Открыть бокс</button>
+          <button id="btn-lootbox-open" class="primary" type="button">Открыть бокс</button>
         </div>
       </section>
     </div>
@@ -2250,22 +2245,10 @@ function renderLootBoxScreen() {
   }
 }
 
-function showLootBoxVideo() {
-  const body = $('#lootbox-screen-body');
-  if (!body) return;
-  body.innerHTML = `
-    <div class="lootbox-video">
-      <div class="lootbox-video__frame">
-        <video id="lootbox-game-video" src="${LOOTBOX_ART.video}" autoplay muted playsinline preload="auto" poster="${LOOTBOX_ART.open}"></video>
-      </div>
-      <div class="lootbox-lock">Открываем бокс...</div>
-    </div>
-  `;
-}
-
 function showLootBoxRewards(rewards) {
   const body = $('#lootbox-screen-body');
   if (!body) return;
+  const boxCount = currentState.player.boxCount || 0;
   body.innerHTML = `
     <div class="lootbox-result">
       <div class="lootbox-result__image">
@@ -2284,7 +2267,7 @@ function showLootBoxRewards(rewards) {
           `).join('')}
         </div>
         <div class="coin-result__actions">
-          <button id="btn-lootbox-again" class="primary" type="button" ${(currentState.player.boxCount || 0) > 0 ? '' : 'disabled'}>Открыть ещё</button>
+          <button id="btn-lootbox-again" class="primary" type="button" ${boxCount > 0 ? '' : 'disabled'}>Открыть ещё</button>
           <button id="btn-lootbox-reset" class="ghost" type="button">Назад</button>
         </div>
       </div>
@@ -2307,43 +2290,98 @@ function showLootBoxRewards(rewards) {
 }
 
 async function openLootBox() {
-  if ((currentState.player.boxCount || 0) <= 0) {
-    lootBoxUI.message = 'Нет боксов для открытия.';
-    render();
-    return;
-  }
-  lootBoxUI.phase = 'playing';
-  lootBoxUI.result = null;
-  lootBoxUI.message = '';
+  const body = $('#lootbox-screen-body');
+  if (!body) return;
 
-  showLootBoxVideo();
+  const totalAchievements = countUnlockedAchievements(currentState);
+  const expectedBoxes = Math.floor(totalAchievements / 8);
+  currentState.player.boxCount = Math.max(currentState.player.boxCount || 0, expectedBoxes);
 
-  const video = document.getElementById('lootbox-game-video');
-  const videoPromise = new Promise((resolve) => {
-    if (!video) { resolve(); return; }
-    const done = () => { resolve(); };
-    video.onended = done;
-    video.onerror = done;
-    video.onloadeddata = () => { video.play().catch(done); };
-    video.play().catch(done);
-    setTimeout(done, 3000);
+  body.innerHTML = '<div class="lootbox-lock" style="text-align:center;padding:40px;font-size:18px;">Открываем бокс...</div>';
+
+  const response = await fetch(apiUrl('/action'), {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ action: 'open_lootbox', boxCount: currentState.player.boxCount }),
   });
+  const data = await response.json().catch(() => null);
 
-  const response = await syncAction('open_lootbox', {});
-  if (!response?.ok && !response?.data?.state) {
-    lootBoxUI.phase = 'ready';
-    lootBoxUI.message = response?.data?.error || response?.error || 'Не удалось открыть бокс.';
-    lootBoxUI.result = null;
-    render();
+  if (data && data.state) {
+    currentState = normalizeState(data.state);
+  }
+
+  if (!data || !data.ok) {
+    const errMsg = data?.error || 'Не удалось открыть бокс.';
+    body.innerHTML = `
+      <div class="lootbox-layout">
+        <section class="lootbox-panel" style="text-align:center;">
+          <div class="coin-lock">${errMsg}</div>
+          <div style="margin-top:16px;">
+            <button id="btn-lootbox-back-btn" class="ghost" type="button">Назад</button>
+          </div>
+        </section>
+      </div>`;
+    const backBtn = document.getElementById('btn-lootbox-back-btn');
+    if (backBtn) backBtn.onclick = () => { lootBoxUI.phase = 'ready'; render(); };
     return;
   }
 
-  await videoPromise;
+  let rewards = data.state?.player?.lastLootBoxRewards || [];
+  if (rewards.length === 0 && Array.isArray(currentState.log) && currentState.log.length > 0) {
+    const lastLog = currentState.log[0] || '';
+    const m = lastLog.match(/Награда: (.+)\./);
+    if (m && m[1]) {
+      rewards = m[1].split(', ').map((s) => s.trim()).filter(Boolean);
+    }
+  }
+  if (rewards.length === 0) rewards = ['Бокс открыт!'];
 
-  const rewards = currentState.player.lastLootBoxRewards || [];
-  lootBoxUI.result = rewards.length > 0 ? rewards : ['Бокс открыт!'];
   lootBoxUI.phase = 'result';
-  showLootBoxRewards(lootBoxUI.result);
+  showLootBoxRewards(rewards);
+}
+
+function showLootBoxRewards(rewards) {
+  const body = $('#lootbox-screen-body');
+  if (!body) return;
+  const boxCount = currentState.player.boxCount || 0;
+  body.innerHTML = `
+    <div class="lootbox-result">
+      <div class="lootbox-result__image">
+        <img src="${LOOTBOX_ART.open}" alt="Бокс открыт" />
+      </div>
+      <div class="lootbox-result__info">
+        <div class="profile-section__head">
+          <strong>Бокс открыт!</strong>
+          <span>Полученные награды</span>
+        </div>
+        <div class="lootbox-rewards">
+          ${rewards.map((r) => `
+            <div class="lootbox-reward-item">
+              <strong>${r}</strong>
+            </div>
+          `).join('')}
+        </div>
+        <div class="coin-result__actions">
+          <button id="btn-lootbox-again" class="primary" type="button" ${boxCount > 0 ? '' : 'disabled'}>Открыть ещё</button>
+          <button id="btn-lootbox-reset" class="ghost" type="button">Назад</button>
+        </div>
+      </div>
+    </div>
+  `;
+  const again = document.getElementById('btn-lootbox-again');
+  if (again) {
+    again.onclick = () => {
+      resetLootBoxUI();
+      openLootBox();
+    };
+  }
+  const reset = document.getElementById('btn-lootbox-reset');
+  if (reset) {
+    reset.onclick = () => {
+      resetLootBoxUI();
+      render();
+    };
+  }
 }
 
 async function startCoinRound(choice) {
