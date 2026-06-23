@@ -732,14 +732,18 @@ async function api(path, payload, method = 'POST') {
   }
 }
 
+let loadStateTokenAtStart = '';
+
 async function loadState() {
   const token = getAuthToken();
+  loadStateTokenAtStart = token;
   try {
     if (token) {
       const res = await fetch(apiUrl('/auth/me'), {
         method: 'GET',
         headers: authHeaders(),
       });
+      if (loadStateTokenAtStart !== getAuthToken()) return;
       const data = await res.json().catch(() => null);
       if (res.ok && data && data.ok && data.state) {
         currentState = normalizeState(data.state);
@@ -757,6 +761,7 @@ async function loadState() {
       currentUserLogin = '';
     }
 
+    if (loadStateTokenAtStart !== getAuthToken()) return;
     const res = await fetch(apiUrl('/state'), {
       method: 'GET',
       headers: authHeaders(),
@@ -769,6 +774,7 @@ async function loadState() {
   } catch (error) {
     // Keep local fallback.
   }
+  if (loadStateTokenAtStart !== getAuthToken()) return;
   render();
 }
 
