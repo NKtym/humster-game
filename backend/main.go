@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -13,8 +14,10 @@ import (
 	"math"
 	"math/big"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,6 +31,9 @@ const (
 	coinGameUnlockLevel = 6
 	coinGameCostCarrots = 1
 	coinGameXPToLevel   = 10
+	autoBackupInterval  = 6 * time.Hour
+	autoBackupKeepLast  = 7
+	autoBackupDir       = "data/backups"
 )
 
 func main() {
@@ -39,6 +45,7 @@ func main() {
 	mux.HandleFunc("/api/name", srv.handleName)
 	mux.HandleFunc("/api/auth/register", srv.handleRegister)
 	mux.HandleFunc("/api/auth/login", srv.handleLogin)
+	mux.HandleFunc("/api/auth/telegram", srv.handleTelegramAuth)
 	mux.HandleFunc("/api/auth/me", srv.handleMe)
 	mux.HandleFunc("/api/auth/logout", srv.handleLogout)
 	mux.HandleFunc("/api/social/profile", srv.handleSocialProfile)
@@ -47,6 +54,8 @@ func main() {
 	mux.HandleFunc("/api/social/friends/requests/accept", srv.handleSocialFriendRequestAccept)
 	mux.HandleFunc("/api/social/friends/requests/decline", srv.handleSocialFriendRequestDecline)
 	mux.HandleFunc("/api/leaderboards", srv.handleLeaderboards)
+	mux.HandleFunc("/api/admin/backup", srv.handleBackup)
+	mux.HandleFunc("/api/admin/restore", srv.handleRestore)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -54,6 +63,8 @@ func main() {
 
 	port := envOr("PORT", "8080")
 	addr := ":" + port
+
+	go srv.startAutoBackup()
 
 	log.Printf("backend listening on %s", addr)
 	if err := http.ListenAndServe(addr, logging(cors(mux))); err != nil {
@@ -430,6 +441,195 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, AuthResponse{OK: true, Token: token, User: login, State: copyState(state)})
+}
+
+type telegramAuthRequest struct {
+	InitData string `json:"initData"`
+}
+
+type telegramUserInfo struct {
+	ID        int64  `json:"id"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Username  string `json:"username"`
+}
+
+func verifyTelegramInitData(initData, botToken string) (telegramUserInfo, error) {
+	parsed, err := url.ParseQuery(initData)
+	if err != nil {
+		return telegramUserInfo{}, fmt.Errorf("bad initData: %w", err)
+	}
+
+	hash := parsed.Get("hash")
+	if hash == "" {
+		return telegramUserInfo{}, fmt.Errorf("missing hash")
+	}
+
+	dataCheckMap := url.Values{}
+	for k, v := range parsed {
+		if k != "hash" {
+			dataCheckMap[k] = v
+		}
+	}
+
+	keys := make([]string, 0, len(dataCheckMap))
+	for k := range dataCheckMap {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var sb strings.Builder
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteByte('\n')
+		}
+		sb.WriteString(k)
+		sb.WriteByte('=')
+		sb.WriteString(dataCheckMap.Get(k))
+	}
+	dataCheckString := sb.String()
+
+	secret := hmac.New(sha256.New, []byte("WebAppData"))
+	secret.Write([]byte(botToken))
+	mac := hmac.New(sha256.New, secret.Sum(nil))
+	mac.Write([]byte(dataCheckString))
+	expected := hex.EncodeToString(mac.Sum(nil))
+
+	if subtle.ConstantTimeCompare([]byte(hash), []byte(expected)) != 1 {
+		return telegramUserInfo{}, fmt.Errorf("invalid signature")
+	}
+
+	authDateStr := parsed.Get("auth_date")
+	if authDateStr == "" {
+		return telegramUserInfo{}, fmt.Errorf("missing auth_date")
+	}
+	authDate, err := strconv.ParseInt(authDateStr, 10, 64)
+	if err != nil {
+		return telegramUserInfo{}, fmt.Errorf("bad auth_date: %w", err)
+	}
+	if time.Now().Unix()-authDate > 86400 {
+		return telegramUserInfo{}, fmt.Errorf("initData expired")
+	}
+
+	userStr := parsed.Get("user")
+	if userStr == "" {
+		return telegramUserInfo{}, fmt.Errorf("missing user")
+	}
+	var user telegramUserInfo
+	if err := json.Unmarshal([]byte(userStr), &user); err != nil {
+		return telegramUserInfo{}, fmt.Errorf("bad user json: %w", err)
+	}
+	if user.ID == 0 {
+		return telegramUserInfo{}, fmt.Errorf("missing user id")
+	}
+
+	return user, nil
+}
+
+func (s *Server) handleTelegramAuth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	botToken := strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN"))
+	if botToken == "" {
+		writeJSON(w, AuthResponse{OK: false, Error: "Telegram auth not configured"})
+		return
+	}
+
+	var req telegramAuthRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, AuthResponse{OK: false, Error: "bad json"})
+		return
+	}
+	if strings.TrimSpace(req.InitData) == "" {
+		writeJSON(w, AuthResponse{OK: false, Error: "missing initData"})
+		return
+	}
+
+	tgUser, err := verifyTelegramInitData(req.InitData, botToken)
+	if err != nil {
+		writeJSON(w, AuthResponse{OK: false, Error: fmt.Sprintf("verification failed: %v", err)})
+		return
+	}
+
+	telegramID := fmt.Sprintf("tg_%d", tgUser.ID)
+	displayName := tgUser.Username
+	if displayName == "" {
+		displayName = strings.TrimSpace(tgUser.FirstName + " " + tgUser.LastName)
+	}
+	if displayName == "" {
+		displayName = fmt.Sprintf("user_%d", tgUser.ID)
+	}
+
+	ctx := context.Background()
+
+	var userID string
+	if strings.TrimSpace(s.dbURL) == "" {
+		err = s.withLocalStore(func(store *localStore) error {
+			store.ensure()
+			for id, u := range store.Users {
+				if u.Login == telegramID {
+					userID = id
+					return nil
+				}
+			}
+			return errNoRows
+		})
+	} else {
+		out, qErr := s.queryPSQL(ctx, `SELECT id FROM users WHERE login = :'login' LIMIT 1`, map[string]string{"login": telegramID})
+		if qErr == nil {
+			userID = strings.TrimSpace(out)
+		}
+	}
+
+	isNew := false
+	if userID == "" {
+		isNew = true
+		userID = randomID()
+		if strings.TrimSpace(s.dbURL) == "" {
+			salt := randomID()
+			hash := passwordHash(telegramID, salt)
+			if err := s.withLocalStore(func(store *localStore) error {
+				store.ensure()
+				store.Users[userID] = userRecord{ID: userID, Login: telegramID, Salt: salt, Hash: hash}
+				return nil
+			}); err != nil {
+				writeJSON(w, AuthResponse{OK: false, Error: err.Error()})
+				return
+			}
+		} else {
+			salt := randomID()
+			hash := passwordHash(telegramID, salt)
+			if err := s.execPSQL(ctx, `INSERT INTO users (id, login, password_salt, password_hash) VALUES (:'id', :'login', :'salt', :'hash')`, map[string]string{"id": userID, "login": telegramID, "salt": salt, "hash": hash}); err != nil {
+				writeJSON(w, AuthResponse{OK: false, Error: "failed to create user"})
+				return
+			}
+		}
+	}
+
+	state, err := s.loadState(ctx, userID)
+	if err != nil {
+		writeJSON(w, AuthResponse{OK: false, Error: "failed to load state"})
+		return
+	}
+	if isNew || state.Player.Name == "" {
+		state.Player.Name = displayName
+	}
+	advanceSkinShop(&state)
+	if err := s.saveState(ctx, userID, state); err != nil {
+		writeJSON(w, AuthResponse{OK: false, Error: "failed to save state"})
+		return
+	}
+
+	token, err := s.createSession(ctx, userID)
+	if err != nil {
+		writeJSON(w, AuthResponse{OK: false, Error: "failed to create session"})
+		return
+	}
+
+	writeJSON(w, AuthResponse{OK: true, Token: token, User: displayName, State: copyState(state)})
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
@@ -4746,6 +4946,343 @@ func sessionIDFromRequest(w http.ResponseWriter, r *http.Request) string {
 		w.Header().Set("X-Game-Session", sid)
 	}
 	return sid
+}
+
+func (s *Server) startAutoBackup() {
+	if strings.TrimSpace(s.dbURL) == "" {
+		log.Println("auto-backup: DATABASE_URL not set, skipping")
+		return
+	}
+	log.Printf("auto-backup: running every %s, keeping last %d backups in %s", autoBackupInterval, autoBackupKeepLast, autoBackupDir)
+	for {
+		time.Sleep(autoBackupInterval)
+		if err := s.doAutoBackup(); err != nil {
+			log.Printf("auto-backup error: %v", err)
+		}
+	}
+}
+
+func (s *Server) doAutoBackup() error {
+	ctx := context.Background()
+	data := backupData{Version: 1, ExportedAt: time.Now().UTC().Format(time.RFC3339)}
+
+	usersJSON, err := s.queryPSQL(ctx, `SELECT COALESCE(json_agg(json_build_object('id', id, 'login', login, 'password_salt', password_salt, 'password_hash', password_hash, 'created_at', created_at::text)), '[]') FROM users`, nil)
+	if err != nil {
+		return fmt.Errorf("users: %w", err)
+	}
+	_ = json.Unmarshal([]byte(usersJSON), &data.Users)
+
+	statesJSON, err := s.queryPSQL(ctx, `SELECT COALESCE(json_agg(json_build_object('user_id', user_id, 'state_json', state_json::text, 'updated_at', updated_at::text)), '[]') FROM game_states`, nil)
+	if err != nil {
+		return fmt.Errorf("game_states: %w", err)
+	}
+	_ = json.Unmarshal([]byte(statesJSON), &data.GameStates)
+
+	friendsJSON, err := s.queryPSQL(ctx, `SELECT COALESCE(json_agg(json_build_object('user_id', user_id, 'friend_id', friend_id, 'created_at', created_at::text)), '[]') FROM user_friendships`, nil)
+	if err != nil {
+		return fmt.Errorf("friendships: %w", err)
+	}
+	_ = json.Unmarshal([]byte(friendsJSON), &data.Friendships)
+
+	reqsJSON, err := s.queryPSQL(ctx, `SELECT COALESCE(json_agg(json_build_object('requester_id', requester_id, 'target_id', target_id, 'created_at', created_at::text)), '[]') FROM user_friend_requests`, nil)
+	if err != nil {
+		return fmt.Errorf("friend_requests: %w", err)
+	}
+	_ = json.Unmarshal([]byte(reqsJSON), &data.FriendRequests)
+
+	damageJSON, err := s.queryPSQL(ctx, `SELECT COALESCE(json_agg(json_build_object('period_type', period_type, 'period_key', period_key, 'user_id', user_id, 'damage', damage_total, 'updated_at', updated_at::text)), '[]') FROM leaderboard_damage_stats`, nil)
+	if err != nil {
+		return fmt.Errorf("damage_stats: %w", err)
+	}
+	_ = json.Unmarshal([]byte(damageJSON), &data.DamageStats)
+
+	rewardsJSON, err := s.queryPSQL(ctx, `SELECT COALESCE(json_agg(json_build_object('period_type', period_type, 'period_key', period_key, 'winner_user_id', winner_user_id, 'winner_login', winner_login, 'created_at', created_at::text)), '[]') FROM leaderboard_reward_grants`, nil)
+	if err != nil {
+		return fmt.Errorf("reward_grants: %w", err)
+	}
+	_ = json.Unmarshal([]byte(rewardsJSON), &data.RewardGrants)
+
+	if err := os.MkdirAll(autoBackupDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
+
+	filename := filepath.Join(autoBackupDir, fmt.Sprintf("backup_%s.json", time.Now().UTC().Format("20060102_150405")))
+	raw, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+	if err := os.WriteFile(filename, raw, 0o644); err != nil {
+		return fmt.Errorf("write: %w", err)
+	}
+	log.Printf("auto-backup: saved %s (%d users, %d states)", filename, len(data.Users), len(data.GameStates))
+
+	entries, err := os.ReadDir(autoBackupDir)
+	if err == nil {
+		var backups []os.DirEntry
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasPrefix(e.Name(), "backup_") && strings.HasSuffix(e.Name(), ".json") {
+				backups = append(backups, e)
+			}
+		}
+		if len(backups) > autoBackupKeepLast {
+			sort.Slice(backups, func(i, j int) bool {
+				return backups[i].Name() < backups[j].Name()
+			})
+			for _, old := range backups[:len(backups)-autoBackupKeepLast] {
+				_ = os.Remove(filepath.Join(autoBackupDir, old.Name()))
+			}
+		}
+	}
+
+	return nil
+}
+
+func adminTokenOK(r *http.Request) bool {
+	required := strings.TrimSpace(os.Getenv("ADMIN_TOKEN"))
+	if required == "" {
+		return false
+	}
+	token := strings.TrimSpace(r.Header.Get("Authorization"))
+	token = strings.TrimPrefix(token, "Bearer ")
+	return subtle.ConstantTimeCompare([]byte(token), []byte(required)) == 1
+}
+
+type backupData struct {
+	Version           int                              `json:"version"`
+	ExportedAt        string                           `json:"exported_at"`
+	Users             []backupUser                     `json:"users"`
+	GameStates        []backupGameState                `json:"game_states"`
+	Friendships       []backupFriendship               `json:"friendships"`
+	FriendRequests    []backupFriendRequest            `json:"friend_requests"`
+	DamageStats       []backupDamageStat               `json:"damage_stats"`
+	RewardGrants      []backupRewardGrant              `json:"reward_grants"`
+}
+
+type backupUser struct {
+	ID           string `json:"id"`
+	Login        string `json:"login"`
+	PasswordSalt string `json:"password_salt"`
+	PasswordHash string `json:"password_hash"`
+	CreatedAt    string `json:"created_at"`
+}
+
+type backupGameState struct {
+	UserID    string `json:"user_id"`
+	StateJSON string `json:"state_json"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type backupFriendship struct {
+	UserID    string `json:"user_id"`
+	FriendID  string `json:"friend_id"`
+	CreatedAt string `json:"created_at"`
+}
+
+type backupFriendRequest struct {
+	RequesterID string `json:"requester_id"`
+	TargetID    string `json:"target_id"`
+	CreatedAt   string `json:"created_at"`
+}
+
+type backupDamageStat struct {
+	PeriodType string `json:"period_type"`
+	PeriodKey  string `json:"period_key"`
+	UserID     string `json:"user_id"`
+	Damage     int64  `json:"damage"`
+	UpdatedAt  string `json:"updated_at"`
+}
+
+type backupRewardGrant struct {
+	PeriodType   string `json:"period_type"`
+	PeriodKey    string `json:"period_key"`
+	WinnerUserID string `json:"winner_user_id"`
+	WinnerLogin  string `json:"winner_login"`
+	CreatedAt    string `json:"created_at"`
+}
+
+func (s *Server) handleBackup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !adminTokenOK(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if strings.TrimSpace(s.dbURL) == "" {
+		http.Error(w, "database not connected", http.StatusServiceUnavailable)
+		return
+	}
+	ctx := r.Context()
+
+	data := backupData{Version: 1, ExportedAt: time.Now().UTC().Format(time.RFC3339)}
+
+	usersJSON, err := s.queryPSQL(ctx, `SELECT COALESCE(json_agg(json_build_object('id', id, 'login', login, 'password_salt', password_salt, 'password_hash', password_hash, 'created_at', created_at::text)), '[]') FROM users`, nil)
+	if err != nil {
+		http.Error(w, "backup users: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = json.Unmarshal([]byte(usersJSON), &data.Users)
+
+	statesJSON, err := s.queryPSQL(ctx, `SELECT COALESCE(json_agg(json_build_object('user_id', user_id, 'state_json', state_json::text, 'updated_at', updated_at::text)), '[]') FROM game_states`, nil)
+	if err != nil {
+		http.Error(w, "backup game_states: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = json.Unmarshal([]byte(statesJSON), &data.GameStates)
+
+	friendsJSON, err := s.queryPSQL(ctx, `SELECT COALESCE(json_agg(json_build_object('user_id', user_id, 'friend_id', friend_id, 'created_at', created_at::text)), '[]') FROM user_friendships`, nil)
+	if err != nil {
+		http.Error(w, "backup friendships: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = json.Unmarshal([]byte(friendsJSON), &data.Friendships)
+
+	reqsJSON, err := s.queryPSQL(ctx, `SELECT COALESCE(json_agg(json_build_object('requester_id', requester_id, 'target_id', target_id, 'created_at', created_at::text)), '[]') FROM user_friend_requests`, nil)
+	if err != nil {
+		http.Error(w, "backup friend_requests: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = json.Unmarshal([]byte(reqsJSON), &data.FriendRequests)
+
+	damageJSON, err := s.queryPSQL(ctx, `SELECT COALESCE(json_agg(json_build_object('period_type', period_type, 'period_key', period_key, 'user_id', user_id, 'damage', damage_total, 'updated_at', updated_at::text)), '[]') FROM leaderboard_damage_stats`, nil)
+	if err != nil {
+		http.Error(w, "backup damage_stats: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = json.Unmarshal([]byte(damageJSON), &data.DamageStats)
+
+	rewardsJSON, err := s.queryPSQL(ctx, `SELECT COALESCE(json_agg(json_build_object('period_type', period_type, 'period_key', period_key, 'winner_user_id', winner_user_id, 'winner_login', winner_login, 'created_at', created_at::text)), '[]') FROM leaderboard_reward_grants`, nil)
+	if err != nil {
+		http.Error(w, "backup reward_grants: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = json.Unmarshal([]byte(rewardsJSON), &data.RewardGrants)
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"backup_%s.json\"", time.Now().UTC().Format("20060102_150405")))
+	_ = json.NewEncoder(w).Encode(data)
+}
+
+func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !adminTokenOK(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if strings.TrimSpace(s.dbURL) == "" {
+		http.Error(w, "database not connected", http.StatusServiceUnavailable)
+		return
+	}
+
+	var data backupData
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if data.Version != 1 {
+		http.Error(w, fmt.Sprintf("unsupported backup version: %d", data.Version), http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	dropStmts := []string{
+		`DROP TABLE IF EXISTS leaderboard_reward_grants CASCADE`,
+		`DROP TABLE IF EXISTS leaderboard_damage_stats CASCADE`,
+		`DROP TABLE IF EXISTS user_friend_requests CASCADE`,
+		`DROP TABLE IF EXISTS user_friendships CASCADE`,
+		`DROP TABLE IF EXISTS auth_sessions CASCADE`,
+		`DROP TABLE IF EXISTS game_states CASCADE`,
+		`DROP TABLE IF EXISTS users CASCADE`,
+	}
+	for _, stmt := range dropStmts {
+		if err := s.execPSQL(ctx, stmt, nil); err != nil {
+			http.Error(w, "drop: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := s.ensureSchema(); err != nil {
+		http.Error(w, "schema: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	for _, u := range data.Users {
+		esc := func(s string) string { return strings.ReplaceAll(s, "'", "''") }
+		q := fmt.Sprintf(`INSERT INTO users (id, login, password_salt, password_hash, created_at) VALUES ('%s','%s','%s','%s','%s'::timestamptz) ON CONFLICT (id) DO NOTHING`,
+			esc(u.ID), esc(u.Login), esc(u.PasswordSalt), esc(u.PasswordHash), esc(u.CreatedAt))
+		if err := s.execPSQL(ctx, q, nil); err != nil {
+			http.Error(w, "restore users: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	for _, gs := range data.GameStates {
+		esc := func(s string) string { return strings.ReplaceAll(s, "'", "''") }
+		q := fmt.Sprintf(`INSERT INTO game_states (user_id, state_json, updated_at) VALUES ('%s','%s'::jsonb,'%s'::timestamptz) ON CONFLICT (user_id) DO UPDATE SET state_json = EXCLUDED.state_json, updated_at = EXCLUDED.updated_at`,
+			esc(gs.UserID), esc(gs.StateJSON), esc(gs.UpdatedAt))
+		if err := s.execPSQL(ctx, q, nil); err != nil {
+			http.Error(w, "restore game_states: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	for _, f := range data.Friendships {
+		esc := func(s string) string { return strings.ReplaceAll(s, "'", "''") }
+		q := fmt.Sprintf(`INSERT INTO user_friendships (user_id, friend_id, created_at) VALUES ('%s','%s','%s'::timestamptz) ON CONFLICT DO NOTHING`,
+			esc(f.UserID), esc(f.FriendID), esc(f.CreatedAt))
+		if err := s.execPSQL(ctx, q, nil); err != nil {
+			http.Error(w, "restore friendships: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	for _, fr := range data.FriendRequests {
+		esc := func(s string) string { return strings.ReplaceAll(s, "'", "''") }
+		q := fmt.Sprintf(`INSERT INTO user_friend_requests (requester_id, target_id, created_at) VALUES ('%s','%s','%s'::timestamptz) ON CONFLICT DO NOTHING`,
+			esc(fr.RequesterID), esc(fr.TargetID), esc(fr.CreatedAt))
+		if err := s.execPSQL(ctx, q, nil); err != nil {
+			http.Error(w, "restore friend_requests: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	for _, ds := range data.DamageStats {
+		esc := func(s string) string { return strings.ReplaceAll(s, "'", "''") }
+		q := fmt.Sprintf(`INSERT INTO leaderboard_damage_stats (period_type, period_key, user_id, damage_total, updated_at) VALUES ('%s','%s','%s',%d,'%s'::timestamptz) ON CONFLICT (period_type, period_key, user_id) DO UPDATE SET damage_total = EXCLUDED.damage_total, updated_at = EXCLUDED.updated_at`,
+			esc(ds.PeriodType), esc(ds.PeriodKey), esc(ds.UserID), ds.Damage, esc(ds.UpdatedAt))
+		if err := s.execPSQL(ctx, q, nil); err != nil {
+			http.Error(w, "restore damage_stats: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	for _, rg := range data.RewardGrants {
+		esc := func(s string) string { return strings.ReplaceAll(s, "'", "''") }
+		q := fmt.Sprintf(`INSERT INTO leaderboard_reward_grants (period_type, period_key, winner_user_id, winner_login, created_at) VALUES ('%s','%s','%s','%s','%s'::timestamptz) ON CONFLICT DO NOTHING`,
+			esc(rg.PeriodType), esc(rg.PeriodKey), esc(rg.WinnerUserID), esc(rg.WinnerLogin), esc(rg.CreatedAt))
+		if err := s.execPSQL(ctx, q, nil); err != nil {
+			http.Error(w, "restore reward_grants: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	writeJSON(w, map[string]any{
+		"ok":      true,
+		"message": "restore complete",
+		"counts": map[string]int{
+			"users":          len(data.Users),
+			"game_states":    len(data.GameStates),
+			"friendships":    len(data.Friendships),
+			"friend_requests": len(data.FriendRequests),
+			"damage_stats":   len(data.DamageStats),
+			"reward_grants":  len(data.RewardGrants),
+		},
+	})
 }
 
 func cors(next http.Handler) http.Handler {

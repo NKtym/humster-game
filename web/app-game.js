@@ -2627,16 +2627,22 @@ async function startCoinRound(choice) {
   render();
 }
 
-async function submitAuth(mode) {
+async function submitTelegramAuth() {
   const authError = $('#auth-error');
   if (authError) authError.textContent = '';
-  const login = $('#auth-login').value.trim();
-  const password = $('#auth-password').value;
-  const response = await api(`/auth/${mode}`, { login, password });
+
+  const tg = window.Telegram && window.Telegram.WebApp;
+  const initData = tg && tg.initData;
+  if (!initData) {
+    if (authError) authError.textContent = 'Откройте приложение через Telegram';
+    return;
+  }
+
+  const response = await api('/auth/telegram', { initData });
   if (response.ok && response.data && response.data.token && response.data.state) {
     setAuthToken(response.data.token);
     currentState = normalizeState(response.data.state);
-    currentUserLogin = response.data.user || login;
+    currentUserLogin = response.data.user || '';
     isAuthenticated = true;
     restoreViewFromState(currentState);
     if (!currentState.activeBossId) setView('main');
@@ -2650,11 +2656,9 @@ async function submitAuth(mode) {
 }
 
 function initAuthButtons() {
-  const loginBtn = $('#btn-auth-login');
-  const registerBtn = $('#btn-auth-register');
+  const telegramBtn = $('#btn-auth-telegram');
   const logoutBtn = $('#btn-logout');
-  if (loginBtn) loginBtn.onclick = () => submitAuth('login');
-  if (registerBtn) registerBtn.onclick = () => submitAuth('register');
+  if (telegramBtn) telegramBtn.onclick = () => submitTelegramAuth();
   if (logoutBtn) {
     logoutBtn.onclick = async () => {
       await api('/auth/logout', {}, 'POST');
