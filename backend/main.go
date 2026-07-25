@@ -1078,8 +1078,13 @@ func (s *Server) userByLogin(ctx context.Context, login string) (*userRecord, er
 		var found *userRecord
 		err := s.withLocalStore(func(store *localStore) error {
 			store.ensure()
-			for _, u := range store.Users {
+			for uid, u := range store.Users {
 				if u.Login == login {
+					copy := u
+					found = &copy
+					return nil
+				}
+				if st, ok := store.States[uid]; ok && strings.EqualFold(st.Player.Name, login) {
 					copy := u
 					found = &copy
 					return nil
@@ -1096,9 +1101,10 @@ func (s *Server) userByLogin(ctx context.Context, login string) (*userRecord, er
 		return found, nil
 	}
 	out, err := s.queryPSQL(ctx, `
-		SELECT id, login, password_salt, password_hash
-		FROM users
-		WHERE login = :'login'
+		SELECT u.id, u.login, u.password_salt, u.password_hash
+		FROM users u
+		LEFT JOIN game_states gs ON gs.user_id = u.id
+		WHERE u.login = :'login' OR LOWER(gs.state_json->'player'->>'name') = LOWER(:'login')
 		LIMIT 1
 	`, map[string]string{"login": login})
 	if err != nil {
@@ -1122,12 +1128,16 @@ func (s *Server) userByLogin(ctx context.Context, login string) (*userRecord, er
 
 func (s *Server) loginByUserID(ctx context.Context, userID string) (string, error) {
 	if strings.TrimSpace(s.dbURL) == "" {
-		var login string
+		var result string
 		err := s.withLocalStore(func(store *localStore) error {
 			store.ensure()
+			if st, ok := store.States[userID]; ok && strings.TrimSpace(st.Player.Name) != "" {
+				result = st.Player.Name
+				return nil
+			}
 			for _, u := range store.Users {
 				if u.ID == userID {
-					login = u.Login
+					result = u.Login
 					return nil
 				}
 			}
@@ -1136,15 +1146,16 @@ func (s *Server) loginByUserID(ctx context.Context, userID string) (string, erro
 		if err != nil {
 			return "", err
 		}
-		if strings.TrimSpace(login) == "" {
+		if strings.TrimSpace(result) == "" {
 			return "", errNoRows
 		}
-		return login, nil
+		return result, nil
 	}
 	out, err := s.queryPSQL(ctx, `
-		SELECT login
-		FROM users
-		WHERE id = :'user_id'
+		SELECT COALESCE(NULLIF(gs.state_json->'player'->>'name', ''), u.login)
+		FROM users u
+		LEFT JOIN game_states gs ON gs.user_id = u.id
+		WHERE u.id = :'user_id'
 		LIMIT 1
 	`, map[string]string{"user_id": userID})
 	if err != nil {
@@ -1443,9 +1454,13 @@ func (s *Server) socialProfileByLogin(ctx context.Context, login string, request
 	if err != nil {
 		return nil, err
 	}
+	profileLogin := user.Login
+	if strings.TrimSpace(state.Player.Name) != "" {
+		profileLogin = state.Player.Name
+	}
 	profile := &socialProfile{
 		UserID:     user.ID,
-		Login:      user.Login,
+		Login:      profileLogin,
 		State:      copyState(state),
 		Online:     normalizeOnlineStatus(state.UpdatedAt),
 		LastSeenAt: state.UpdatedAt,

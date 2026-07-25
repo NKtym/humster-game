@@ -1346,7 +1346,7 @@ function ensureFriendsModal() {
           <button type="button" class="ghost" data-friends-close>Закрыть</button>
         </div>
         <div class="social-modal__toolbar">
-          <input id="friends-login-input" maxlength="32" placeholder="Логин друга" />
+          <input id="friends-login-input" maxlength="32" placeholder="Никнейм друга" />
           <button id="btn-friends-add" type="button" class="primary" onclick="void window.humsterAddFriendFromInput()">Добавить</button>
         </div>
         <div class="social-modal__tabs">
