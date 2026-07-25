@@ -4633,10 +4633,15 @@ func (s *Server) leaderboardEntries(ctx context.Context, period, periodKey strin
 			entries = make([]leaderboardEntry, 0, len(raw))
 			for userID, damage := range raw {
 				login := ""
-				for _, u := range store.Users {
-					if u.ID == userID {
-						login = u.Login
-						break
+				if st, ok := store.States[userID]; ok && strings.TrimSpace(st.Player.Name) != "" {
+					login = st.Player.Name
+				}
+				if login == "" {
+					for _, u := range store.Users {
+						if u.ID == userID {
+							login = u.Login
+							break
+						}
 					}
 				}
 				if strings.TrimSpace(login) == "" {
@@ -4663,11 +4668,12 @@ func (s *Server) leaderboardEntries(ctx context.Context, period, periodKey strin
 		return entries, nil
 	}
 	out, err := s.queryPSQL(ctx, `
-		SELECT u.id, u.login, s.damage_total
+		SELECT u.id, COALESCE(NULLIF(gs.state_json->'player'->>'name', ''), u.login), s.damage_total
 		FROM leaderboard_damage_stats s
 		JOIN users u ON u.id = s.user_id
+		LEFT JOIN game_states gs ON gs.user_id = u.id
 		WHERE s.period_type = :'period_type' AND s.period_key = :'period_key'
-		ORDER BY s.damage_total DESC, lower(u.login) ASC
+		ORDER BY s.damage_total DESC, lower(COALESCE(NULLIF(gs.state_json->'player'->>'name', ''), u.login)) ASC
 		LIMIT (:'limit')::int
 	`, map[string]string{
 		"period_type": period,
@@ -4680,7 +4686,7 @@ func (s *Server) leaderboardEntries(ctx context.Context, period, periodKey strin
 	out = strings.TrimSpace(out)
 	if out == "" {
 		out, err = s.queryPSQL(ctx, `
-			SELECT u.id, u.login,
+			SELECT u.id, COALESCE(NULLIF(gs.state_json->'player'->>'name', ''), u.login),
 				CASE :'period_type'
 					WHEN 'day' THEN COALESCE((gs.state_json->>'bossDamageDay')::bigint, 0)
 					WHEN 'week' THEN COALESCE((gs.state_json->>'bossDamageWeek')::bigint, 0)
@@ -4689,7 +4695,7 @@ func (s *Server) leaderboardEntries(ctx context.Context, period, periodKey strin
 				END AS damage_total
 			FROM game_states gs
 			JOIN users u ON u.id = gs.user_id
-			ORDER BY damage_total DESC, lower(u.login) ASC
+			ORDER BY damage_total DESC, lower(COALESCE(NULLIF(gs.state_json->'player'->>'name', ''), u.login)) ASC
 			LIMIT (:'limit')::int
 		`, map[string]string{
 			"period_type": period,
